@@ -1,6 +1,3 @@
-公告,#genre#
-2024-12-24,https://gitlab.com/lr77/IPTV/-/raw/main/%E8%B5%B7%E9%A3%8E%E4%BA%86.mp4
-
 央视频道,#genre#
 CCTV1,http://[2409:8087:5e08:24::11]:6610/000000001000/1000000005000265001/1.m3u8?channel-id=ystenlive&Contentid=1000000005000265001&livemode=1&stbId=3
 CCTV1,http://[2409:8087:5e08:24::11]:6610/000000001000/5000000004000002226/1.m3u8?channel-id=bestzb&Contentid=5000000004000002226&livemode=1&stbId=3
@@ -992,10 +989,6 @@ CCTV17,http://111.196.135.75:8686/udp/239.3.1.151:8144
 CCTV17,http://60.2.190.206:4000/udp/239.253.93.150:6318
 CCTV17,http://221.219.79.161:4000/rtp/239.3.1.151:8144
 CCTV17,http://221.2.148.205:8154/tsfile/live/0019_1.m3u8?key=txiptv&playlive=1&authid=0
-
-广东频道,#genre#
-广东体育,http://119.32.12.32:2901/udp/224.1.100.34:11111
-广东体育,http://218.15.214.115:10000/udp/239.77.0.112:5146
 
 卫视频道,#genre#
 湖南卫视,http://[2409:8087:5e08:24::11]:6610/000000001000/1000000005000265024/1.m3u8?channel-id=ystenlive&Contentid=1000000005000265024&livemode=1&stbId=3
