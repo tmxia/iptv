@@ -368,6 +368,10 @@ http://120.77.28.4:8648/douyu.php?id=434971
 http://50.7.234.10:8278/phoenixtv_hd/playlist.m3u8?tid=MFBF2713938527139385&ct=19225&tsum=1c8ca0899277714ab83db57245220068
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/凤凰资讯.png" group-title="港台频道",凤凰资讯
 http://kkk.jjjj.jiduo.me/api.php?n=tttt&id=7059&tk=7877e7cc41c7
+#EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/凤凰资讯.png" group-title="港台频道",凤凰资讯
+http://cdn5.1678520.xyz:80/live/live2.1.php?id=fhzx
+#EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/凤凰资讯.png" group-title="港台频道",凤凰资讯
+http://ali.hlspull.yximgs.com/live/diyp_fh1.flv
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/凤凰香港.png" group-title="港台频道",凤凰香港
 http://ali.hlspull.yximgs.com/live/diyp_fh3.flv
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/TVBSNEWS.png" group-title="港台频道",TVBS NEWS
