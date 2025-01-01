@@ -211,16 +211,6 @@ http://[2409:8087:1a01:df::7005]:80/ottrrs.hl.chinamobile.com/PLTV/88888888/224/
 http://[2409:8087:1a01:df::7005]:80/ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225743/index.m3u8
 #EXTINF:-1 group-title="影视频道",漫威影院
 http://120.77.28.4:8648/douyu.php?id=6140589
-#EXTINF:-1 group-title="影视频道",漫威影院
-http://epg.112114.eu.org/douyu/6140589
-#EXTINF:-1 group-title="影视频道",漫威主线
-http://epg.112114.eu.org/douyu/11673725
-#EXTINF:-1 group-title="影视频道",霍格沃茨
-http://epg.112114.eu.org/douyu/8814650
-#EXTINF:-1 group-title="影视频道",豆瓣高分
-http://epg.112114.eu.org/douyu/8770422
-#EXTINF:-1 group-title="影视频道",欧美大片
-http://epg.112114.eu.org/douyu/2793084
 #EXTINF:-1 group-title="影视频道",邵氏影院
 http://120.77.28.4:8648/douyu.php?id=4246519
 #EXTINF:-1 group-title="影视频道",凌儿影院
