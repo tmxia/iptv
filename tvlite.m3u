@@ -1182,16 +1182,12 @@ http://ali.hlspull.yximgs.com/live/74479feaf11475ffda3b4e4bea3823ad.flv
 http://ali.hlspull.yximgs.com/live/f9ceddf2f6a10e46941498e22ac32d0c.flv
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/TVB华语剧台.png" group-title="🌊港台频道",TVB华语剧台
 http://ali.hlspull.yximgs.com/live/216a2d2deadf454ec6253cb550157f15.flv
-#EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/TVBJ2.png" group-title="🌊港台频道",TVBJ2
-http://ali.hlspull.yximgs.com/live/20200da7059a0e48422514d60f64211a.flv
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/星空卫视.png" group-title="🌊港台频道",星空卫视
 http://ali.hlspull.yximgs.com/live/facf94ac3441dc4e5f8e48d1eeb18045.flv
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/星光影视.png" group-title="🌊港台频道",星光影视
 http://ali.hlspull.yximgs.com/live/zxcvbnm9852.flv
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/环球电视.png" group-title="🌊港台频道",环球电视
 http://zb.xzxwhcb.com:9999/hls/world.m3u8
-#EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/民视.png" group-title="🌊港台频道",民视
-rtmp://f13h.mine.nu/sat/tv051
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/东森电影.png" group-title="🌊港台频道",东森电影
 http://ali.hlspull.yximgs.com/live/4df7ad1ab9d3a3cf9053d3134f190ff6.flv
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/东森洋片.png" group-title="🌊港台频道",东森洋片
@@ -1202,12 +1198,6 @@ http://ali.hlspull.yximgs.com/live/25874afe944f1b6315549db1cbc0f5e6.flv
 http://ottproxy2.ist.ooo/livehls/MOB-U1-NO/03.m3u8
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/纬来日本.png" group-title="🌊港台频道",纬来日本
 http://ali.hlspull.yximgs.com/live/bfb4914cbc7424fcc00b9d2fb14f1fa8.flv
-#EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/纬来体育.png" group-title="🌊港台频道",纬来体育
-rtmp://f13h.mine.nu/sat/tv721
-#EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/纬来育乐.png" group-title="🌊港台频道",纬来育乐
-rtmp://f13h.mine.nu/sat/tv701
-#EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/纬来精采.png" group-title="🌊港台频道",纬来精采
-http://61.221.215.25:8800/hls/48/index.m3u8
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/纬来戏剧.png" group-title="🌊港台频道",纬来戏剧
 http://ali.hlspull.yximgs.com/live/f8863f9299f02ba05b5e21063d04115c.flv
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/大爱1台.png" group-title="🌊港台频道",大爱1台
