@@ -1403,3 +1403,147 @@ CCTV-5+,http://[2409:8087:5e00:24::1e]:6060/000000001000/1000000001000018504/
 快乐垂钓,http://[2409:8087:5e08:24::d]:6610/000000001000/5000000011000031206/index.m3u8?channel-id=bestzb&Contentid=5000000011000031206&livemode=1&stbId=YanG-1989
 快乐垂钓,http://[2409:8087:5e00:24::1e]:6060/000000001000/5000000011000031206/1.m3u8
 快乐垂钓,http://58.19.38.162:9901/tsfile/live/1033_1.m3u8?key=txiptv&playlive=1&authid=0
+🎬电影频道,#genre#
+豆瓣高分,http://120.77.28.4:8648/douyu.php?id=8770422
+高分影院,http://120.77.28.4:8648/douyu.php?id=7254536
+可乐影视,http://120.77.28.4:8648/douyu.php?id=20415
+花卷影视,http://120.77.28.4:8648/douyu.php?id=52787
+神乐影剧,http://120.77.28.4:8648/douyu.php?id=122402
+小宇影视,http://120.77.28.4:8648/douyu.php?id=323876
+萌小鬼片,http://120.77.28.4:8648/douyu.php?id=3928
+恐怖影院,http://120.77.28.4:8648/douyu.php?id=218859
+漫威影院,http://120.77.28.4:8648/douyu.php?id=6140589
+邵氏影院,http://120.77.28.4:8648/douyu.php?id=4246519
+童年影院,http://120.77.28.4:8648/douyu.php?id=2935323
+奶虫影院,http://120.77.28.4:8648/douyu.php?id=263824
+粤语影院,http://120.77.28.4:8648/douyu.php?id=6566671
+蚂蚱影院,http://120.77.28.4:8648/douyu.php?id=6079455
+圆子影院,http://120.77.28.4:8648/douyu.php?id=6566658
+刀刀影院,http://120.77.28.4:8648/douyu.php?id=747764
+怡寶影视,http://120.77.28.4:8648/douyu.php?id=434971
+贝贝影视,http://120.77.28.4:8648/douyu.php?id=431460
+芊珏影视,http://120.77.28.4:8648/douyu.php?id=8814650
+惊悚影视,http://120.77.28.4:8648/douyu.php?id=96577
+冰冰影视,http://120.77.28.4:8648/douyu.php?id=74374
+贝爷壹厅,http://120.77.28.4:8648/douyu.php?id=252802
+贝爷贰厅,http://120.77.28.4:8648/douyu.php?id=4332
+贝爷叁厅,http://120.77.28.4:8648/douyu.php?id=36337
+欧美影院,http://120.77.28.4:8648/douyu.php?id=508118
+小黛兮影,http://120.77.28.4:8648/douyu.php?id=11553944
+恐怖鬼怪,http://120.77.28.4:8648/douyu.php?id=1165374
+国产影片,http://120.77.28.4:8648/douyu.php?id=5423
+橙記港剧,http://120.77.28.4:8648/douyu.php?id=4549169
+热门港剧,http://120.77.28.4:8648/douyu.php?id=5522351
+港剧天地,http://120.77.28.4:8648/douyu.php?id=4290711
+侦缉档案,http://120.77.28.4:8648/douyu.php?id=12048453
+神探狄仁杰,http://120.77.28.4:8648/douyu.php?id=11391949
+大宋提刑官,http://120.77.28.4:8648/douyu.php?id=11678039
+三国剧场,http://120.77.28.4:8648/douyu.php?id=7459925
+新版三国,http://120.77.28.4:8648/douyu.php?id=5908256
+西游记续,http://120.77.28.4:8648/douyu.php?id=3113309
+华强影视,http://120.77.28.4:8648/douyu.php?id=9650792
+刘华强集,http://120.77.28.4:8648/douyu.php?id=2726977
+本山专场,http://120.77.28.4:8648/douyu.php?id=9817716
+
+🌊港台频道,#genre#
+凤凰中文,http://ali.hlspull.yximgs.com/live/diyp_fh2.flv
+凤凰中文,http://www.lebaobei.top:6868/rtp/239.255.30.50:8231
+凤凰中文,http://50.7.234.10:8278/phoenixtv_hd/playlist.m3u8?tid=MFBF2713938527139385&ct=19225&tsum=1c8ca0899277714ab83db57245220068
+凤凰资讯,http://ali.hlspull.yximgs.com/live/diyp_fh1.flv
+凤凰资讯,http://cdn5.1678520.xyz:80/live/live2.1.php?id=fhzx
+凤凰资讯,http://kkk.jjjj.jiduo.me/api.php?n=tttt&id=7059&tk=7877e7cc41c7
+凤凰香港,http://ali.hlspull.yximgs.com/live/diyp_fh3.flv
+凤凰香港,http://kkk.jjjj.jiduo.me/api.php?n=tttt&id=3523&tk=7877e7cc41c7
+TVB无线新闻,http://ali.hlspull.yximgs.com/live/d2331250dd26e1f49447324dcd5b7c68.flv
+TVB无线星河,http://php.jdshipin.com:8880/smt.php?id=Xinhe
+TVB娱乐新闻,http://ali.hlspull.yximgs.com/live/6425965d63a08c85ca806bfcc8c75cf4.flv
+TVB翡翠台,http://php.jdshipin.com/TVOD/iptv.php?id=huali2
+TVB明珠台,http://ali.hlspull.yximgs.com/live/74479feaf11475ffda3b4e4bea3823ad.flv
+TVB亚洲剧台,http://ali.hlspull.yximgs.com/live/f9ceddf2f6a10e46941498e22ac32d0c.flv
+TVB华语剧台,http://ali.hlspull.yximgs.com/live/216a2d2deadf454ec6253cb550157f15.flv
+TVBJ2,http://ali.hlspull.yximgs.com/live/20200da7059a0e48422514d60f64211a.flv
+星空卫视,http://ali.hlspull.yximgs.com/live/facf94ac3441dc4e5f8e48d1eeb18045.flv
+星光影视,http://ali.hlspull.yximgs.com/live/zxcvbnm9852.flv
+环球电视,http://zb.xzxwhcb.com:9999/hls/world.m3u8
+民视,rtmp://f13h.mine.nu/sat/tv051
+东森电影,http://ali.hlspull.yximgs.com/live/4df7ad1ab9d3a3cf9053d3134f190ff6.flv
+东森洋片,http://ali.hlspull.yximgs.com/live/2d010027189a2bb351babe3520b47514.flv
+东森戏剧,http://ali.hlspull.yximgs.com/live/25874afe944f1b6315549db1cbc0f5e6.flv
+美亚C+,http://ottproxy2.ist.ooo/livehls/MOB-U1-NO/03.m3u8
+纬来日本,http://ali.hlspull.yximgs.com/live/bfb4914cbc7424fcc00b9d2fb14f1fa8.flv
+纬来体育,rtmp://f13h.mine.nu/sat/tv721
+纬来育乐,rtmp://f13h.mine.nu/sat/tv701
+纬来精采,http://61.221.215.25:8800/hls/48/index.m3u8
+纬来戏剧,http://ali.hlspull.yximgs.com/live/f8863f9299f02ba05b5e21063d04115c.flv
+大爱1台,https://pulltv1.wanfudaluye.com/live/tv1.m3u8
+大爱2台,https://pulltv2.wanfudaluye.com/live/tv2.m3u8
+番薯台,http://61.216.67.119:1935/TWHG/E1/chunklist_w705811302.m3u8
+八大戏剧台,http://61.221.215.25:8800/hls/39/index.m3u8
+AMC电影台,http://61.221.215.25:8800/hls/43/index.m3u8
+美亚电影台,http://ali.hlspull.yximgs.com/live/a5b1cad2ce82d2ce99ca6662785446d1.flv
+C18跑马,http://ali.hlspull.yximgs.com/live/5c1d9d7f5818a41adc44a46f57d2f17b.flv
+AXN,http://ali.hlspull.yximgs.com/live/10f38a772f10cd602f203c2704c5301e.flv
+霹雳台湾,http://ali.hlspull.yximgs.com/live/8e6de079ff3f8402c2396fe848c62a02.flv
+壹新闻HD,http://ali.hlspull.yximgs.com/live/7c69a997402ff8b33fa5b7b9b9bd072a.flv
+年代新闻,http://ali.hlspull.yximgs.com/live/23efa1a517301ec1030b8e43d7f73724.flv
+年代综合,http://ali.hlspull.yximgs.com/live/0a84d414be3b4653bdb55a4ddb30c21d.flv
+三立台湾台,http://ali.hlspull.yximgs.com/live/6c54ea45c1df30a5073de2d9825e1fa9.flv
+
+🌊港台AKTV,#genre#
+鳳凰中文,http://aktv.top/AKTV/live/aktv/null-3/AKTV.m3u8
+鳳凰資訊,http://aktv.top/AKTV/live/aktv/null-4/AKTV.m3u8
+鳳凰香港,http://aktv.top/AKTV/live/aktv/null-5/AKTV.m3u8
+無線新聞台,http://aktv.top/AKTV/live/aktv/null-1/AKTV.m3u8
+翡翠台,http://aktv.top/AKTV/live/aktv/null/AKTV.m3u8
+翡翠台 (4K),http://aktv.top/AKTV/live/aktv3/4k/AKTV.m3u8
+明珠台,http://aktv.top/AKTV/live/aktv/null-2/AKTV.m3u8
+TVB Plus,http://aktv.top/AKTV/live/aktv/tvbplus/AKTV.m3u8
+娛樂新聞台,http://aktv.top/AKTV/live/aktv/hk/AKTV.m3u8
+黃金翡翠台,http://aktv.top/AKTV/live/aktv/null-21/AKTV.m3u8
+千禧經典台,http://aktv.top/AKTV/live/aktv/null-15/AKTV.m3u8
+亞洲劇台,http://aktv.top/AKTV/live/aktv/null-7/AKTV.m3u8
+翡翠剧集台(北美),http://aktv.top/AKTV/live/aktv/null-18/AKTV.m3u8
+明珠剧集台(北美),http://aktv.top/AKTV/live/aktv/null-19/AKTV.m3u8
+翡翠综合台(北美),http://aktv.top/AKTV/live/aktv/null-17/AKTV.m3u8
+无线新闻台(北美),http://aktv.top/AKTV/live/aktv2/null-1/AKTV.m3u8
+ViuTV,http://aktv.top/AKTV/live/aktv2/viutv99/AKTV.m3u8
+ViuTVsix,http://aktv.top/AKTV/live/aktv2/viutv696/AKTV.m3u8
+C+台,http://aktv.top/AKTV/live/aktv3/c/AKTV.m3u8
+美亞電影台,http://aktv.top/AKTV/live/aktv/hk-1/AKTV.m3u8
+Now星影台,http://aktv.top/AKTV/live/aktv2/now/AKTV.m3u8
+AXN,http://aktv.top/AKTV/live/aktv2/axn/AKTV.m3u8
+ROCK Action,http://aktv.top/AKTV/live/aktv/rockaction/AKTV.m3u8
+Love Nature HD,http://aktv.top/AKTV/live/aktv3/lovenaturehd/AKTV.m3u8
+PopC,http://aktv.top/AKTV/live/aktv/popc/AKTV.m3u8
+tvN,http://aktv.top/AKTV/live/aktv/tvn/AKTV.m3u8
+Animax,http://aktv.top/AKTV/live/aktv3/animaxhk/AKTV.m3u8
+KIX,http://aktv.top/AKTV/live/aktv3/kix/AKTV.m3u8
+Thrill,http://aktv.top/AKTV/live/aktv3/thrill/AKTV.m3u8
+TVBS,http://aktv.top/AKTV/live/aktv/tvbs/AKTV.m3u8
+TVBS 新聞台,http://aktv.top/AKTV/live/aktv/tvbs-1/AKTV.m3u8
+中天亞洲台,http://aktv.top/AKTV/live/aktv/null-12/AKTV.m3u8
+中天新聞台,http://aktv.top/AKTV/live/aktv/null-8/AKTV.m3u8
+东森新闻,http://aktv.top/AKTV/live/aktv2/null/AKTV.m3u8
+寰宇新聞台,http://aktv.top/AKTV/live/aktv/null-9/AKTV.m3u8
+中視,http://aktv.top/AKTV/live/aktv/null-10/AKTV.m3u8
+華視,http://aktv.top/AKTV/live/aktv/null-11/AKTV.m3u8
+靖天電影台,http://aktv.top/AKTV/live/aktv/null-6/AKTV.m3u8
+龍華日韓台,http://aktv.top/AKTV/live/aktv/null-22/AKTV.m3u8
+龍華電影台,http://aktv.top/AKTV/live/aktv/null-23/AKTV.m3u8
+Channel 5 HD,http://aktv.top/AKTV/live/aktv/channel5hd/AKTV.m3u8
+Channel 8 HD,http://aktv.top/AKTV/live/aktv/channel8hd/AKTV.m3u8
+Channel U HD,http://aktv.top/AKTV/live/aktv/channeluhd/AKTV.m3u8
+Astro AEC,http://aktv.top/AKTV/live/aktv3/astroaec/AKTV.m3u8
+Astro AOD,http://aktv.top/AKTV/live/aktv3/astroaod/AKTV.m3u8
+Astro iQIYI,http://aktv.top/AKTV/live/aktv3/astroiqiyi/AKTV.m3u8
+Astro QJ,http://aktv.top/AKTV/live/aktv3/astroqj/AKTV.m3u8
+Astro Xing He,http://aktv.top/AKTV/live/aktv3/astroxinghe/AKTV.m3u8
+NHK World-Japan,http://aktv.top/AKTV/live/aktv3/nhkworldjapan/AKTV.m3u8
+日テレNEWS24,http://aktv.top/AKTV/live/aktv/null-13/AKTV.m3u8
+DW,http://aktv.top/AKTV/live/aktv3/dw/AKTV.m3u8
+France 24,http://aktv.top/AKTV/live/aktv3/france24/AKTV.m3u8
+亞洲新聞台,http://aktv.top/AKTV/live/aktv3/null-3/AKTV.m3u8
+東方衛視國際頻道,http://aktv.top/AKTV/live/aktv3/null/AKTV.m3u8
+Nick Jr,http://aktv.top/AKTV/live/aktv3/nickjr/AKTV.m3u8
+Nickelodeon,http://aktv.top/AKTV/live/aktv3/nickelodeon/AKTV.m3u8
+ZooMoo,http://aktv.top/AKTV/live/aktv3/zoomoo/AKTV.m3u8
