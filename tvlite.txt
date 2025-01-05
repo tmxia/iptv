@@ -732,23 +732,41 @@ CCTV-5+,http://m.951688.xyz:35455/itv/1000000005000265016.m3u8?cdn=ystenlive
 华强影视,http://120.77.28.4:8648/douyu.php?id=9650792
 刘华强集,http://120.77.28.4:8648/douyu.php?id=2726977
 本山专场,http://120.77.28.4:8648/douyu.php?id=9817716
-周星驰电影,http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575534-1394575534-5989656310331736064-2789274524-10057-A-0-1.m3u8
-林正英电影,http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575543-1394575543-5989656348986441728-2789274542-10057-A-0-1.m3u8
 九品芝麻官,https://txmov2.a.kwimgs.com/upic/2021/12/28/11/BMjAyMTEyMjgxMTIyMTJfNDAzMDAxOTlfNjM2NjgxODA5MTBfMF8z_bF_Bcc38a845b4b4994898062a76d3958bdc.mp4
-亮剑,http://182.40.120.191/test-txdwk.flv.huya.com/src/1239543153972-1239543153972-11135015062081634304-2479086431400-10057-A-0-1.m3u8
-人在囧途,http://jsmov2.a.yximgs.com/bs3/video-hls/5239093847755471351_hlsb.m3u8
-人在囧途,https://vip.ffzy-play.com/20221018/1953_2d6ba500/index.m3u8
-人在囧途之囧妈,https://vip.ffzy-online.com/20230122/54089_b5925cb9/index.m3u8
-人在囧途之泰囧,https://vip.ffzy-play.com/20221018/1951_47e1adc8/index.m3u8
-人在囧途之港囧,https://vip.ffzy-play7.com/20230112/11082_fde1a94d/index.m3u8
-倩女幽魂人间道,http://jsmov2.a.yximgs.com/bs3/video-hls/5250634317044855747_hlsb.m3u8
-倩女幽魂妖魔道,http://jsmov2.a.yximgs.com/bs3/video-hls/5232901391302199073_hlsb.m3u8
-倩女幽魂道道道,http://jsmov2.a.yximgs.com/bs3/video-hls/5216294367991385255_hlsb.m3u8
 天龙八部,http://182.40.120.213/test-txdwk.flv.huya.com/src/1099531752675-1099531752675-86435783040303104-2199063628806-10057-A-0-1.m3u8
 寒战,https://vip.ffzy-play6.com/20221019/157_bf0740ee/index.m3u8
 我不是药神,https://vip.ffzy-play1.com/20221018/478_c3afed66/index.m3u8
 神探狄仁杰第一部,http://223.85.105.11/test-txdwk.flv.huya.com/src/1423787855-1423787855-6115122273666990080-2847699166-10057-A-0-1.m3u8
 神探狄仁杰第三部,http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575548-1394575548-5989656370461278208-2789274552-10057-A-0-1.m3u8
+
+🎬虎牙频道,#genre#
+周星驰电影,http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575534-1394575534-5989656310331736064-2789274524-10057-A-0-1.m3u8
+英叔电影,http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575543-1394575543-5989656348986441728-2789274542-10057-A-0-1.m3u8
+周星驰经典,https://live.metshop.top/huya/11342412
+李连杰经典,https://live.metshop.top/huya/11342390
+成龙经典,https://live.metshop.top/huya/11342386
+周润发经典,https://live.metshop.top/huya/11342387
+甄子丹经典,https://live.metshop.top/huya/11352935
+梁家辉经典,https://live.metshop.top/huya/11342429
+金庸武侠,https://live.metshop.top/huya/11342435
+犯罪电影,https://live.metshop.top/huya/21059607
+喜剧电影,https://live.metshop.top/huya/11342423
+神探电影,https://live.metshop.top/huya/11352952
+贺岁档电影,https://live.metshop.top/huya/11601986
+动作电影,https://live.metshop.top/huya/11602077
+悬疑电影,https://live.metshop.top/huya/26355779
+堆堆港剧,https://live.metshop.top/huya/23903130
+港剧慢品,https://live.metshop.top/huya/23865142
+笑傲江湖,https://live.metshop.top/huya/23025
+天龙八部,https://live.metshop.top/huya/23903123
+陀枪师姐,https://live.metshop.top/huya/23860039
+刑事侦缉档案,https://live.metshop.top/huya/23734169
+雍正王朝,https://live.metshop.top/huya/11342439
+康熙微服私访记,https://live.metshop.top/huya/11342418
+铁齿铜牙纪晓岚,https://live.metshop.top/huya/11342396
+亮剑,http://182.40.120.191/test-txdwk.flv.huya.com/src/1239543153972-1239543153972-11135015062081634304-2479086431400-10057-A-0-1.m3u8
+春晚小品,https://live.metshop.top/huya/11602068
+猫和老鼠,https://live.metshop.top/huya/11352879
 
 🌊港台频道,#genre#
 凤凰中文,http://ali.hlspull.yximgs.com/live/diyp_fh2.flv
