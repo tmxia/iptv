@@ -1455,18 +1455,8 @@ http://120.77.28.4:8648/douyu.php?id=9650792
 http://120.77.28.4:8648/douyu.php?id=2726977
 #EXTINF:-1 group-title="🎬电影频道",本山专场
 http://120.77.28.4:8648/douyu.php?id=9817716
-#EXTINF:-1 group-title="🎬电影频道",周星驰电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575534-1394575534-5989656310331736064-2789274524-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬电影频道",英叔电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575543-1394575543-5989656348986441728-2789274542-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬电影频道",铁齿铜牙纪晓岚
-https://live.metshop.top/huya/11342396
-#EXTINF:-1 group-title="🎬电影频道",虎牙悬疑电影
-https://live.metshop.top/huya/26355779
 #EXTINF:-1 group-title="🎬电影频道",九品芝麻官
 https://txmov2.a.kwimgs.com/upic/2021/12/28/11/BMjAyMTEyMjgxMTIyMTJfNDAzMDAxOTlfNjM2NjgxODA5MTBfMF8z_bF_Bcc38a845b4b4994898062a76d3958bdc.mp4
-#EXTINF:-1 group-title="🎬电影频道",亮剑
-http://182.40.120.191/test-txdwk.flv.huya.com/src/1239543153972-1239543153972-11135015062081634304-2479086431400-10057-A-0-1.m3u8
 #EXTINF:-1 group-title="🎬电影频道",人在囧途
 http://jsmov2.a.yximgs.com/bs3/video-hls/5239093847755471351_hlsb.m3u8
 #EXTINF:-1 group-title="🎬电影频道",人在囧途之囧妈
@@ -1491,6 +1481,60 @@ https://vip.ffzy-play1.com/20221018/478_c3afed66/index.m3u8
 http://223.85.105.11/test-txdwk.flv.huya.com/src/1423787855-1423787855-6115122273666990080-2847699166-10057-A-0-1.m3u8
 #EXTINF:-1 group-title="🎬电影频道",神探狄仁杰第三部
 http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575548-1394575548-5989656370461278208-2789274552-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙频道",周星驰电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575534-1394575534-5989656310331736064-2789274524-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙频道",英叔电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575543-1394575543-5989656348986441728-2789274542-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙频道",周星驰经典
+https://live.metshop.top/huya/11342412
+#EXTINF:-1 group-title="🎬虎牙频道",李连杰经典
+https://live.metshop.top/huya/11342390
+#EXTINF:-1 group-title="🎬虎牙频道",成龙经典
+https://live.metshop.top/huya/11342386
+#EXTINF:-1 group-title="🎬虎牙频道",周润发经典
+https://live.metshop.top/huya/11342387
+#EXTINF:-1 group-title="🎬虎牙频道",甄子丹经典
+https://live.metshop.top/huya/11352935
+#EXTINF:-1 group-title="🎬虎牙频道",梁家辉经典
+https://live.metshop.top/huya/11342429
+#EXTINF:-1 group-title="🎬虎牙频道",金庸武侠
+https://live.metshop.top/huya/11342435
+#EXTINF:-1 group-title="🎬虎牙频道",犯罪电影
+https://live.metshop.top/huya/21059607
+#EXTINF:-1 group-title="🎬虎牙频道",喜剧电影
+https://live.metshop.top/huya/11342423
+#EXTINF:-1 group-title="🎬虎牙频道",神探电影
+https://live.metshop.top/huya/11352952
+#EXTINF:-1 group-title="🎬虎牙频道",贺岁档电影
+https://live.metshop.top/huya/11601986
+#EXTINF:-1 group-title="🎬虎牙频道",动作电影
+https://live.metshop.top/huya/11602077
+#EXTINF:-1 group-title="🎬虎牙频道",悬疑电影
+https://live.metshop.top/huya/26355779
+#EXTINF:-1 group-title="🎬虎牙频道",堆堆港剧
+https://live.metshop.top/huya/23903130
+#EXTINF:-1 group-title="🎬虎牙频道",港剧慢品
+https://live.metshop.top/huya/23865142
+#EXTINF:-1 group-title="🎬虎牙频道",笑傲江湖
+https://live.metshop.top/huya/23025
+#EXTINF:-1 group-title="🎬虎牙频道",天龙八部
+https://live.metshop.top/huya/23903123
+#EXTINF:-1 group-title="🎬虎牙频道",陀枪师姐
+https://live.metshop.top/huya/23860039
+#EXTINF:-1 group-title="🎬虎牙频道",刑事侦缉档案
+https://live.metshop.top/huya/23734169
+#EXTINF:-1 group-title="🎬虎牙频道",雍正王朝
+https://live.metshop.top/huya/11342439
+#EXTINF:-1 group-title="🎬虎牙频道",康熙微服私访记
+https://live.metshop.top/huya/11342418
+#EXTINF:-1 group-title="🎬虎牙频道",铁齿铜牙纪晓岚
+https://live.metshop.top/huya/11342396
+#EXTINF:-1 group-title="🎬虎牙频道",亮剑
+http://182.40.120.191/test-txdwk.flv.huya.com/src/1239543153972-1239543153972-11135015062081634304-2479086431400-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙频道",春晚小品
+https://live.metshop.top/huya/11602068
+#EXTINF:-1 group-title="🎬虎牙频道",猫和老鼠
+https://live.metshop.top/huya/11352879
 
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/凤凰中文.png" group-title="🌊港台频道",凤凰中文
 http://ali.hlspull.yximgs.com/live/diyp_fh2.flv
