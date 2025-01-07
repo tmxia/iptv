@@ -1363,119 +1363,6 @@ http://[2409:8087:5e00:24::1e]:6060/000000001000/5000000011000031206/1.m3u8
 http://220.249.114.102:9901/tsfile/live/1021_1.m3u8?key=txiptv&playlive=1&authid=0
 #EXTINF:-1 tvg-name="快乐垂钓" tvg-logo="https://live.fanmingming.cn/tv/快乐垂钓.png" group-title="🏀体育频道",快乐垂钓
 http://220.249.114.102:9901/tsfile/live/1021_1.m3u8
-#EXTINF:-1 group-title="🎬电影频道",豆瓣高分
-https://lunbo.freetv.top/douyu/8770422
-#EXTINF:-1 group-title="🎬电影频道",高分影院
-https://lunbo.freetv.top/douyu/7254536
-#EXTINF:-1 group-title="🎬电影频道",可乐影视
-https://lunbo.freetv.top/douyu/20415
-#EXTINF:-1 group-title="🎬电影频道",花卷影视
-https://lunbo.freetv.top/douyu/52787
-#EXTINF:-1 group-title="🎬电影频道",神乐影剧
-https://lunbo.freetv.top/douyu/122402
-#EXTINF:-1 group-title="🎬电影频道",小宇影视
-https://lunbo.freetv.top/douyu/323876
-#EXTINF:-1 group-title="🎬电影频道",萌小鬼片
-https://lunbo.freetv.top/douyu/3928
-#EXTINF:-1 group-title="🎬电影频道",恐怖影院
-https://lunbo.freetv.top/douyu/218859
-#EXTINF:-1 group-title="🎬电影频道",漫威影院
-https://lunbo.freetv.top/douyu/6140589
-#EXTINF:-1 group-title="🎬电影频道",邵氏影院
-https://lunbo.freetv.top/douyu/4246519
-#EXTINF:-1 group-title="🎬电影频道",凌儿影院
-https://lunbo.freetv.top/douyu/1377142
-#EXTINF:-1 group-title="🎬电影频道",童年影院
-https://lunbo.freetv.top/douyu/2935323
-#EXTINF:-1 group-title="🎬电影频道",奶虫影院
-https://lunbo.freetv.top/douyu/263824
-#EXTINF:-1 group-title="🎬电影频道",粤语影院
-https://lunbo.freetv.top/douyu/6566671
-#EXTINF:-1 group-title="🎬电影频道",蚂蚱影院
-https://lunbo.freetv.top/douyu/6079455
-#EXTINF:-1 group-title="🎬电影频道",圆子影院
-https://lunbo.freetv.top/douyu/6566658
-#EXTINF:-1 group-title="🎬电影频道",刀刀影院
-https://lunbo.freetv.top/douyu/747764
-#EXTINF:-1 group-title="🎬电影频道",怡寶影视
-https://lunbo.freetv.top/douyu/434971
-#EXTINF:-1 group-title="🎬电影频道",贝贝影视
-https://lunbo.freetv.top/douyu/431460
-#EXTINF:-1 group-title="🎬电影频道",芊珏影视
-https://lunbo.freetv.top/douyu/8814650
-#EXTINF:-1 group-title="🎬电影频道",惊悚影视
-https://lunbo.freetv.top/douyu/96577
-#EXTINF:-1 group-title="🎬电影频道",冰冰影视
-https://lunbo.freetv.top/douyu/74374
-#EXTINF:-1 group-title="🎬电影频道",贝爷壹厅
-https://lunbo.freetv.top/douyu/252802
-#EXTINF:-1 group-title="🎬电影频道",贝爷贰厅
-https://lunbo.freetv.top/douyu/4332
-#EXTINF:-1 group-title="🎬电影频道",贝爷叁厅
-https://lunbo.freetv.top/douyu/36337
-#EXTINF:-1 group-title="🎬电影频道",欧美影院
-https://lunbo.freetv.top/douyu/508118
-#EXTINF:-1 group-title="🎬电影频道",小黛兮影
-https://lunbo.freetv.top/douyu/11553944
-#EXTINF:-1 group-title="🎬电影频道",变种人片
-https://lunbo.freetv.top/douyu/9651304
-#EXTINF:-1 group-title="🎬电影频道",恐怖鬼怪
-https://lunbo.freetv.top/douyu/1165374
-#EXTINF:-1 group-title="🎬电影频道",国产影片
-https://lunbo.freetv.top/douyu/5423
-#EXTINF:-1 group-title="🎬电影频道",橙記港剧
-https://lunbo.freetv.top/douyu/4549169
-#EXTINF:-1 group-title="🎬电影频道",热门港剧
-https://lunbo.freetv.top/douyu/5522351
-#EXTINF:-1 group-title="🎬电影频道",人气港剧
-https://lunbo.freetv.top/douyu/5261342
-#EXTINF:-1 group-title="🎬电影频道",港剧天地
-https://lunbo.freetv.top/douyu/4290711
-#EXTINF:-1 group-title="🎬电影频道",侦缉档案
-https://lunbo.freetv.top/douyu/12048453
-#EXTINF:-1 group-title="🎬电影频道",神探狄仁杰
-https://lunbo.freetv.top/douyu/11391949
-#EXTINF:-1 group-title="🎬电影频道",大宋提刑官
-https://lunbo.freetv.top/douyu/11678039
-#EXTINF:-1 group-title="🎬电影频道",三国剧场
-https://lunbo.freetv.top/douyu/7459925
-#EXTINF:-1 group-title="🎬电影频道",新版三国
-https://lunbo.freetv.top/douyu/5908256
-#EXTINF:-1 group-title="🎬电影频道",西游记续
-https://lunbo.freetv.top/douyu/3113309
-#EXTINF:-1 group-title="🎬电影频道",华强影视
-https://lunbo.freetv.top/douyu/9650792
-#EXTINF:-1 group-title="🎬电影频道",刘华强集
-https://lunbo.freetv.top/douyu/2726977
-#EXTINF:-1 group-title="🎬电影频道",本山专场
-https://lunbo.freetv.top/douyu/9817716
-#EXTINF:-1 group-title="🎬电影频道",九品芝麻官
-https://txmov2.a.kwimgs.com/upic/2021/12/28/11/BMjAyMTEyMjgxMTIyMTJfNDAzMDAxOTlfNjM2NjgxODA5MTBfMF8z_bF_Bcc38a845b4b4994898062a76d3958bdc.mp4
-#EXTINF:-1 group-title="🎬电影频道",人在囧途
-http://jsmov2.a.yximgs.com/bs3/video-hls/5239093847755471351_hlsb.m3u8
-#EXTINF:-1 group-title="🎬电影频道",人在囧途之囧妈
-https://vip.ffzy-online.com/20230122/54089_b5925cb9/index.m3u8
-#EXTINF:-1 group-title="🎬电影频道",人在囧途之泰囧
-https://vip.ffzy-play.com/20221018/1951_47e1adc8/index.m3u8
-#EXTINF:-1 group-title="🎬电影频道",人在囧途之港囧
-https://vip.ffzy-play7.com/20230112/11082_fde1a94d/index.m3u8
-#EXTINF:-1 group-title="🎬电影频道",倩女幽魂人间道
-http://jsmov2.a.yximgs.com/bs3/video-hls/5250634317044855747_hlsb.m3u8
-#EXTINF:-1 group-title="🎬电影频道",倩女幽魂妖魔道
-http://jsmov2.a.yximgs.com/bs3/video-hls/5232901391302199073_hlsb.m3u8
-#EXTINF:-1 group-title="🎬电影频道",倩女幽魂道道道
-http://jsmov2.a.yximgs.com/bs3/video-hls/5216294367991385255_hlsb.m3u8
-#EXTINF:-1 group-title="🎬电影频道",天龙八部
-http://182.40.120.213/test-txdwk.flv.huya.com/src/1099531752675-1099531752675-86435783040303104-2199063628806-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬电影频道",寒战
-https://vip.ffzy-play6.com/20221019/157_bf0740ee/index.m3u8
-#EXTINF:-1 group-title="🎬电影频道",我不是药神
-https://vip.ffzy-play1.com/20221018/478_c3afed66/index.m3u8
-#EXTINF:-1 group-title="🎬电影频道",神探狄仁杰第一部
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1423787855-1423787855-6115122273666990080-2847699166-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬电影频道",神探狄仁杰第三部
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575548-1394575548-5989656370461278208-2789274552-10057-A-0-1.m3u8
-
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/凤凰中文.png" group-title="🌊港台频道",凤凰中文
 http://ali.hlspull.yximgs.com/live/diyp_fh2.flv
 #EXTINF:-1 tvg-logo="https://live.fanmingming.cn/tv/凤凰中文.png" group-title="🌊港台频道",凤凰中文
@@ -1680,99 +1567,216 @@ http://aktv.top/AKTV/live/aktv3/nickelodeon/AKTV.m3u8
 #EXTINF:-1 group-title="🌊港台AKTV",ZooMoo
 http://aktv.top/AKTV/live/aktv3/zoomoo/AKTV.m3u8
 
-#EXTINF:-1 group-title="🎬虎牙频道",周星驰电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575534-1394575534-5989656310331736064-2789274524-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",英叔电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575543-1394575543-5989656348986441728-2789274542-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",李连杰电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394565196-1394565196-5989611908959830016-2789253848-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",成龙电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394565191-1394565191-5989611887484993536-2789253838-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",周润发电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394565192-1394565192-5989611891779960832-2789253840-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",甄子丹电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1423787820-1423787820-6115122123343134720-2847699096-10057-A-0-1-imgplus.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",梁家辉电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1449698962-1449698962-6226409630835146752-2789274564-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",刘德华电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575547-1394575547-5989656366166310912-2789274550-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",王晶导演电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1524434111-1524434111-6547394651651833856-3048991678-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",金庸武侠电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575562-1394575562-5989656430590820352-2789274580-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",古装武侠电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531840850-1099531840850-86814491781627904-2199063805156-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",犯罪电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531752795-1099531752795-86436298436378624-2199063629046-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",喜剧电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575546-1394575546-5989656361871343616-2789274548-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",国产喜剧
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199593632975-1199593632975-5573825552487284736-2399187389406-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",神探电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1423787847-1423787847-6115122239307251712-2847699150-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",贺岁档电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1524418118-1524418118-6547325962239868928-3048959692-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",动作影院
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1524439840-1524439840-6547419257519472640-3049003136-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",悬疑电影
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531840858-1099531840858-86814526141366272-2199063805172-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",经典热播
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199601465077-1199601465077-5607464174436220928-2399203053610-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",詹姆斯邦德
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531752778-1099531752778-86436225421934592-2199063629012-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",怪兽异形
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531752770-1099531752770-86436191062196224-2199063628996-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",埋堆堆官方
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199561177177-1199561177177-5434428961511702528-2399122477810-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",堆堆港剧
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199564003640-1199564003640-5446568527660056576-2399128130736-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",港剧慢品
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199563481280-1199563481280-5444325008543318016-2399127086016-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",天龙八部
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199564062365-1199564062365-5446820749614514176-2399128248186-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",倚天屠龙记01
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199561277686-1199561277686-5434860644379656192-2399122678828-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",陀枪师姐
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199561244004-1199561244004-5434715981291192320-2399122611464-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",刑事侦缉档案
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199561463578-1199561463578-5435659044440244224-2399123050612-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",法证先锋
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199563486009-1199563486009-5444345319443660800-2399127095474-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",鉴证实录
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199563478867-1199563478867-5444314644787232768-2399127081190-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",寻秦记
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1438977461-1438977461-6180361134676115456-2878078378-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",金枝欲孽
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199563452337-1199563452337-5444200699304869888-2399127028130-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",笑看风云
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1199563479466-1199563479466-5444317217472643072-2399127082388-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",雍正王朝
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1448738195-1448738195-6222283167991070720-2789274594-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",康熙微服私访记
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1250011-1250011-5368756364640256-2789274536-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",铁齿铜牙纪晓岚
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1394565204-1394565204-5989611943319568384-2789253864-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",水浒传
-http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531840936-1099531840936-86814861148815360-2199063805328-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",神探狄仁杰
+#EXTINF:-1 group-title="🎬斗鱼轮播",豆瓣高分
+https://lunbo.freetv.top/douyu/8770422
+#EXTINF:-1 group-title="🎬斗鱼轮播",高分影院
+https://lunbo.freetv.top/douyu/7254536
+#EXTINF:-1 group-title="🎬斗鱼轮播",可乐影视
+https://lunbo.freetv.top/douyu/20415
+#EXTINF:-1 group-title="🎬斗鱼轮播",花卷影视
+https://lunbo.freetv.top/douyu/52787
+#EXTINF:-1 group-title="🎬斗鱼轮播",神乐影剧
+https://lunbo.freetv.top/douyu/122402
+#EXTINF:-1 group-title="🎬斗鱼轮播",小宇影视
+https://lunbo.freetv.top/douyu/323876
+#EXTINF:-1 group-title="🎬斗鱼轮播",萌小鬼片
+https://lunbo.freetv.top/douyu/3928
+#EXTINF:-1 group-title="🎬斗鱼轮播",恐怖影院
+https://lunbo.freetv.top/douyu/218859
+#EXTINF:-1 group-title="🎬斗鱼轮播",漫威影院
+https://lunbo.freetv.top/douyu/6140589
+#EXTINF:-1 group-title="🎬斗鱼轮播",邵氏影院
+https://lunbo.freetv.top/douyu/4246519
+#EXTINF:-1 group-title="🎬斗鱼轮播",凌儿影院
+https://lunbo.freetv.top/douyu/1377142
+#EXTINF:-1 group-title="🎬斗鱼轮播",童年影院
+https://lunbo.freetv.top/douyu/2935323
+#EXTINF:-1 group-title="🎬斗鱼轮播",奶虫影院
+https://lunbo.freetv.top/douyu/263824
+#EXTINF:-1 group-title="🎬斗鱼轮播",粤语影院
+https://lunbo.freetv.top/douyu/6566671
+#EXTINF:-1 group-title="🎬斗鱼轮播",蚂蚱影院
+https://lunbo.freetv.top/douyu/6079455
+#EXTINF:-1 group-title="🎬斗鱼轮播",圆子影院
+https://lunbo.freetv.top/douyu/6566658
+#EXTINF:-1 group-title="🎬斗鱼轮播",刀刀影院
+https://lunbo.freetv.top/douyu/747764
+#EXTINF:-1 group-title="🎬斗鱼轮播",怡寶影视
+https://lunbo.freetv.top/douyu/434971
+#EXTINF:-1 group-title="🎬斗鱼轮播",贝贝影视
+https://lunbo.freetv.top/douyu/431460
+#EXTINF:-1 group-title="🎬斗鱼轮播",芊珏影视
+https://lunbo.freetv.top/douyu/8814650
+#EXTINF:-1 group-title="🎬斗鱼轮播",惊悚影视
+https://lunbo.freetv.top/douyu/96577
+#EXTINF:-1 group-title="🎬斗鱼轮播",冰冰影视
+https://lunbo.freetv.top/douyu/74374
+#EXTINF:-1 group-title="🎬斗鱼轮播",贝爷壹厅
+https://lunbo.freetv.top/douyu/252802
+#EXTINF:-1 group-title="🎬斗鱼轮播",贝爷贰厅
+https://lunbo.freetv.top/douyu/4332
+#EXTINF:-1 group-title="🎬斗鱼轮播",贝爷叁厅
+https://lunbo.freetv.top/douyu/36337
+#EXTINF:-1 group-title="🎬斗鱼轮播",欧美影院
+https://lunbo.freetv.top/douyu/508118
+#EXTINF:-1 group-title="🎬斗鱼轮播",小黛兮影
+https://lunbo.freetv.top/douyu/11553944
+#EXTINF:-1 group-title="🎬斗鱼轮播",变种人片
+https://lunbo.freetv.top/douyu/9651304
+#EXTINF:-1 group-title="🎬斗鱼轮播",恐怖鬼怪
+https://lunbo.freetv.top/douyu/1165374
+#EXTINF:-1 group-title="🎬斗鱼轮播",国产影片
+https://lunbo.freetv.top/douyu/5423
+#EXTINF:-1 group-title="🎬斗鱼轮播",橙記港剧
+https://lunbo.freetv.top/douyu/4549169
+#EXTINF:-1 group-title="🎬斗鱼轮播",热门港剧
+https://lunbo.freetv.top/douyu/5522351
+#EXTINF:-1 group-title="🎬斗鱼轮播",人气港剧
+https://lunbo.freetv.top/douyu/5261342
+#EXTINF:-1 group-title="🎬斗鱼轮播",港剧天地
+https://lunbo.freetv.top/douyu/4290711
+#EXTINF:-1 group-title="🎬斗鱼轮播",侦缉档案
+https://lunbo.freetv.top/douyu/12048453
+#EXTINF:-1 group-title="🎬斗鱼轮播",神探狄仁杰
+https://lunbo.freetv.top/douyu/11391949
+#EXTINF:-1 group-title="🎬斗鱼轮播",大宋提刑官
+https://lunbo.freetv.top/douyu/11678039
+#EXTINF:-1 group-title="🎬斗鱼轮播",三国剧场
+https://lunbo.freetv.top/douyu/7459925
+#EXTINF:-1 group-title="🎬斗鱼轮播",新版三国
+https://lunbo.freetv.top/douyu/5908256
+#EXTINF:-1 group-title="🎬斗鱼轮播",西游记续
+https://lunbo.freetv.top/douyu/3113309
+#EXTINF:-1 group-title="🎬斗鱼轮播",华强影视
+https://lunbo.freetv.top/douyu/9650792
+#EXTINF:-1 group-title="🎬斗鱼轮播",刘华强集
+https://lunbo.freetv.top/douyu/2726977
+#EXTINF:-1 group-title="🎬斗鱼轮播",本山专场
+https://lunbo.freetv.top/douyu/9817716
+#EXTINF:-1 group-title="🎬斗鱼轮播",九品芝麻官
+https://txmov2.a.kwimgs.com/upic/2021/12/28/11/BMjAyMTEyMjgxMTIyMTJfNDAzMDAxOTlfNjM2NjgxODA5MTBfMF8z_bF_Bcc38a845b4b4994898062a76d3958bdc.mp4
+#EXTINF:-1 group-title="🎬斗鱼轮播",人在囧途
+http://jsmov2.a.yximgs.com/bs3/video-hls/5239093847755471351_hlsb.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",人在囧途之囧妈
+https://vip.ffzy-online.com/20230122/54089_b5925cb9/index.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",人在囧途之泰囧
+https://vip.ffzy-play.com/20221018/1951_47e1adc8/index.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",人在囧途之港囧
+https://vip.ffzy-play7.com/20230112/11082_fde1a94d/index.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",倩女幽魂人间道
+http://jsmov2.a.yximgs.com/bs3/video-hls/5250634317044855747_hlsb.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",倩女幽魂妖魔道
+http://jsmov2.a.yximgs.com/bs3/video-hls/5232901391302199073_hlsb.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",倩女幽魂道道道
+http://jsmov2.a.yximgs.com/bs3/video-hls/5216294367991385255_hlsb.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",天龙八部
+http://182.40.120.213/test-txdwk.flv.huya.com/src/1099531752675-1099531752675-86435783040303104-2199063628806-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",寒战
+https://vip.ffzy-play6.com/20221019/157_bf0740ee/index.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",我不是药神
+https://vip.ffzy-play1.com/20221018/478_c3afed66/index.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",神探狄仁杰第一部
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1423787855-1423787855-6115122273666990080-2847699166-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬斗鱼轮播",神探狄仁杰第三部
 http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575548-1394575548-5989656370461278208-2789274552-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",大宋提刑官
+
+#EXTINF:-1 group-title="🎬虎牙轮播",周星驰电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575534-1394575534-5989656310331736064-2789274524-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",英叔电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575543-1394575543-5989656348986441728-2789274542-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",李连杰电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394565196-1394565196-5989611908959830016-2789253848-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",成龙电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394565191-1394565191-5989611887484993536-2789253838-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",周润发电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394565192-1394565192-5989611891779960832-2789253840-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",甄子丹电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1423787820-1423787820-6115122123343134720-2847699096-10057-A-0-1-imgplus.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",梁家辉电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1449698962-1449698962-6226409630835146752-2789274564-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",刘德华电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575547-1394575547-5989656366166310912-2789274550-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",古天乐电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1239543150751-1239543150751-11135001227991973888-2479086424958-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",洪金宝电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/73821423-73821423-317060597529182208-2710090468-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",王晶导演电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1524434111-1524434111-6547394651651833856-3048991678-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",金庸武侠电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575562-1394575562-5989656430590820352-2789274580-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",古装武侠电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531840850-1099531840850-86814491781627904-2199063805156-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",犯罪电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531752795-1099531752795-86436298436378624-2199063629046-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",喜剧电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575546-1394575546-5989656361871343616-2789274548-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",国产喜剧
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199593632975-1199593632975-5573825552487284736-2399187389406-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",神探电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1423787847-1423787847-6115122239307251712-2847699150-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",贺岁档电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1524418118-1524418118-6547325962239868928-3048959692-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",动作影院
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1524439840-1524439840-6547419257519472640-3049003136-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",悬疑电影
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531840858-1099531840858-86814526141366272-2199063805172-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",经典热播
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199601465077-1199601465077-5607464174436220928-2399203053610-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",詹姆斯邦德
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531752778-1099531752778-86436225421934592-2199063629012-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",怪兽异形
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531752770-1099531752770-86436191062196224-2199063628996-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",埋堆堆官方
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199561177177-1199561177177-5434428961511702528-2399122477810-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",堆堆港剧
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199564003640-1199564003640-5446568527660056576-2399128130736-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",港剧慢品
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199563481280-1199563481280-5444325008543318016-2399127086016-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",天龙八部
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199564062365-1199564062365-5446820749614514176-2399128248186-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",倚天屠龙记01
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199561277686-1199561277686-5434860644379656192-2399122678828-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",陀枪师姐
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199561244004-1199561244004-5434715981291192320-2399122611464-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",刑事侦缉档案
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199561463578-1199561463578-5435659044440244224-2399123050612-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",法证先锋
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199563486009-1199563486009-5444345319443660800-2399127095474-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",鉴证实录
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199563478867-1199563478867-5444314644787232768-2399127081190-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",寻秦记
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1438977461-1438977461-6180361134676115456-2878078378-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",金枝欲孽
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199563452337-1199563452337-5444200699304869888-2399127028130-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",笑看风云
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1199563479466-1199563479466-5444317217472643072-2399127082388-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",雍正王朝
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1448738195-1448738195-6222283167991070720-2789274594-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",康熙微服私访记
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1250011-1250011-5368756364640256-2789274536-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",铁齿铜牙纪晓岚
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394565204-1394565204-5989611943319568384-2789253864-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",水浒传
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531840936-1099531840936-86814861148815360-2199063805328-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",神探狄仁杰
+http://223.85.105.11/test-txdwk.flv.huya.com/src/1394575548-1394575548-5989656370461278208-2789274552-10057-A-0-1.m3u8
+#EXTINF:-1 group-title="🎬虎牙轮播",大宋提刑官
 http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531840932-1099531840932-86814843968946176-2199063805320-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",父母爱情
+#EXTINF:-1 group-title="🎬虎牙轮播",父母爱情
 http://223.85.105.11/test-txdwk.flv.huya.com/src/1524439831-1524439831-6547419218864766976-3049003118-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",亮剑
+#EXTINF:-1 group-title="🎬虎牙轮播",亮剑
 http://182.40.120.191/test-txdwk.flv.huya.com/src/1239543153972-1239543153972-11135015062081634304-2479086431400-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",征服
+#EXTINF:-1 group-title="🎬虎牙轮播",征服
 http://182.40.120.191/test-txdwk.flv.huya.com/src/2201963030-2201963030-9457359200851066880-4404049516-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",民兵葛二蛋
+#EXTINF:-1 group-title="🎬虎牙轮播",民兵葛二蛋
 http://182.40.120.191/test-txdwk.flv.huya.com/src/1524439832-1524439832-6547419223159734272-3049003120-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",神医喜来乐
+#EXTINF:-1 group-title="🎬虎牙轮播",神医喜来乐
 http://223.85.105.11/test-txdwk.flv.huya.com/src/1524418104-1524418104-6547325902110326784-3048959664-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",倚天屠龙记03
+#EXTINF:-1 group-title="🎬虎牙轮播",倚天屠龙记03
 http://182.40.120.191/test-txdwk.flv.huya.com/src/1199591015679-1199591015679-5562584351763333120-2399182154814-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",谍战剧
+#EXTINF:-1 group-title="🎬虎牙轮播",谍战剧
 http://223.85.105.11/test-txdwk.flv.huya.com/src/1099531840857-1099531840857-86814521846398976-2199063805170-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",春晚小品
+#EXTINF:-1 group-title="🎬虎牙轮播",春晚小品
 http://223.85.105.11/test-txdwk.flv.huya.com/src/1524439828-1524439828-6547419205979865088-3049003112-10057-A-0-1.m3u8
-#EXTINF:-1 group-title="🎬虎牙频道",猫和老鼠
+#EXTINF:-1 group-title="🎬虎牙轮播",猫和老鼠
 http://223.85.105.11/test-txdwk.flv.huya.com/src/1423782038-1423782038-6115097289842229248-2847687532-10057-A-0-1.m3u8
