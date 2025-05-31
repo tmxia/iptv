@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write  # 添加删除运行记录所需的权限
 
 jobs:
   sync-apk:
@@ -384,3 +385,26 @@ jobs:
         
         # 总是以成功状态退出
         exit 0
+        
+    # 添加删除运行记录的步骤
+    - name: Delete workflow run history
+      if: ${{ always() }}  # 无论之前步骤成功或失败都执行
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # 安装GitHub CLI
+        sudo apt-get update
+        sudo apt-get install -y gh
+        
+        # 设置默认仓库
+        gh auth setup-git
+        
+        # 删除当前运行记录
+        echo "删除当前工作流运行记录..."
+        RUN_ID=${{ github.run_id }}
+        gh api \
+          --method DELETE \
+          -H "Accept: application/vnd.github+json" \
+          /repos/${{ github.repository }}/actions/runs/$RUN_ID
+        
+        echo "运行记录 $RUN_ID 已删除"
