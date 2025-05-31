@@ -1,9 +1,12 @@
-name: Sync APK from Source Repository
+name: mytv Sync APK from Source Repository
 
 on:
   schedule:
     - cron: '0 0 * * *'   # 每天UTC时间00:00（北京时间08:00）运行
   workflow_dispatch:       # 允许手动触发
+
+permissions:
+  contents: write   # 赋予工作流写入仓库内容的权限
 
 jobs:
   sync-apk:
@@ -20,8 +23,8 @@ jobs:
     - name: Run APK sync script
       env:
         SOURCE_REPO: "mytv-android/mytv-android"
-        TARGET_REPO: "tmxia/iptv"
-        TOKEN: ${{ secrets.SYNC_TOKEN }}
+        TARGET_REPO: "${{ github.repository }}"  # 使用当前仓库
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}        # 使用内置令牌
         APK_PATTERN: "armeabi-v7a-sdk21-original.apk"
         STABLE_KEY_NAME: "mytv-android-tv-original.apk"
         PRE_RELEASE_KEY_NAME: "mytv-android-tv-original-beta.apk"
@@ -34,6 +37,16 @@ jobs:
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
+
+        # 验证令牌访问权限
+        echo "验证GitHub令牌权限..."
+        RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" \
+                  "https://api.github.com/repos/$TARGET_REPO")
+        if [ "$RESPONSE" != "200" ]; then
+          echo "错误: 令牌无效 (HTTP $RESPONSE)"
+          echo "请检查工作流权限设置"
+          exit 1
+        fi
 
         # 获取最新发布的APK下载链接
         echo "获取最新发布版本信息..."
@@ -103,19 +116,6 @@ jobs:
           CURRENT_VERSION_DATA="{}"
           CURRENT_STABLE_VERSION=""
           CURRENT_PRE_RELEASE_VERSION=""
-        fi
-
-        # 验证令牌访问权限
-        echo "验证GitHub令牌权限..."
-        RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" \
-                  "https://api.github.com/user")
-        if [ "$RESPONSE" != "200" ]; then
-          echo "错误: 令牌无效 (HTTP $RESPONSE)"
-          echo "请检查:"
-          echo "1. 令牌是否正确复制粘贴"
-          echo "2. 令牌是否已过期或撤销"
-          echo "3. 令牌是否具有 'repo' 权限"
-          exit 1
         fi
 
         # 函数：检查并下载APK
