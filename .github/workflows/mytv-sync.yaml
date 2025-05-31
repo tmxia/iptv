@@ -1,4 +1,4 @@
-name: mytv Sync APK from Source Repository
+name: Sync APK from Source Repository
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:       # 允许手动触发
 
 permissions:
-  contents: write   # 赋予工作流写入仓库内容的权限
+  contents: write
 
 jobs:
   sync-apk:
@@ -23,8 +23,8 @@ jobs:
     - name: Run APK sync script
       env:
         SOURCE_REPO: "mytv-android/mytv-android"
-        TARGET_REPO: "${{ github.repository }}"  # 使用当前仓库
-        TOKEN: ${{ secrets.GITHUB_TOKEN }}        # 使用内置令牌
+        TARGET_REPO: "${{ github.repository }}"
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
         APK_PATTERN: "armeabi-v7a-sdk21-original.apk"
         STABLE_KEY_NAME: "mytv-android-tv-original.apk"
         PRE_RELEASE_KEY_NAME: "mytv-android-tv-original-beta.apk"
@@ -267,7 +267,8 @@ jobs:
         STABLE_NEED_UPDATE=false
         echo "===== 处理稳定版 ====="
         check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION"
-        case $? in
+        STABLE_RESULT=$?
+        case $STABLE_RESULT in
             0) 
                 STABLE_NEED_UPDATE=true
                 NEW_STABLE_VERSION="$STABLE_VERSION"
@@ -278,6 +279,7 @@ jobs:
                 ;;
             2) 
                 NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
+                echo "稳定版无需更新"
                 ;;
         esac
 
@@ -286,7 +288,8 @@ jobs:
         if [ "$SYNC_PRE_RELEASE" = true ]; then
           echo "===== 处理预发行版 ====="
           check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION"
-          case $? in
+          PRE_RELEASE_RESULT=$?
+          case $PRE_RELEASE_RESULT in
               0) 
                   PRE_RELEASE_NEED_UPDATE=true
                   NEW_PRE_RELEASE_VERSION="$PRE_RELEASE_VERSION"
@@ -297,10 +300,12 @@ jobs:
                   ;;
               2) 
                   NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
+                  echo "预发行版无需更新"
                   ;;
           esac
         else
           NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
+          echo "跳过预发行版处理"
         fi
 
         # 更新版本数据
@@ -371,8 +376,11 @@ jobs:
           fi
         fi
 
-        echo "同步完成!"
+        echo "同步完成! 状态: 成功"
         echo "稳定版: $STABLE_TARGET_FILENAME ($NEW_STABLE_VERSION)"
         if [ "$SYNC_PRE_RELEASE" = true ]; then
           echo "预发行版: $PRE_RELEASE_TARGET_FILENAME ($NEW_PRE_RELEASE_VERSION)"
         fi
+        
+        # 总是以成功状态退出
+        exit 0
