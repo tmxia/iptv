@@ -187,8 +187,8 @@ jobs:
             # 返回成功和需要更新的标志
             return 0
           else
-            # 不需要更新
-            return 2
+            # 不需要更新 - 返回0表示成功
+            return 0
           fi
         }
 
@@ -268,20 +268,21 @@ jobs:
         echo "===== 处理稳定版 ====="
         check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION"
         STABLE_RESULT=$?
-        case $STABLE_RESULT in
-            0) 
-                STABLE_NEED_UPDATE=true
-                NEW_STABLE_VERSION="$STABLE_VERSION"
-                ;;
-            1) 
-                echo "错误: 稳定版处理失败"
-                exit 1
-                ;;
-            2) 
-                NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
-                echo "稳定版无需更新"
-                ;;
-        esac
+        if [ $STABLE_RESULT -eq 0 ]; then
+          # 如果返回0，可能是需要更新也可能是无需更新
+          # 检查是否需要更新（通过文件内容判断）
+          if [ -f "$WORK_DIR/$STABLE_KEY_NAME" ]; then
+            STABLE_NEED_UPDATE=true
+            NEW_STABLE_VERSION="$STABLE_VERSION"
+            echo "稳定版需要更新"
+          else
+            NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
+            echo "稳定版无需更新"
+          fi
+        else
+          echo "错误: 稳定版处理失败"
+          exit 1
+        fi
 
         # 处理预发行版
         PRE_RELEASE_NEED_UPDATE=false
@@ -289,20 +290,19 @@ jobs:
           echo "===== 处理预发行版 ====="
           check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION"
           PRE_RELEASE_RESULT=$?
-          case $PRE_RELEASE_RESULT in
-              0) 
-                  PRE_RELEASE_NEED_UPDATE=true
-                  NEW_PRE_RELEASE_VERSION="$PRE_RELEASE_VERSION"
-                  ;;
-              1) 
-                  echo "错误: 预发行版处理失败"
-                  exit 1
-                  ;;
-              2) 
-                  NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
-                  echo "预发行版无需更新"
-                  ;;
-          esac
+          if [ $PRE_RELEASE_RESULT -eq 0 ]; then
+            if [ -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" ]; then
+              PRE_RELEASE_NEED_UPDATE=true
+              NEW_PRE_RELEASE_VERSION="$PRE_RELEASE_VERSION"
+              echo "预发行版需要更新"
+            else
+              NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
+              echo "预发行版无需更新"
+            fi
+          else
+            echo "错误: 预发行版处理失败"
+            exit 1
+          fi
         else
           NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
           echo "跳过预发行版处理"
