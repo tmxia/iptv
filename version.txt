@@ -1,1 +1,4 @@
-V1.1.1.135
+{
+  "leanback-pro.apk": "leanback-pro-20250527",
+  "mobile-pro.apk": "mobile-pro-20250527"
+}
