@@ -26,8 +26,6 @@ jobs:
         STABLE_KEY_NAME: "mytv-android-tv-original.apk"
         PRE_RELEASE_KEY_NAME: "mytv-android-tv-original-beta.apk"
       run: |
-        #!/bin/bash
-        
         # 从环境变量获取配置
         STABLE_TARGET_FILENAME="apk/$STABLE_KEY_NAME"
         PRE_RELEASE_TARGET_FILENAME="apk/$PRE_RELEASE_KEY_NAME"
@@ -223,13 +221,17 @@ jobs:
           
           # 创建JSON请求文件
           local json_file="$WORK_DIR/request_$simple_target_filename.json"
-          cat > "$json_file" <<EOF
+          cat > "$json_file" << "EOF"
 {
   "message": "$commit_msg",
   "content": "$(base64 -w0 "$WORK_DIR/$simple_target_filename")",
   "sha": "$sha"
 }
 EOF
+          # 替换变量值
+          sed -i "s|\$commit_msg|$commit_msg|g" "$json_file"
+          sed -i "s|\$(base64 -w0 \"$WORK_DIR/$simple_target_filename\")|$(base64 -w0 "$WORK_DIR/$simple_target_filename")|g" "$json_file"
+          sed -i "s|\$sha|$sha|g" "$json_file"
           
           # 检查JSON文件大小
           local json_size=$(wc -c < "$json_file")
