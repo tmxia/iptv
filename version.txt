@@ -1,4 +1,5 @@
 {
   "leanback-pro.apk": "leanback-pro-20250527",
-  "mobile-pro.apk": "mobile-pro-20250527"
+  "mobile-pro.apk": "mobile-pro-20250527",
+  "mytv-android-tv-original.apk": "V1.1.1.135"
 }
