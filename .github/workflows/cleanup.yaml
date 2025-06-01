@@ -1,0 +1,23 @@
+name: Cleanup Old Workflow Runs
+on:
+  schedule:
+    # 每天凌晨 3 点执行（UTC 时间）
+    - cron: "0 3 * * *"
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup runs
+        uses: actions/cleanup-workflow-runs@v1
+        with:
+          # 核心参数设置（二选一）：
+          keep_days: 1    # 保留最近 1 天记录
+          # 或
+          keep_minimum: 30 # 保留最近 30 条记录
+
+          # 指定清理的工作流（可选）
+          workflow_names: |
+            MYTV APK Sync from Source Repository
+            OK APK Sync from TELEGRAM
