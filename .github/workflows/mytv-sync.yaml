@@ -1,4 +1,4 @@
-name: Sync APK from Source Repository
+name: Mytv Sync APK from Source Repository
 
 on:
   schedule:
