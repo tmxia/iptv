@@ -1,0 +1,406 @@
+name: OK APK Sync TG
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # 每6小时运行一次
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0  # 获取完整历史记录
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        pip install telethon tqdm requests
+
+    - name: Run APK Sync
+      env:
+        TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+        TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+        TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        python - << "EOF"
+        #!/usr/bin/env python3
+import os
+import json
+import sys
+import subprocess
+import shutil
+import hashlib
+import time
+import requests
+from datetime import datetime
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+from telethon.tl.types import DocumentAttributeFilename
+from tqdm import tqdm
+
+# 配置参数 - 从环境变量获取
+TELEGRAM_API_ID = os.environ.get('TELEGRAM_API_ID')
+TELEGRAM_API_HASH = os.environ.get('TELEGRAM_API_HASH')
+TELEGRAM_SESSION = os.environ.get('TELEGRAM_SESSION')
+TELEGRAM_CHANNEL = os.environ.get('TELEGRAM_CHANNEL', "tvb_ys")
+TARGET_REPO = os.environ.get('TARGET_REPO', "tmxia/iptv")
+APK_FILES = ["leanback-pro.apk", "mobile-pro.apk"]
+APK_DIR = "apk"
+
+# 使用 GitHub Actions 提供的环境变量
+GITHUB_WORKSPACE = os.environ.get('GITHUB_WORKSPACE', os.getcwd())
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
+GITHUB_ACTOR = os.environ.get('GITHUB_ACTOR', 'github-actions')
+GITHUB_EMAIL = os.environ.get('GITHUB_EMAIL', f'{GITHUB_ACTOR}@users.noreply.github.com')
+
+# 使用 GitHub Actions 工作空间
+WORK_DIR = os.path.join(GITHUB_WORKSPACE, "temp_apks")
+GIT_DIR = GITHUB_WORKSPACE
+
+# 确保目录存在
+os.makedirs(WORK_DIR, exist_ok=True)
+
+def log_message(message):
+    """记录消息到控制台"""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    formatted = f"[{timestamp}] {message}"
+    print(formatted)
+
+def setup_git_repo():
+    """设置 Git 仓库"""
+    # 配置 Git 用户信息
+    try:
+        subprocess.run(["git", "config", "user.name", GITHUB_ACTOR], 
+                      cwd=GIT_DIR, check=True)
+        subprocess.run(["git", "config", "user.email", GITHUB_EMAIL], 
+                      cwd=GIT_DIR, check=True)
+        
+        # 禁用自动 GC 以提升性能
+        subprocess.run(["git", "config", "gc.auto", "0"], cwd=GIT_DIR, check=True)
+        
+        # 拉取最新更改
+        subprocess.run(["git", "pull", "origin", "main"], cwd=GIT_DIR, check=True)
+        
+        log_message("Git配置完成")
+        return True
+    except subprocess.CalledProcessError as e:
+        log_message(f"错误: Git 配置失败 - {str(e)}")
+        return False
+
+def git_commit_and_push(commit_message):
+    """提交更改并推送到 GitHub"""
+    # 添加所有更改
+    try:
+        subprocess.run(["git", "add", "."], cwd=GIT_DIR, check=True)
+    except subprocess.CalledProcessError:
+        log_message("警告: Git add 失败")
+        return False
+    
+    # 检查是否有更改
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=GIT_DIR,
+        capture_output=True,
+        text=True
+    )
+    if not result.stdout.strip():
+        log_message("没有更改需要提交")
+        return True
+    
+    # 提交更改
+    try:
+        subprocess.run(
+            ["git", "commit", "-m", commit_message],
+            cwd=GIT_DIR,
+            check=True
+        )
+    except Exception as e:
+        log_message(f"错误: Git commit 失败 - {str(e)}")
+        return False
+    
+    # 推送更改
+    log_message("推送更改到 GitHub...")
+    try:
+        # 使用 GitHub Token 进行认证
+        repo_url = f"https://{GITHUB_ACTOR}:{GITHUB_TOKEN}@github.com/{TARGET_REPO}.git"
+        
+        # 使用 force-with-lease 安全推送
+        result = subprocess.run(
+            ["git", "push", repo_url, "HEAD:main"],
+            cwd=GIT_DIR,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            log_message("推送成功")
+            return True
+        else:
+            log_message(f"错误: 推送失败 - {result.stderr.strip()}")
+            return False
+    except Exception as e:
+        log_message(f"错误: Git push 失败 - {str(e)}")
+        return False
+
+def get_current_version_data():
+    version_path = os.path.join(GIT_DIR, "version.txt")
+    
+    if os.path.exists(version_path):
+        try:
+            with open(version_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            log_message("警告: 版本文件格式不正确，尝试转换...")
+            try:
+                with open(version_path, "r", encoding="utf-8") as f:
+                    version_text = f.read().strip()
+                    version_data = {}
+                    for apk in APK_FILES:
+                        version_data[apk] = version_text
+                    return version_data
+            except Exception as e:
+                log_message(f"错误: 读取版本文件失败 - {str(e)}")
+        except Exception as e:
+            log_message(f"错误: 读取版本文件异常 - {str(e)}")
+    
+    return {}
+
+def update_version_file(version_data):
+    version_path = os.path.join(GIT_DIR, "version.txt")
+    
+    try:
+        with open(version_path, "w", encoding="utf-8") as f:
+            json.dump(version_data, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        log_message(f"错误: 写入版本文件失败 - {str(e)}")
+        return False
+
+def format_version(apk_name, date_str):
+    return f"{os.path.splitext(apk_name)[0]}-{date_str}"
+
+async def download_apk(client, message, filename, download_path, date_str):
+    version = format_version(filename, date_str)
+    file_size = message.document.size
+    
+    with tqdm(total=file_size, unit='B', unit_scale=True, 
+              desc=f"下载 {filename}", dynamic_ncols=True) as pbar:
+        last_downloaded = 0
+        
+        def progress_callback(current, total):
+            nonlocal last_downloaded
+            increment = current - last_downloaded
+            if increment > 0:
+                pbar.update(increment)
+                last_downloaded = current
+        
+        try:
+            await client.download_media(
+                message,
+                file=download_path,
+                progress_callback=progress_callback
+            )
+        except Exception as e:
+            log_message(f"错误: 下载失败 - {str(e)}")
+            return None
+    
+    return {
+        "local_path": download_path,
+        "version": version,
+        "date": date_str
+    }
+
+async def find_latest_apk_versions(client, current_versions):
+    """
+    在Telegram频道中查找最新版本的APK文件
+    返回需要更新的文件信息字典
+    """
+    log_message("连接Telegram...")
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            log_message("错误: Telegram会话无效")
+            return None
+    except Exception as e:
+        log_message(f"错误: 连接Telegram失败 - {str(e)}")
+        return None
+    
+    log_message(f"扫描频道: {TELEGRAM_CHANNEL}")
+    try:
+        channel = await client.get_entity(TELEGRAM_CHANNEL)
+    except Exception as e:
+        log_message(f"错误: 获取频道失败 - {str(e)}")
+        return None
+    
+    # 存储找到的最新文件信息
+    found_files = {}
+    # 存储每个文件的最新消息（用于后续下载）
+    latest_messages = {}
+    
+    log_message("搜索最新APK版本...")
+    try:
+        async for message in client.iter_messages(channel, limit=100):
+            if not message.media or not hasattr(message.media, "document"):
+                continue
+            
+            doc = message.media.document
+            for attr in doc.attributes:
+                if isinstance(attr, DocumentAttributeFilename):
+                    filename = attr.file_name
+                    
+                    if filename in APK_FILES:
+                        # 检查是否已有该文件的消息
+                        if filename not in latest_messages:
+                            latest_messages[filename] = message
+                        else:
+                            # 保留最新的消息（消息ID更大的）
+                            if message.id > latest_messages[filename].id:
+                                latest_messages[filename] = message
+    except Exception as e:
+        log_message(f"错误: 获取消息失败 - {str(e)}")
+    
+    # 检查每个文件是否需要更新
+    update_needed = False
+    for filename, message in latest_messages.items():
+        date_str = message.date.strftime("%Y%m%d")
+        version = format_version(filename, date_str)
+        current_version = current_versions.get(filename, "")
+        
+        if version == current_version:
+            log_message(f"{filename} 已是最新版本: {current_version}")
+            continue
+            
+        log_message(f"发现新版本: {filename} ({current_version} → {version})")
+        download_path = os.path.join(WORK_DIR, filename)
+        file_data = await download_apk(client, message, filename, download_path, date_str)
+        
+        if file_data:
+            found_files[filename] = file_data
+            update_needed = True
+    
+    if not update_needed:
+        log_message("所有APK文件均为最新版本")
+        return None
+    
+    return found_files
+
+def main():
+    # 初始化日志
+    start_time = datetime.now()
+    print("=" * 50)
+    log_message("APK 同步工具 - GitHub Actions 版本")
+    log_message(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 50)
+    
+    # 验证必要的环境变量
+    required_envs = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GITHUB_TOKEN']
+    missing = [var for var in required_envs if not os.environ.get(var)]
+    if missing:
+        log_message(f"错误: 缺少必要的环境变量: {', '.join(missing)}")
+        return 1
+    
+    if not setup_git_repo():
+        log_message("错误: 无法设置 Git 仓库")
+        return 2
+    
+    current_version_data = get_current_version_data()
+    log_message("当前版本数据:")
+    for apk, version in current_version_data.items():
+        log_message(f"  - {apk}: {version}")
+    
+    client = TelegramClient(
+        StringSession(TELEGRAM_SESSION),
+        int(TELEGRAM_API_ID),
+        TELEGRAM_API_HASH
+    )
+    
+    apk_data = None
+    try:
+        with client:
+            apk_data = client.loop.run_until_complete(
+                find_latest_apk_versions(client, current_version_data)
+            )
+    except Exception as e:
+        log_message(f"错误: 运行Telegram客户端失败 - {str(e)}")
+        return 3
+    
+    # 如果没有找到需要更新的文件
+    if not apk_data:
+        log_message("没有需要更新的APK文件，退出")
+        return 0
+    
+    update_needed = False
+    new_version_data = current_version_data.copy()
+    updated_files = {}  # 存储实际更新的文件
+    
+    target_apk_dir = os.path.join(GIT_DIR, APK_DIR)
+    os.makedirs(target_apk_dir, exist_ok=True)
+    
+    for filename, data in apk_data.items():
+        target_path = os.path.join(target_apk_dir, filename)
+        version = data["version"]
+        
+        try:
+            # 复制文件到 Git 仓库
+            shutil.copy2(data["local_path"], target_path)
+            new_version_data[filename] = version
+            update_needed = True
+            updated_files[filename] = version  # 记录更新的文件
+            log_message(f"已复制: {filename} (版本: {version})")
+        except Exception as e:
+            log_message(f"错误: 复制文件失败 - {str(e)}")
+    
+    # 如果有更新，更新版本文件并推送
+    if update_needed:
+        # 更新版本文件
+        if not update_version_file(new_version_data):
+            log_message("错误: 更新版本文件失败")
+            return 5
+        
+        # 提交并推送更改
+        commit_message = f"更新APK: {', '.join([f'{k}={v}' for k, v in updated_files.items()])}"
+        if git_commit_and_push(commit_message):
+            log_message(f"同步完成! 已更新 {len(updated_files)}/{len(apk_data)} 个文件")
+            log_message(f"访问: https://github.com/{TARGET_REPO}/tree/main/{APK_DIR}")
+        else:
+            log_message("错误: 无法推送更改到 GitHub")
+            return 6
+    else:
+        log_message("所有文件均为最新版本，无需更新")
+    
+    log_message("清理临时文件...")
+    try:
+        for file in os.listdir(WORK_DIR):
+            file_path = os.path.join(WORK_DIR, file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        log_message("临时文件已清理")
+    except Exception as e:
+        log_message(f"警告: 清理临时文件失败 - {str(e)}")
+    
+    end_time = datetime.now()
+    duration = end_time - start_time
+    print("=" * 50)
+    log_message(f"完成时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    log_message(f"总耗时: {duration.total_seconds():.1f} 秒")
+    print("=" * 50)
+    
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+    - name: Show execution logs
+      if: always()
+      run: |
+        echo "APK同步任务完成"
