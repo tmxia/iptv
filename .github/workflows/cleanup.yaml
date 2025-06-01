@@ -10,7 +10,7 @@ jobs:
       - name: Cleanup runs
         uses: c-hive/gha-cleanup-workflow-runs@v1  # 关键修正
         with:
-          keep_days: 7
+          keep_days: 1
           # 可选：指定具体工作流
           workflow_names: |
             MYTV APK Sync from Source Repository
