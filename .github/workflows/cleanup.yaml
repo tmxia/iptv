@@ -15,7 +15,7 @@ jobs:
           # 核心参数设置（二选一）：
           keep_days: 1    # 保留最近 1 天记录
           # 或
-          keep_minimum: 30 # 保留最近 30 条记录
+          keep_minimum: 5 # 保留最近 30 条记录
 
           # 指定清理的工作流（可选）
           workflow_names: |
