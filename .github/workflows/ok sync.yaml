@@ -1,4 +1,4 @@
-name: APK Sync from TELEGRAM
+name: OK APK Sync from TELEGRAM
 
 on:
   schedule:
