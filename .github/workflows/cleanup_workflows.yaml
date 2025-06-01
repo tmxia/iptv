@@ -8,10 +8,10 @@ on:
 
 jobs:
   cleanup_mytv:
-    name: Cleanup MYTV History
+    name: Cleanup MYTV APK History
     runs-on: ubuntu-latest
     steps:
-      - name: Delete old MYTV workflow runs
+      - name: Delete old MYTV APK workflow runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
