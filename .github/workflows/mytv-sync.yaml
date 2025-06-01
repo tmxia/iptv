@@ -3,7 +3,6 @@ name: MYTV APK Sync from Source Repository
 on:
   schedule:
     - cron: '0 */3 * * *'  # 每3小时运行一次
-    #- cron: '0 0 * * *'   # 每天UTC时间00:00（北京时间08:00）运行
   workflow_dispatch:       # 允许手动触发
 
 permissions:
@@ -15,7 +14,7 @@ jobs:
     steps:
     - name: Checkout current repository
       uses: actions/checkout@v3
-      
+
     - name: Install dependencies
       run: |
         sudo apt-get update
@@ -193,7 +192,7 @@ jobs:
           fi
         }
 
-        # 函数：上传APK文件
+        # 函数：上传APK文件（优化版，处理大文件）
         upload_apk() {
           local target_filename="$1"
           local latest_version="$2"
@@ -223,33 +222,24 @@ jobs:
           # 创建JSON请求文件
           local json_file="$WORK_DIR/request_$simple_target_filename.json"
           
-          # 使用jq安全生成JSON
-          jq -n \
-            --arg msg "$commit_msg" \
-            --arg content "$(base64 -w0 "$WORK_DIR/$simple_target_filename")" \
-            --arg sha "$sha" \
-            '{message: $msg, content: $content, sha: $sha}' > "$json_file"
+          # 手动构建JSON文件，避免大文件参数问题
+          {
+            echo '{'
+            echo "  \"message\": \"$commit_msg\","
+            echo -n '  "content": "'
+            base64 -w0 "$WORK_DIR/$simple_target_filename" | tr -d '\n'
+            echo '",'
+            echo "  \"sha\": \"$sha\""
+            echo '}'
+          } > "$json_file"
           
-          # 检查JSON文件大小
-          local json_size=$(wc -c < "$json_file")
-          if [ "$json_size" -gt 1000000 ]; then
-            echo "警告: JSON请求过大 ($((json_size/1000))KB)，使用替代方法..."
-            # 使用替代方法上传
-            RESPONSE_JSON=$(curl -s \
-                  -X PUT \
-                  -H "Authorization: token $TOKEN" \
-                  -H "Content-Type: application/json" \
-                  --data-binary "@$json_file" \
-                  "https://api.github.com/repos/$TARGET_REPO/contents/$target_filename")
-          else
-            # 使用常规方法上传
-            RESPONSE_JSON=$(curl -s \
-                  -X PUT \
-                  -H "Authorization: token $TOKEN" \
-                  -H "Content-Type: application/json" \
-                  -d "$(cat "$json_file")" \
-                  "https://api.github.com/repos/$TARGET_REPO/contents/$target_filename")
-          fi
+          # 使用--data-binary上传，确保正确处理大文件
+          RESPONSE_JSON=$(curl -s \
+                -X PUT \
+                -H "Authorization: token $TOKEN" \
+                -H "Content-Type: application/json" \
+                --data-binary "@$json_file" \
+                "https://api.github.com/repos/$TARGET_REPO/contents/$target_filename")
           
           # 检查错误
           local error_message=$(echo "$RESPONSE_JSON" | jq -r '.message')
@@ -270,7 +260,6 @@ jobs:
         check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION"
         STABLE_RESULT=$?
         if [ $STABLE_RESULT -eq 0 ]; then
-          # 如果返回0，可能是需要更新也可能是无需更新
           # 检查是否需要更新（通过文件内容判断）
           if [ -f "$WORK_DIR/$STABLE_KEY_NAME" ]; then
             STABLE_NEED_UPDATE=true
