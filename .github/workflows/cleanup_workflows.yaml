@@ -34,18 +34,3 @@ jobs:
           retain_days: 0
           workflow_name: "OK APK Sync from TELEGRAM"
           repository: ${{ github.repository }}
-
-  # 清理自身工作流（最后执行）
-  cleanup_self:
-    name: Cleanup Self History
-    runs-on: ubuntu-latest
-    needs: [cleanup_mytv, cleanup_ok]  # 等待前两个任务完成
-    steps:
-      - name: Delete old self workflow runs
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 1  # 保留自身最近1条记录
-          retain_days: 0
-          workflow_name: "Cleanup Workflow History"  # 清理自身
-          repository: ${{ github.repository }}
