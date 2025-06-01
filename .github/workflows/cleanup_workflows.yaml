@@ -1,0 +1,34 @@
+name: Cleanup Workflow History
+
+on:
+  schedule:
+    # 每天北京时间凌晨1点运行 (UTC时间17点)
+    - cron: '0 17 * * *'
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  cleanup_mytv:
+    name: Cleanup MYTV History
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old MYTV workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 1  # 只保留最近1条记录
+          retain_days: 0        # 不按天数保留
+          workflow_name: "MYTV APK Sync from Source Repository"  # 指定工作流名称
+          repository: ${{ github.repository }}  # 当前仓库
+
+  cleanup_ok:
+    name: Cleanup OK APK History
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old OK APK workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 1  # 只保留最近1条记录
+          retain_days: 0        # 不按天数保留
+          workflow_name: "OK APK Sync from TELEGRAM"  # 指定工作流名称
+          repository: ${{ github.repository }}  # 当前仓库
