@@ -6,7 +6,7 @@ on:
   workflow_dispatch:  # 允许手动触发
 
 jobs:
-  sync:
+  sync-apk:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
@@ -254,7 +254,7 @@ jobs:
   cleanup_runs:
     name: Cleanup Workflow Runs
     runs-on: ubuntu-latest
-    needs: [sync]  # 依赖同步任务完成
+    needs: [sync-apk]  # 依赖同步任务完成
     steps:
       - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
