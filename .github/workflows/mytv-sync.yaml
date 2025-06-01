@@ -2,7 +2,8 @@ name: MYTV APK Sync from Source Repository
 
 on:
   schedule:
-    - cron: '0 0 * * *'   # 每天UTC时间00:00（北京时间08:00）运行
+    - cron: '0 */3 * * *'  # 每3小时运行一次
+    #- cron: '0 0 * * *'   # 每天UTC时间00:00（北京时间08:00）运行
   workflow_dispatch:       # 允许手动触发
 
 permissions:
