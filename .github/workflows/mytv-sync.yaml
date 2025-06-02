@@ -374,3 +374,18 @@ jobs:
         
         # 总是以成功状态退出
         exit 0
+
+# 新增：清理自身工作流历史
+  cleanup_self:
+    name: Cleanup Self-History
+    runs-on: ubuntu-latest
+    needs: cleanup_ok  # 确保最后执行
+    steps:
+      - name: Delete old runs of this workflow
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 1   # 保留最近一次运行
+          retain_days: 0
+          workflow_name: "MYTV APK Sync from Source Repository"  # 当前工作流名称
+          repository: ${{ github.repository }}
