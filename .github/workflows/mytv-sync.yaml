@@ -382,7 +382,6 @@ jobs:
     needs: sync
     if: ${{ always() }}
     permissions:
-      # 添加必要的权限
       actions: write
       contents: read
     steps:
@@ -392,6 +391,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 1
           retain_days: 0
-          # 使用正确的参数名
           delete_workflow_pattern: "MYTV APK Sync from Source Repository"
           repository: ${{ github.repository }}
