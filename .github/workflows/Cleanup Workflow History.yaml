@@ -46,7 +46,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 1   # 保留最近一次运行
+          keep_minimum_runs: 0
           retain_days: 0
           delete_workflow_pattern: "^Cleanup Workflow History$"  # 使用正则匹配当前工作流名称
           repository: ${{ github.repository }}
