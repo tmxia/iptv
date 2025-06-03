@@ -75,8 +75,14 @@ jobs:
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          # 直接使用原始标签（不再去除 "tv_" 前缀）
-          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+          # 修复预览版版本号提取 - 从APK文件名获取真实版本号
+          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.assets[] | select(.name | contains("'"$PRE_RELEASE_APK_PATTERN"'")) | .name' | head -1 | sed -n 's/.*_\(v[0-9.]*\)_.*/\1/p')
+          
+          if [ -z "$PRE_RELEASE_VERSION" ]; then
+            echo "警告: 无法从预发行版APK文件名提取版本号，使用标签作为后备"
+            PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+          fi
+          
           echo "源仓库最新预发行版: $PRE_RELEASE_VERSION"
           SYNC_PRE_RELEASE=true
         fi
@@ -130,10 +136,14 @@ jobs:
           local apk_pattern="$5"
           
           # 检查是否需要更新
-          local latest_version=$(echo "$release_json" | jq -r '.tag_name')
-          
-          # 直接使用原始标签（不再对预发行版进行特殊处理）
-          echo "使用原始标签: $latest_version"
+          local latest_version
+          if [ "$key_name" = "$STABLE_KEY_NAME" ]; then
+            # 稳定版使用标签版本
+            latest_version=$(echo "$release_json" | jq -r '.tag_name')
+          else
+            # 预览版使用从文件名提取的版本
+            latest_version="$PRE_RELEASE_VERSION"
+          fi
           
           # 检查目标仓库中APK文件是否存在
           echo "检查目标仓库中APK文件是否存在: $target_filename..."
