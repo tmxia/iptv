@@ -50,13 +50,32 @@ jobs:
           exit 1
         fi
 
-        # 获取最新发布的APK下载链接
+        # 获取最新发布的APK下载链接 - 增强错误处理
         echo "获取最新发布版本信息..."
+        RELEASES_JSON=""
+        MAX_RETRIES=3
+        RETRY_COUNT=0
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+          RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
+          CURL_EXIT_CODE=$?
+          
+          if [ $CURL_EXIT_CODE -eq 0 ]; then
+            # 检查JSON是否有效
+            if echo "$RELEASES_JSON" | jq empty >/dev/null 2>&1; then
+              break
+            else
+              echo "警告: 获取的发布信息JSON无效 (尝试 $((RETRY_COUNT+1))/$MAX_RETRIES)"
+            fi
+          else
+            echo "警告: 获取发布信息失败 (curl退出码: $CURL_EXIT_CODE) (尝试 $((RETRY_COUNT+1))/$MAX_RETRIES)"
+          fi
+          
+          RETRY_COUNT=$((RETRY_COUNT+1))
+          sleep 5
+        done
 
-        # 获取所有发布（包括预发行版）
-        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
-        if [ $? -ne 0 ]; then
-          echo "错误: 无法获取发布信息"
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+          echo "错误: 无法获取有效的发布信息"
           exit 1
         fi
 
@@ -64,11 +83,17 @@ jobs:
         LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]')
         if [ -z "$LATEST_STABLE_RELEASE" ] || [ "$LATEST_STABLE_RELEASE" = "null" ]; then
           echo "错误: 无法提取稳定版发布信息"
+          echo "响应内容: $RELEASES_JSON"
           exit 1
         fi
+        
         STABLE_TAG=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
-        # 从标签中提取语义版本号 (如 "0.2.9.r693.f86ceda.release" -> "0.2.9")
-        STABLE_VERSION=$(echo "$STABLE_TAG" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+        # 从标签中提取更完整的版本号
+        STABLE_VERSION=$(echo "$STABLE_TAG" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+')
+        if [ -z "$STABLE_VERSION" ]; then
+          # 尝试备用格式
+          STABLE_VERSION=$(echo "$STABLE_TAG" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+')
+        fi
         if [ -z "$STABLE_VERSION" ]; then
           echo "错误: 无法从标签提取稳定版版本号: $STABLE_TAG"
           exit 1
@@ -83,11 +108,15 @@ jobs:
           SYNC_PRE_RELEASE=false
         else
           PRE_RELEASE_TAG=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
-          # 从标签中提取语义版本号 (如 "0.3.0.r838.057ced2.alpha" -> "0.3.0")
-          PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_TAG" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+          # 从标签中提取更完整的版本号
+          PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_TAG" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+')
           if [ -z "$PRE_RELEASE_VERSION" ]; then
-            echo "错误: 无法从标签提取预发行版版本号: $PRE_RELEASE_TAG"
-            exit 1
+            # 尝试备用格式
+            PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_TAG" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+')
+          fi
+          if [ -z "$PRE_RELEASE_VERSION" ]; then
+            echo "警告: 无法从标签提取预发行版版本号: $PRE_RELEASE_TAG，使用原始标签"
+            PRE_RELEASE_VERSION="$PRE_RELEASE_TAG"
           fi
           echo "源仓库最新预发行版标签: $PRE_RELEASE_TAG"
           echo "提取的预发行版版本号: $PRE_RELEASE_VERSION"
@@ -98,6 +127,12 @@ jobs:
         echo "获取目标仓库当前版本文件..."
         TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+        
+        # 检查是否达到API限制
+        if [[ "$TARGET_VERSION_JSON" == *"rate limit exceeded"* ]]; then
+          echo "错误: GitHub API速率限制已超"
+          exit 1
+        fi
 
         # 检查版本文件是否存在
         if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
@@ -141,8 +176,6 @@ jobs:
           local key_name="$3"
           local current_version="$4"
           local apk_pattern="$5"
-          
-          # 获取最新版本号
           local latest_version="$6"
           
           # 检查目标仓库中APK文件是否存在
@@ -155,8 +188,10 @@ jobs:
           if [ "$APK_EXIST_RESPONSE" -eq 200 ]; then
             echo "目标仓库中存在APK文件: $target_filename"
             apk_exists=true
+          elif [ "$APK_EXIST_RESPONSE" -eq 404 ]; then
+            echo "目标仓库中不存在APK文件: $target_filename"
           else
-            echo "目标仓库中不存在APK文件: $target_filename (HTTP $APK_EXIST_RESPONSE)"
+            echo "警告: 检查APK文件存在时返回HTTP $APK_EXIST_RESPONSE"
           fi
           
           # 检查是否需要更新
@@ -185,15 +220,23 @@ jobs:
             
             if [ -z "$download_url" ]; then
               echo "错误: 未找到匹配的APK文件 (模式: $apk_pattern)"
+              echo "可用文件列表:"
+              echo "$release_json" | jq -r '.assets[].name'
               return 1
             fi
             
             local source_apk_name=$(basename "$download_url")
             echo "下载APK: $source_apk_name"
-            curl -sL "$download_url" -o "$WORK_DIR/$source_apk_name"
+            curl -L "$download_url" -o "$WORK_DIR/$source_apk_name"
             if [ ! -f "$WORK_DIR/$source_apk_name" ]; then
               echo "错误: APK下载失败"
               return 1
+            fi
+            
+            # 检查文件大小
+            FILE_SIZE=$(stat -c %s "$WORK_DIR/$source_apk_name")
+            if [ "$FILE_SIZE" -lt 1000000 ]; then
+              echo "警告: 下载的APK文件大小异常小 ($FILE_SIZE 字节)，可能是错误页面"
             fi
             
             # 重命名为目标文件名
@@ -243,7 +286,9 @@ jobs:
             echo -n '  "content": "'
             base64 -w0 "$WORK_DIR/$simple_target_filename" | tr -d '\n'
             echo '",'
-            echo "  \"sha\": \"$sha\""
+            if [ -n "$sha" ]; then
+              echo "  \"sha\": \"$sha\""
+            fi
             echo '}'
           } > "$json_file"
           
@@ -271,9 +316,7 @@ jobs:
         # 处理稳定版
         STABLE_NEED_UPDATE=false
         echo "===== 处理稳定版 ====="
-        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN" "$STABLE_VERSION"
-        STABLE_RESULT=$?
-        if [ $STABLE_RESULT -eq 0 ]; then
+        if check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN" "$STABLE_VERSION"; then
           if [ -f "$WORK_DIR/$STABLE_KEY_NAME" ]; then
             STABLE_NEED_UPDATE=true
             NEW_STABLE_VERSION="$STABLE_VERSION"
@@ -291,9 +334,7 @@ jobs:
         PRE_RELEASE_NEED_UPDATE=false
         if [ "$SYNC_PRE_RELEASE" = true ]; then
           echo "===== 处理预发行版 ====="
-          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_VERSION"
-          PRE_RELEASE_RESULT=$?
-          if [ $PRE_RELEASE_RESULT -eq 0 ]; then
+          if check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_VERSION"; then
             if [ -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" ]; then
               PRE_RELEASE_NEED_UPDATE=true
               NEW_PRE_RELEASE_VERSION="$PRE_RELEASE_VERSION"
@@ -363,8 +404,7 @@ jobs:
 
         # 上传稳定版APK
         if [ "$STABLE_NEED_UPDATE" = true ]; then
-          upload_apk "$STABLE_TARGET_FILENAME" "$STABLE_VERSION" "false"
-          if [ $? -ne 0 ]; then
+          if ! upload_apk "$STABLE_TARGET_FILENAME" "$STABLE_VERSION" "false"; then
             echo "错误: 稳定版APK上传失败"
             exit 1
           fi
@@ -372,8 +412,7 @@ jobs:
 
         # 上传预发行版APK
         if [ "$PRE_RELEASE_NEED_UPDATE" = true ]; then
-          upload_apk "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_VERSION" "true"
-          if [ $? -ne 0 ]; then
+          if ! upload_apk "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_VERSION" "true"; then
             echo "错误: 预发行版APK上传失败"
             exit 1
           fi
