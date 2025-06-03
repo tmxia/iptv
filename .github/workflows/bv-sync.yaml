@@ -66,7 +66,14 @@ jobs:
           echo "错误: 无法提取稳定版发布信息"
           exit 1
         fi
-        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        
+        # 从稳定版APK文件名提取版本号
+        STABLE_APK_NAME=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'"$STABLE_APK_PATTERN"'")) | .name' | head -1)
+        STABLE_VERSION=$(echo "$STABLE_APK_NAME" | grep -oP 'v\d+\.\d+\.\d+')
+        if [ -z "$STABLE_VERSION" ]; then
+          echo "错误: 无法从稳定版APK文件名($STABLE_APK_NAME)提取版本号"
+          exit 1
+        fi
         echo "源仓库最新稳定版: $STABLE_VERSION"
 
         # 提取最新预发行版
@@ -75,18 +82,15 @@ jobs:
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          # 从标签中提取主版本号（格式为x.x.x）
-          PRE_RELEASE_TAG=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
-          # 直接提取第一个点分版本号部分
-          PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_TAG" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          # 从预览版APK文件名提取版本号
+          PRE_RELEASE_APK_NAME=$(echo "$LATEST_PRE_RELEASE" | jq -r '.assets[] | select(.name | contains("'"$PRE_RELEASE_APK_PATTERN"'")) | .name' | head -1)
+          PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_APK_NAME" | grep -oP 'v\d+\.\d+\.\d+')
           
           if [ -z "$PRE_RELEASE_VERSION" ]; then
-            echo "错误: 无法从预发行版标签($PRE_RELEASE_TAG)提取版本号"
+            echo "错误: 无法从预发行版APK文件名($PRE_RELEASE_APK_NAME)提取版本号"
             exit 1
           fi
           
-          # 添加v前缀
-          PRE_RELEASE_VERSION="v$PRE_RELEASE_VERSION"
           echo "源仓库最新预发行版: $PRE_RELEASE_VERSION"
           SYNC_PRE_RELEASE=true
         fi
@@ -138,7 +142,7 @@ jobs:
           local key_name="$3"
           local current_version="$4"
           local apk_pattern="$5"
-          local latest_version="$6"  # 新增参数：明确传入版本号
+          local latest_version="$6"
           
           # 检查目标仓库中APK文件是否存在
           echo "检查目标仓库中APK文件是否存在: $target_filename..."
