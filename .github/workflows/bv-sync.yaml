@@ -75,14 +75,18 @@ jobs:
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          # 修复预览版版本号提取 - 从APK文件名获取真实版本号
-          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.assets[] | select(.name | contains("'"$PRE_RELEASE_APK_PATTERN"'")) | .name' | head -1 | sed -n 's/.*_\(v[0-9.]*\)_.*/\1/p')
+          # 从标签中提取主版本号（格式为x.x.x）
+          PRE_RELEASE_TAG=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+          # 直接提取第一个点分版本号部分
+          PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_TAG" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
           
           if [ -z "$PRE_RELEASE_VERSION" ]; then
-            echo "警告: 无法从预发行版APK文件名提取版本号，使用标签作为后备"
-            PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+            echo "错误: 无法从预发行版标签($PRE_RELEASE_TAG)提取版本号"
+            exit 1
           fi
           
+          # 添加v前缀
+          PRE_RELEASE_VERSION="v$PRE_RELEASE_VERSION"
           echo "源仓库最新预发行版: $PRE_RELEASE_VERSION"
           SYNC_PRE_RELEASE=true
         fi
@@ -134,16 +138,7 @@ jobs:
           local key_name="$3"
           local current_version="$4"
           local apk_pattern="$5"
-          
-          # 检查是否需要更新
-          local latest_version
-          if [ "$key_name" = "$STABLE_KEY_NAME" ]; then
-            # 稳定版使用标签版本
-            latest_version=$(echo "$release_json" | jq -r '.tag_name')
-          else
-            # 预览版使用从文件名提取的版本
-            latest_version="$PRE_RELEASE_VERSION"
-          fi
+          local latest_version="$6"  # 新增参数：明确传入版本号
           
           # 检查目标仓库中APK文件是否存在
           echo "检查目标仓库中APK文件是否存在: $target_filename..."
@@ -274,7 +269,7 @@ jobs:
         # 处理稳定版
         STABLE_NEED_UPDATE=false
         echo "===== 处理稳定版 ====="
-        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN"
+        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN" "$STABLE_VERSION"
         STABLE_RESULT=$?
         if [ $STABLE_RESULT -eq 0 ]; then
           # 检查是否需要更新（通过文件内容判断）
@@ -295,7 +290,7 @@ jobs:
         PRE_RELEASE_NEED_UPDATE=false
         if [ "$SYNC_PRE_RELEASE" = true ]; then
           echo "===== 处理预发行版 ====="
-          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN"
+          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_VERSION"
           PRE_RELEASE_RESULT=$?
           if [ $PRE_RELEASE_RESULT -eq 0 ]; then
             if [ -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" ]; then
