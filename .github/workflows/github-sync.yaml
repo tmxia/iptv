@@ -1,0 +1,185 @@
+name: GitHub APK Download and Sync
+
+on:
+  schedule:
+    - cron: '0 */12 * * *'  # 每12小时运行一次
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout current repository
+      uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip
+        
+    - name: Download and process GitHub APK
+      env:
+        TARGET_REPO: "${{ github.repository }}"
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        APK_NAME: "GitHub.apk"
+        VERSION_KEY: "github"
+        APKPURE_URL: "https://d.apkpure.net/b/XAPK/com.github.android?version=latest"
+      run: |
+        # 创建临时工作目录
+        WORK_DIR=$(mktemp -d)
+        echo "创建临时目录: $WORK_DIR"
+        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
+
+        # 下载XAPK文件
+        echo "正在下载GitHub XAPK文件..."
+        curl -L -o "$WORK_DIR/github.xapk" "$APKPURE_URL"
+        
+        if [ ! -f "$WORK_DIR/github.xapk" ]; then
+          echo "错误: XAPK下载失败"
+          exit 1
+        fi
+
+        # 从文件名提取版本号
+        ORIG_FILENAME=$(curl -sI "$APKPURE_URL" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2)
+        if [[ "$ORIG_FILENAME" =~ _([0-9]+\.[0-9]+\.[0-9]+)_ ]]; then
+          VERSION="${BASH_REMATCH[1]}"
+          echo "提取的版本号: $VERSION"
+        else
+          echo "警告: 无法从文件名提取版本号 ($ORIG_FILENAME)"
+          VERSION=$(date +%Y%m%d%H%M)
+        fi
+
+        # 解压XAPK文件
+        echo "正在解压XAPK文件..."
+        unzip -q "$WORK_DIR/github.xapk" -d "$WORK_DIR/extracted"
+        
+        # 查找并重命名APK文件
+        APK_FILE=$(find "$WORK_DIR/extracted" -name "*.apk" -print -quit)
+        if [ -z "$APK_FILE" ]; then
+          echo "错误: 未找到APK文件"
+          exit 1
+        fi
+        
+        echo "找到APK文件: $APK_FILE"
+        mv "$APK_FILE" "$WORK_DIR/$APK_NAME"
+        echo "已重命名为: $APK_NAME"
+
+        # 获取目标仓库当前版本
+        echo "获取目标仓库当前版本..."
+        TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+        
+        CURRENT_VERSION=""
+        if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
+          VERSION_CONTENT=$(echo "$TARGET_VERSION_JSON" | jq -r '.content' | base64 -d)
+          CURRENT_VERSION=$(echo "$VERSION_CONTENT" | jq -r ".\"$VERSION_KEY\"")
+          if [ "$CURRENT_VERSION" = "null" ]; then
+            CURRENT_VERSION=""
+          fi
+        fi
+        
+        echo "当前版本: $CURRENT_VERSION"
+        echo "新版本: $VERSION"
+
+        # 检查是否需要更新
+        NEED_UPDATE=false
+        if [ "$VERSION" != "$CURRENT_VERSION" ]; then
+          echo "发现新版本，需要更新"
+          NEED_UPDATE=true
+        else
+          # 检查APK文件是否存在
+          APK_EXIST_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: token $TOKEN" \
+              "https://api.github.com/repos/$TARGET_REPO/contents/apk/$APK_NAME")
+          
+          if [ "$APK_EXIST_RESPONSE" -ne 200 ]; then
+            echo "APK文件不存在，需要上传"
+            NEED_UPDATE=true
+          else
+            echo "版本相同且APK文件存在，无需更新"
+          fi
+        fi
+
+        if [ "$NEED_UPDATE" = false ]; then
+          echo "无需更新，退出"
+          exit 0
+        fi
+
+        # 更新版本文件
+        echo "更新版本文件..."
+        NEW_VERSION_CONTENT="{}"
+        if [ -n "$CURRENT_VERSION" ]; then
+          NEW_VERSION_CONTENT=$(echo "$VERSION_CONTENT" | jq --arg key "$VERSION_KEY" --arg value "$VERSION" '.[$key] = $value')
+        else
+          NEW_VERSION_CONTENT=$(jq -n --arg key "$VERSION_KEY" --arg value "$VERSION" '{($key): $value}')
+        fi
+
+        VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
+                        "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+
+        SHA_VERSION=""
+        if [ "$(echo "$VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
+          SHA_VERSION=$(echo "$VERSION_JSON" | jq -r '.sha')
+        fi
+
+        VERSION_BASE64=$(echo -n "$NEW_VERSION_CONTENT" | base64 -w0)
+        JSON_VERSION=$(jq -n \
+            --arg msg "更新GitHub版本: $VERSION" \
+            --arg content "$VERSION_BASE64" \
+            --arg sha "$SHA_VERSION" \
+            '{message: $msg, content: $content, sha: $sha}')
+
+        VERSION_RESPONSE=$(curl -s \
+                  -X PUT \
+                  -H "Authorization: token $TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$JSON_VERSION" \
+                  "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+
+        # 上传APK文件
+        echo "上传APK文件..."
+        APK_JSON=$(curl -s -H "Authorization: token $TOKEN" \
+                    "https://api.github.com/repos/$TARGET_REPO/contents/apk/$APK_NAME")
+        
+        SHA_APK=""
+        if [ "$(echo "$APK_JSON" | jq -r '.message')" != "Not Found" ]; then
+          SHA_APK=$(echo "$APK_JSON" | jq -r '.sha')
+        fi
+
+        APK_BASE64=$(base64 -w0 "$WORK_DIR/$APK_NAME")
+        JSON_APK=$(jq -n \
+            --arg msg "更新GitHub APK: $VERSION" \
+            --arg content "$APK_BASE64" \
+            --arg sha "$SHA_APK" \
+            '{message: $msg, content: $content, sha: $sha}')
+
+        APK_RESPONSE=$(curl -s \
+                  -X PUT \
+                  -H "Authorization: token $TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$JSON_APK" \
+                  "https://api.github.com/repos/$TARGET_REPO/contents/apk/$APK_NAME")
+
+        echo "同步完成! 新版本: $VERSION"
+
+  cleanup_self:
+    name: Cleanup Self Workflow History
+    runs-on: ubuntu-latest
+    needs: sync
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "GitHub APK Download and Sync"
+          repository: ${{ github.repository }}
