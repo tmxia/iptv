@@ -2,7 +2,7 @@ name: BV APK Sync from Source Repository
 
 on:
   schedule:
-    - cron: '0 */1 * * *'  # 每1小时运行一次
+    - cron: '0 */12 * * *'  # 每1小时运行一次
   workflow_dispatch:
 
 permissions:
@@ -393,5 +393,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "MYTV APK Sync from Source Repository"
+          delete_workflow_pattern: "BV APK Sync from Source Repository"
           repository: ${{ github.repository }}
