@@ -69,15 +69,14 @@ jobs:
         STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
         echo "源仓库最新稳定版: $STABLE_VERSION"
 
-        # 提取最新预发行版 - 修复版本号解析问题
+        # 提取最新预发行版 - 使用与稳定版相同的处理方式
         LATEST_PRE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]')
         if [ -z "$LATEST_PRE_RELEASE" ] || [ "$LATEST_PRE_RELEASE" = "null" ]; then
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          # 保留原始版本号（不再移除'tv_'前缀）
           PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
-          echo "源仓库最新预发行版 (原始版本号): $PRE_RELEASE_VERSION"
+          echo "源仓库最新预发行版: $PRE_RELEASE_VERSION"
           SYNC_PRE_RELEASE=true
         fi
 
@@ -127,9 +126,9 @@ jobs:
           local target_filename="$2"
           local key_name="$3"
           local current_version="$4"
-          local apk_pattern="$5"  # 新增模式参数
+          local apk_pattern="$5"
           
-          # 检查是否需要更新
+          # 获取最新版本号
           local latest_version=$(echo "$release_json" | jq -r '.tag_name')
           
           # 检查目标仓库中APK文件是否存在
@@ -183,20 +182,18 @@ jobs:
               return 1
             fi
             
-            # 重命名为目标文件名（仅文件名部分，不含路径）
+            # 重命名为目标文件名
             local simple_target_filename=$(basename "$target_filename")
             mv "$WORK_DIR/$source_apk_name" "$WORK_DIR/$simple_target_filename"
             echo "文件已重命名为: $simple_target_filename"
             
-            # 返回成功和需要更新的标志
             return 0
           else
-            # 不需要更新 - 返回0表示成功
             return 0
           fi
         }
 
-        # 函数：上传APK文件（优化版，处理大文件）
+        # 函数：上传APK文件
         upload_apk() {
           local target_filename="$1"
           local latest_version="$2"
@@ -220,13 +217,12 @@ jobs:
             commit_msg="$commit_msg (预发行版)"
           fi
           
-          # 获取简单文件名（不含路径）
+          # 获取简单文件名
           local simple_target_filename=$(basename "$target_filename")
           
           # 创建JSON请求文件
           local json_file="$WORK_DIR/request_$simple_target_filename.json"
           
-          # 手动构建JSON文件，避免大文件参数问题
           {
             echo '{'
             echo "  \"message\": \"$commit_msg\","
@@ -237,7 +233,7 @@ jobs:
             echo '}'
           } > "$json_file"
           
-          # 使用--data-binary上传，确保正确处理大文件
+          # 上传文件
           RESPONSE_JSON=$(curl -s \
                 -X PUT \
                 -H "Authorization: token $TOKEN" \
@@ -264,7 +260,6 @@ jobs:
         check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN"
         STABLE_RESULT=$?
         if [ $STABLE_RESULT -eq 0 ]; then
-          # 检查是否需要更新（通过文件内容判断）
           if [ -f "$WORK_DIR/$STABLE_KEY_NAME" ]; then
             STABLE_NEED_UPDATE=true
             NEW_STABLE_VERSION="$STABLE_VERSION"
@@ -352,7 +347,7 @@ jobs:
           exit 1
         fi
 
-        # 上传稳定版APK（如果需要）
+        # 上传稳定版APK
         if [ "$STABLE_NEED_UPDATE" = true ]; then
           upload_apk "$STABLE_TARGET_FILENAME" "$STABLE_VERSION" "false"
           if [ $? -ne 0 ]; then
@@ -361,7 +356,7 @@ jobs:
           fi
         fi
 
-        # 上传预发行版APK（如果需要）
+        # 上传预发行版APK
         if [ "$PRE_RELEASE_NEED_UPDATE" = true ]; then
           upload_apk "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_VERSION" "true"
           if [ $? -ne 0 ]; then
@@ -376,7 +371,6 @@ jobs:
           echo "预发行版: $PRE_RELEASE_TARGET_FILENAME ($NEW_PRE_RELEASE_VERSION)"
         fi
         
-        # 总是以成功状态退出
         exit 0
 
   cleanup_self:
