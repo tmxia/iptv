@@ -66,17 +66,39 @@ jobs:
           echo "错误: 无法提取稳定版发布信息"
           exit 1
         fi
-        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
-        echo "源仓库最新稳定版: $STABLE_VERSION"
+        STABLE_TAG=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        # 从标签中提取更完整的版本号 (如 "0.2.9.r693.f86ceda.release" -> "0.2.9.r693")
+        STABLE_VERSION=$(echo "$STABLE_TAG" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+')
+        if [ -z "$STABLE_VERSION" ]; then
+          # 尝试备用格式 (如 "v0.2.9.r693.f86ceda.release")
+          STABLE_VERSION=$(echo "$STABLE_TAG" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+')
+        fi
+        if [ -z "$STABLE_VERSION" ]; then
+          echo "错误: 无法从标签提取稳定版版本号: $STABLE_TAG"
+          exit 1
+        fi
+        echo "源仓库最新稳定版标签: $STABLE_TAG"
+        echo "提取的稳定版版本号: $STABLE_VERSION"
 
-        # 提取最新预发行版 - 使用与稳定版相同的处理方式
+        # 提取最新预发行版
         LATEST_PRE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]')
         if [ -z "$LATEST_PRE_RELEASE" ] || [ "$LATEST_PRE_RELEASE" = "null" ]; then
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
-          echo "源仓库最新预发行版: $PRE_RELEASE_VERSION"
+          PRE_RELEASE_TAG=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+          # 从标签中提取更完整的版本号 (如 "0.3.0.r838.057ced2.alpha" -> "0.3.0.r838")
+          PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_TAG" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+')
+          if [ -z "$PRE_RELEASE_VERSION" ]; then
+            # 尝试备用格式 (如 "v0.3.0.r838.057ced2.alpha")
+            PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_TAG" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+')
+          fi
+          if [ -z "$PRE_RELEASE_VERSION" ]; then
+            echo "错误: 无法从标签提取预发行版版本号: $PRE_RELEASE_TAG"
+            exit 1
+          fi
+          echo "源仓库最新预发行版标签: $PRE_RELEASE_TAG"
+          echo "提取的预发行版版本号: $PRE_RELEASE_VERSION"
           SYNC_PRE_RELEASE=true
         fi
 
@@ -127,9 +149,7 @@ jobs:
           local key_name="$3"
           local current_version="$4"
           local apk_pattern="$5"
-          
-          # 获取最新版本号
-          local latest_version=$(echo "$release_json" | jq -r '.tag_name')
+          local latest_version="$6"
           
           # 检查目标仓库中APK文件是否存在
           echo "检查目标仓库中APK文件是否存在: $target_filename..."
@@ -257,7 +277,7 @@ jobs:
         # 处理稳定版
         STABLE_NEED_UPDATE=false
         echo "===== 处理稳定版 ====="
-        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN"
+        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN" "$STABLE_VERSION"
         STABLE_RESULT=$?
         if [ $STABLE_RESULT -eq 0 ]; then
           if [ -f "$WORK_DIR/$STABLE_KEY_NAME" ]; then
@@ -277,7 +297,7 @@ jobs:
         PRE_RELEASE_NEED_UPDATE=false
         if [ "$SYNC_PRE_RELEASE" = true ]; then
           echo "===== 处理预发行版 ====="
-          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN"
+          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_VERSION"
           PRE_RELEASE_RESULT=$?
           if [ $PRE_RELEASE_RESULT -eq 0 ]; then
             if [ -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" ]; then
