@@ -4,7 +4,5 @@
   "mytv-tv.apk": "V1.1.1.135",
   "mytv-tv-beta.apk": "V1.2.0.141",
   "simple_live.apk": "v1.8.6",
-  "simple_live-tv.apk": "v1.3.5",
-  "bv.apk": "v0.2.9",
-  "bv-beta.apk": "alpha-r838"
+  "simple_live-tv.apk": "v1.3.5"
 }
