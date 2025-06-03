@@ -26,8 +26,8 @@ jobs:
         SOURCE_REPO: "aaa1115910/bv"
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        STABLE_APK_PATTERN: "release_default_universal"
-        PRE_RELEASE_APK_PATTERN: "alpha_default_universal"
+        STABLE_APK_PATTERN: "release_default_universal.apk"  # 稳定版匹配模式
+        PRE_RELEASE_APK_PATTERN: "alpha_default_universal.apk"  # 预发行版匹配模式
         STABLE_KEY_NAME: "bv.apk"
         PRE_RELEASE_KEY_NAME: "bv-beta.apk"
       run: |
@@ -66,14 +66,7 @@ jobs:
           echo "错误: 无法提取稳定版发布信息"
           exit 1
         fi
-        
-        # 从稳定版APK文件名提取版本号
-        STABLE_APK_NAME=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'"$STABLE_APK_PATTERN"'")) | .name' | head -1)
-        STABLE_VERSION=$(echo "$STABLE_APK_NAME" | grep -oP 'v\d+\.\d+\.\d+')
-        if [ -z "$STABLE_VERSION" ]; then
-          echo "错误: 无法从稳定版APK文件名($STABLE_APK_NAME)提取版本号"
-          exit 1
-        fi
+        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
         echo "源仓库最新稳定版: $STABLE_VERSION"
 
         # 提取最新预发行版
@@ -82,15 +75,7 @@ jobs:
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          # 从预览版APK文件名提取版本号
-          PRE_RELEASE_APK_NAME=$(echo "$LATEST_PRE_RELEASE" | jq -r '.assets[] | select(.name | contains("'"$PRE_RELEASE_APK_PATTERN"'")) | .name' | head -1)
-          PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_APK_NAME" | grep -oP 'v\d+\.\d+\.\d+')
-          
-          if [ -z "$PRE_RELEASE_VERSION" ]; then
-            echo "错误: 无法从预发行版APK文件名($PRE_RELEASE_APK_NAME)提取版本号"
-            exit 1
-          fi
-          
+          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
           echo "源仓库最新预发行版: $PRE_RELEASE_VERSION"
           SYNC_PRE_RELEASE=true
         fi
@@ -141,8 +126,10 @@ jobs:
           local target_filename="$2"
           local key_name="$3"
           local current_version="$4"
-          local apk_pattern="$5"
-          local latest_version="$6"
+          local apk_pattern="$5"  # 新增：接收APK匹配模式参数
+          
+          # 检查是否需要更新
+          local latest_version=$(echo "$release_json" | jq -r '.tag_name')
           
           # 检查目标仓库中APK文件是否存在
           echo "检查目标仓库中APK文件是否存在: $target_filename..."
@@ -179,16 +166,16 @@ jobs:
           
           # 如果需要更新，下载APK
           if [ "$need_update" = true ]; then
-            # 查找匹配的APK文件
+            # 查找匹配的APK文件（使用传入的匹配模式）
             local download_url=$(echo "$release_json" | jq -r '.assets[] | select(.name | contains("'$apk_pattern'")) | .browser_download_url' | head -1)
             
             if [ -z "$download_url" ]; then
-              echo "错误: 未找到匹配的APK文件 (模式: $apk_pattern)"
+              echo "错误: 未找到匹配的APK文件 (匹配模式: $apk_pattern)"
               return 1
             fi
             
             local source_apk_name=$(basename "$download_url")
-            echo "下载APK: $source_apk_name"
+            echo "下载APK: $source_apk_name (匹配模式: $apk_pattern)"
             curl -sL "$download_url" -o "$WORK_DIR/$source_apk_name"
             if [ ! -f "$WORK_DIR/$source_apk_name" ]; then
               echo "错误: APK下载失败"
@@ -270,10 +257,10 @@ jobs:
           fi
         }
 
-        # 处理稳定版
+        # 处理稳定版（使用STABLE_APK_PATTERN）
         STABLE_NEED_UPDATE=false
         echo "===== 处理稳定版 ====="
-        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN" "$STABLE_VERSION"
+        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN"
         STABLE_RESULT=$?
         if [ $STABLE_RESULT -eq 0 ]; then
           # 检查是否需要更新（通过文件内容判断）
@@ -290,11 +277,11 @@ jobs:
           exit 1
         fi
 
-        # 处理预发行版
+        # 处理预发行版（使用PRE_RELEASE_APK_PATTERN）
         PRE_RELEASE_NEED_UPDATE=false
         if [ "$SYNC_PRE_RELEASE" = true ]; then
           echo "===== 处理预发行版 ====="
-          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_VERSION"
+          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN"
           PRE_RELEASE_RESULT=$?
           if [ $PRE_RELEASE_RESULT -eq 0 ]; then
             if [ -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" ]; then
@@ -406,5 +393,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "Simple_live APK Sync from Source Repository"
+          delete_workflow_pattern: "MYTV APK Sync from Source Repository"
           repository: ${{ github.repository }}
