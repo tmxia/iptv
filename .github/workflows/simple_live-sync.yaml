@@ -25,8 +25,9 @@ jobs:
       env:
         SOURCE_REPO: "xiaoyaocz/dart_simple_live"
         TARGET_REPO: "${{ github.repository }}"
-        TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        APK_PATTERN: "app-armeabi-v7a-release"
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}"
+        STABLE_APK_PATTERN: "app-arm64-v8a-release"  # 修改为arm64
+        PRE_RELEASE_APK_PATTERN: "app-armeabi-v7a-release"  # 保持为v7a
         STABLE_KEY_NAME: "simple_live.apk"
         PRE_RELEASE_KEY_NAME: "simple_live-tv.apk"
       run: |
@@ -125,6 +126,7 @@ jobs:
           local target_filename="$2"
           local key_name="$3"
           local current_version="$4"
+          local apk_pattern="$5"  # 新增模式参数
           
           # 检查是否需要更新
           local latest_version=$(echo "$release_json" | jq -r '.tag_name')
@@ -165,10 +167,10 @@ jobs:
           # 如果需要更新，下载APK
           if [ "$need_update" = true ]; then
             # 查找匹配的APK文件
-            local download_url=$(echo "$release_json" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
+            local download_url=$(echo "$release_json" | jq -r '.assets[] | select(.name | contains("'$apk_pattern'")) | .browser_download_url' | head -1)
             
             if [ -z "$download_url" ]; then
-              echo "错误: 未找到匹配的APK文件"
+              echo "错误: 未找到匹配的APK文件 (模式: $apk_pattern)"
               return 1
             fi
             
@@ -258,7 +260,7 @@ jobs:
         # 处理稳定版
         STABLE_NEED_UPDATE=false
         echo "===== 处理稳定版 ====="
-        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION"
+        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN"
         STABLE_RESULT=$?
         if [ $STABLE_RESULT -eq 0 ]; then
           # 检查是否需要更新（通过文件内容判断）
@@ -279,7 +281,7 @@ jobs:
         PRE_RELEASE_NEED_UPDATE=false
         if [ "$SYNC_PRE_RELEASE" = true ]; then
           echo "===== 处理预发行版 ====="
-          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION"
+          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN"
           PRE_RELEASE_RESULT=$?
           if [ $PRE_RELEASE_RESULT -eq 0 ]; then
             if [ -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" ]; then
@@ -391,5 +393,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "MYTV APK Sync from Source Repository"
+          delete_workflow_pattern: "Simple_live APK Sync from Source Repository"
           repository: ${{ github.repository }}
