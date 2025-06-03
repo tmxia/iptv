@@ -3,7 +3,7 @@ name: OK APK Sync from TELEGRAM
 on:
   schedule:
     - cron: '0 */3 * * *'  # 每3小时运行一次
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -267,7 +267,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 1
+          keep_minimum_runs: 0
           retain_days: 0
           delete_workflow_pattern: "OK APK Sync from TELEGRAM"
           repository: ${{ github.repository }}
