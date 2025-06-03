@@ -25,7 +25,7 @@ jobs:
       env:
         SOURCE_REPO: "xiaoyaocz/dart_simple_live"
         TARGET_REPO: "${{ github.repository }}"
-        TOKEN: ${{ secrets.GITHUB_TOKEN }}"
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
         STABLE_APK_PATTERN: "app-arm64-v8a-release"  # 修改为arm64
         PRE_RELEASE_APK_PATTERN: "app-armeabi-v7a-release"  # 保持为v7a
         STABLE_KEY_NAME: "simple_live.apk"
