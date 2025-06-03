@@ -2,5 +2,7 @@
   "leanback-pro.apk": "leanback-pro-20250527",
   "mobile-pro.apk": "mobile-pro-20250527",
   "mytv-android-tv-original.apk": "V1.1.1.135",
-  "mytv-android-tv-original-beta.apk": "V1.2.0.141"
+  "mytv-android-tv-original-beta.apk": "V1.2.0.141",
+  "mytv-tv.apk": "V1.1.1.135",
+  "mytv-tv-beta.apk": "V1.2.0.141"
 }
