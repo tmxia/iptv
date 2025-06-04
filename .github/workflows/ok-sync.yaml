@@ -66,7 +66,8 @@ jobs:
           COMMIT_SHA=$(echo "$COMMIT_JSON" | jq -r '.[0].sha')
           COMMIT_DATE=$(echo "$COMMIT_JSON" | jq -r '.[0].commit.committer.date')
           SHORT_SHA=${COMMIT_SHA:0:7}
-          COMMIT_DATE_UTC8=$(TZ=Asia/Shanghai date -d "$COMMIT_DATE" +'%Y-%m-%d %H:%M')
+          # 只保留年月日
+          COMMIT_DATE_UTC8=$(TZ=Asia/Shanghai date -d "$COMMIT_DATE" +'%Y-%m-%d')
           
           # 返回短SHA和日期
           echo "$SHORT_SHA,$COMMIT_DATE_UTC8"
@@ -96,6 +97,7 @@ jobs:
         CURRENT_PRE_RELEASE_VERSION=""
         CURRENT_STABLE_DATE=""
         CURRENT_PRE_RELEASE_DATE=""
+        CURRENT_VERSION_DATA="{}"
 
         # 检查版本文件是否存在
         if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
@@ -106,6 +108,7 @@ jobs:
           
           # 尝试解析JSON
           if echo "$VERSION_CONTENT" | jq -e . >/dev/null 2>&1; then
+            CURRENT_VERSION_DATA="$VERSION_CONTENT"
             # 获取当前稳定版版本
             STABLE_FULL_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".$STABLE_TARGET_NAME")
             if [ "$STABLE_FULL_VALUE" != "null" ] && [[ "$STABLE_FULL_VALUE" == *,* ]]; then
@@ -122,7 +125,7 @@ jobs:
             fi
             echo "目标仓库当前预发行版版本: $CURRENT_PRE_RELEASE_VERSION (日期: $CURRENT_PRE_RELEASE_DATE)"
           else
-            echo "警告: 版本文件格式无效，将重置"
+            echo "警告: 版本文件格式无效，将保留原始内容并更新APK部分"
           fi
         else
           echo "目标仓库无版本文件，将创建新版本文件"
@@ -260,16 +263,13 @@ jobs:
           echo "预发行版无需更新 (当前版本: $CURRENT_PRE_RELEASE_VERSION)"
         fi
 
-        # 更新版本数据
-        NEW_VERSION_DATA=$(jq -n \
+        # 更新版本数据（仅更新APK部分，保留其他内容）
+        NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
             --arg stable_key "$STABLE_TARGET_NAME" \
             --arg stable_value "$STABLE_SHORT_SHA,$STABLE_COMMIT_DATE" \
             --arg pre_key "$PRE_RELEASE_TARGET_NAME" \
             --arg pre_value "$PRE_RELEASE_SHORT_SHA,$PRE_RELEASE_COMMIT_DATE" \
-            '{
-              ($stable_key): $stable_value,
-              ($pre_key): $pre_value
-            }')
+            '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
             
         NEW_VERSION_CONTENT=$(echo "$NEW_VERSION_DATA" | jq -r .)
 
@@ -292,7 +292,7 @@ jobs:
 
         # 创建JSON数据
         JSON_VERSION=$(jq -n \
-            --arg msg "更新版本: 稳定版=$STABLE_SHORT_SHA, 预发行版=$PRE_RELEASE_SHORT_SHA" \
+            --arg msg "更新APK版本: 稳定版=$STABLE_SHORT_SHA, 预发行版=$PRE_RELEASE_SHORT_SHA" \
             --arg content "$VERSION_BASE64" \
             --arg sha "$SHA_VERSION" \
             '{message: $msg, content: $content, sha: $sha}')
