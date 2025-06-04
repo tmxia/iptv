@@ -66,7 +66,10 @@ jobs:
           exit 1
         fi
         STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
-        echo "源仓库最新稳定版: $STABLE_VERSION"
+        # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
+        STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
+        STABLE_DATE=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
+        echo "源仓库最新稳定版: $STABLE_VERSION (发布于: $STABLE_DATE)"
 
         # 提取最新预发行版
         LATEST_PRE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]')
@@ -75,7 +78,10 @@ jobs:
           SYNC_PRE_RELEASE=false
         else
           PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
-          echo "源仓库最新预发行版: $PRE_RELEASE_VERSION"
+          # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
+          PRE_RELEASE_PUBLISHED_AT=$(echo "$LATEST_PRE_RELEASE" | jq -r '.published_at')
+          PRE_RELEASE_DATE=$(TZ=UTC date -d "$PRE_RELEASE_PUBLISHED_AT" +'%Y-%m-%d')
+          echo "源仓库最新预发行版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE)"
           SYNC_PRE_RELEASE=true
         fi
 
@@ -83,6 +89,12 @@ jobs:
         echo "获取目标仓库当前版本文件..."
         TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+
+        # 初始化当前版本和日期变量
+        CURRENT_STABLE_VERSION=""
+        CURRENT_STABLE_DATE=""
+        CURRENT_PRE_RELEASE_VERSION=""
+        CURRENT_PRE_RELEASE_DATE=""
 
         # 检查版本文件是否存在
         if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
@@ -92,32 +104,35 @@ jobs:
           echo "$VERSION_CONTENT"
           
           # 尝试解析JSON
-          if ! CURRENT_VERSION_DATA=$(echo "$VERSION_CONTENT" | jq .); then
+          if CURRENT_VERSION_DATA=$(echo "$VERSION_CONTENT" | jq . 2>/dev/null); then
+            # 解析稳定版版本和日期
+            STABLE_FULL_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".\"$STABLE_KEY_NAME\"")
+            if [ "$STABLE_FULL_VALUE" != "null" ] && [[ "$STABLE_FULL_VALUE" == *,* ]]; then
+              CURRENT_STABLE_VERSION=$(echo "$STABLE_FULL_VALUE" | cut -d, -f1)
+              CURRENT_STABLE_DATE=$(echo "$STABLE_FULL_VALUE" | cut -d, -f2)
+            else
+              CURRENT_STABLE_VERSION=$STABLE_FULL_VALUE
+            fi
+            
+            # 解析预发行版版本和日期
+            PRE_RELEASE_FULL_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"")
+            if [ "$PRE_RELEASE_FULL_VALUE" != "null" ] && [[ "$PRE_RELEASE_FULL_VALUE" == *,* ]]; then
+              CURRENT_PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_FULL_VALUE" | cut -d, -f1)
+              CURRENT_PRE_RELEASE_DATE=$(echo "$PRE_RELEASE_FULL_VALUE" | cut -d, -f2)
+            else
+              CURRENT_PRE_RELEASE_VERSION=$PRE_RELEASE_FULL_VALUE
+            fi
+          else
             echo "警告: 版本文件格式无效，重置为JSON格式"
             CURRENT_VERSION_DATA="{}"
-            CURRENT_STABLE_VERSION=""
-            CURRENT_PRE_RELEASE_VERSION=""
-          else
-            # 获取当前稳定版版本
-            CURRENT_STABLE_VERSION=$(echo "$VERSION_CONTENT" | jq -r ".\"$STABLE_KEY_NAME\"")
-            if [ "$CURRENT_STABLE_VERSION" = "null" ]; then
-              CURRENT_STABLE_VERSION=""
-            fi
-            echo "目标仓库当前稳定版版本: $CURRENT_STABLE_VERSION"
-            
-            # 获取当前预发行版版本
-            CURRENT_PRE_RELEASE_VERSION=$(echo "$VERSION_CONTENT" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"")
-            if [ "$CURRENT_PRE_RELEASE_VERSION" = "null" ]; then
-              CURRENT_PRE_RELEASE_VERSION=""
-            fi
-            echo "目标仓库当前预发行版版本: $CURRENT_PRE_RELEASE_VERSION"
           fi
         else
           echo "目标仓库无版本文件"
           CURRENT_VERSION_DATA="{}"
-          CURRENT_STABLE_VERSION=""
-          CURRENT_PRE_RELEASE_VERSION=""
         fi
+
+        echo "目标仓库当前稳定版版本: $CURRENT_STABLE_VERSION (日期: $CURRENT_STABLE_DATE)"
+        echo "目标仓库当前预发行版版本: $CURRENT_PRE_RELEASE_VERSION (日期: $CURRENT_PRE_RELEASE_DATE)"
 
         # 函数：检查并下载APK
         check_and_download_apk() {
@@ -265,9 +280,11 @@ jobs:
           if [ -f "$WORK_DIR/$STABLE_KEY_NAME" ]; then
             STABLE_NEED_UPDATE=true
             NEW_STABLE_VERSION="$STABLE_VERSION"
+            NEW_STABLE_DATE="$STABLE_DATE"
             echo "稳定版需要更新"
           else
             NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
+            NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
             echo "稳定版无需更新"
           fi
         else
@@ -285,9 +302,11 @@ jobs:
             if [ -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" ]; then
               PRE_RELEASE_NEED_UPDATE=true
               NEW_PRE_RELEASE_VERSION="$PRE_RELEASE_VERSION"
+              NEW_PRE_RELEASE_DATE="$PRE_RELEASE_DATE"
               echo "预发行版需要更新"
             else
               NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
+              NEW_PRE_RELEASE_DATE="$CURRENT_PRE_RELEASE_DATE"
               echo "预发行版无需更新"
             fi
           else
@@ -296,15 +315,16 @@ jobs:
           fi
         else
           NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
+          NEW_PRE_RELEASE_DATE="$CURRENT_PRE_RELEASE_DATE"
           echo "跳过预发行版处理"
         fi
 
-        # 更新版本数据
+        # 更新版本数据（格式：版本号,日期）
         NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
             --arg stable_key "$STABLE_KEY_NAME" \
-            --arg stable_value "$NEW_STABLE_VERSION" \
+            --arg stable_value "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
             --arg pre_key "$PRE_RELEASE_KEY_NAME" \
-            --arg pre_value "$NEW_PRE_RELEASE_VERSION" \
+            --arg pre_value "$NEW_PRE_RELEASE_VERSION,$NEW_PRE_RELEASE_DATE" \
             '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
             
         NEW_VERSION_CONTENT=$(echo "$NEW_VERSION_DATA" | jq -r .)
@@ -368,9 +388,9 @@ jobs:
         fi
 
         echo "同步完成! 状态: 成功"
-        echo "稳定版: $STABLE_TARGET_FILENAME ($NEW_STABLE_VERSION)"
+        echo "稳定版: $STABLE_TARGET_FILENAME ($NEW_STABLE_VERSION, $NEW_STABLE_DATE)"
         if [ "$SYNC_PRE_RELEASE" = true ]; then
-          echo "预发行版: $PRE_RELEASE_TARGET_FILENAME ($NEW_PRE_RELEASE_VERSION)"
+          echo "预发行版: $PRE_RELEASE_TARGET_FILENAME ($NEW_PRE_RELEASE_VERSION, $NEW_PRE_RELEASE_DATE)"
         fi
         
         # 总是以成功状态退出
