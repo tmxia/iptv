@@ -217,18 +217,21 @@ jobs:
             return 1
           fi
           
-          # 编码文件内容
-          CONTENT_BASE64=$(base64 -w0 "$file_path")
-          
-          # 创建JSON请求文件（避免使用jq处理大文件）
+          # 创建临时JSON文件
           JSON_FILE="$WORK_DIR/request.json"
-          echo '{' > "$JSON_FILE"
-          echo "  \"message\": \"$commit_msg\"," >> "$JSON_FILE"
-          echo "  \"content\": \"$CONTENT_BASE64\"," >> "$JSON_FILE"
-          if [ -n "$sha" ]; then
-            echo "  \"sha\": \"$sha\"" >> "$JSON_FILE"
-          fi
-          echo '}' >> "$JSON_FILE"
+          {
+            echo '{'
+            echo "  \"message\": \"$commit_msg\","
+            echo -n '  "content": "'
+            base64 -w0 "$file_path"
+            echo '",'
+            if [ -n "$sha" ]; then
+              echo "  \"sha\": \"$sha\""
+            else
+              echo "  \"sha\": null"
+            fi
+            echo '}'
+          } > "$JSON_FILE"
           
           # 上传文件
           RESPONSE_JSON=$(curl -s \
