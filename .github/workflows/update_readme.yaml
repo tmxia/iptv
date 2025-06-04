@@ -1,94 +1,91 @@
-name: Update README 
- 
-on: 
-  push: 
-    paths: 
-- 'version.txt' 
-  schedule: 
-- cron: '0 * * * *'  # 每小时自动检查一次 
-  workflow_dispatch: 
- 
-jobs: 
-  update-readme: 
-    runs-on: ubuntu-latest 
-    steps: 
-- name: Checkout repository 
-        uses: actions/checkout@v4 
-        with: 
-          fetch-depth: 0 
-          # 确保检出所有分支和标签 
-          ref: ${{ github.ref }} 
- 
-- name: Check for README.md 
-        id: check-readme 
-        run: | 
-          if [ ! -f README.md ]; then 
-            echo "README.md not found, creating one" 
-            echo "# Project Versions" > README.md 
-            echo "<!-- VERSION_TABLE_START -->" >> README.md 
-            echo "<!-- VERSION_TABLE_END -->" >> README.md 
-            echo "readme_created=true" >> $GITHUB_OUTPUT 
-          else 
-            echo "readme_created=false" >> $GITHUB_OUTPUT 
-          fi 
- 
-- name: Update README 
-        run: | 
-          # 仅在需要时安装 jq 
-          if ! command -v jq &> /dev/null; then 
-            sudo apt-get update 
-            sudo apt-get install -y jq 
-          fi 
- 
-          # 生成表格 
-          echo "## 应用版本信息" > table.md 
+name: Update README
 
-echo "| 文件名称 | 版本号 | 更新日期 |" >> table.md
-echo "|----------|--------|----------|" >> table.md
- 
-          # 处理 version.txt 中的数据，分割版本号和更新日期 
+on:
+  push:
+    paths:
+      - 'version.txt'
+  schedule:
+    - cron: '0 * * * *'  # 每小时自动检查一次
+  workflow_dispatch:
 
-jq -r 'to_entries[] | split(",") as $parts | "| \(.key) | \($parts[0]) | \($parts[1]) |"' version.txt >> table.md
- 
-          # 更新README 
-          awk -v new="$(cat table.md)" ' 
-            /<!-- VERSION_TABLE_START -->/ {print; print new; skip=1} 
-            /<!-- VERSION_TABLE_END -->/ {skip=0} 
-            skip {next} {print} 
-          ' README.md > tmp && mv tmp README.md 
- 
-          rm table.md 
- 
-- name: Commit changes 
-        run: | 
-          git config user.name "github-actions" 
-          git config user.email "actions@users.noreply.github.com" 
- 
-          # 添加所有更改 
-          git add -A 
- 
-          # 检查是否有更改 
-          if git diff --quiet && git diff --cached --quiet; then 
-            echo "No changes to commit" 
-          else 
-            git commit -m "Update version table [skip ci]" 
-            git push 
-          fi 
- 
-  cleanup_self: 
-    name: Cleanup Workflow History 
-    runs-on: ubuntu-latest 
-    needs: [update-readme] 
-    if: ${{ always() }} 
-    permissions: 
-      actions: write 
-      contents: read 
-    steps: 
-- name: Delete old workflow runs 
-        uses: Mattraks/delete-workflow-runs@v2 
-        with: 
-          token: ${{ secrets.GITHUB_TOKEN }} 
-          keep_minimum_runs: 0 
-          retain_days: 0 
-          delete_workflow_pattern: "Update README" 
-          repository: ${{ github.repository }} 
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Check for README.md
+        id: check-readme
+        run: |
+          if [ ! -f README.md ]; then
+            echo "README.md not found, creating one"
+            echo "# Project Versions" > README.md
+            echo "<!-- VERSION_TABLE_START -->" >> README.md
+            echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
+            echo "|----------|--------|----------|" >> README.md
+            echo "<!-- VERSION_TABLE_END -->" >> README.md
+            echo "readme_created=true" >> $GITHUB_OUTPUT
+          else
+            echo "readme_created=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update README
+        run: |
+          if ! command -v jq &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+          
+          # 生成包含三列的新表格
+          echo "## 应用版本信息" > table.md
+          echo "| 文件名称 | 版本号 | 更新日期 |" >> table.md
+          echo "|----------|--------|----------|" >> table.md
+          
+          # 解析version.txt并提取版本和日期
+          jq -r 'to_entries[] | 
+            .value |= split(",") | 
+            "| \(.key) | \(.value[0]) | \(.value[1]) |"' version.txt >> table.md
+
+          # 更新README.md
+          awk -v new="$(cat table.md)" '
+            /<!-- VERSION_TABLE_START -->/ {print; print new; skip=1}
+            /<!-- VERSION_TABLE_END -->/ {skip=0}
+            skip {next} {print}
+          ' README.md > tmp && mv tmp README.md
+
+          rm table.md
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git add -A
+            git commit -m "Update version table [skip ci]"
+            git push
+          fi
+
+  cleanup_self:
+    name: Cleanup Workflow History
+    runs-on: ubuntu-latest
+    needs: [update-readme]
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "Update README"
+          repository: ${{ github.repository }}
