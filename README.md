@@ -3,16 +3,12 @@
 ## 应用版本信息
 | 文件名称 | 版本号 | 更新日期 |
 |----------|--------|----------|
-| [mobile.apk](https://github.com/tmxia/iptv/raw/main/apk/mobile.apk) | 获取文件提交历史: apk/release/mobile-arm64_v8a.apk...
-文件提交信息: d731153 (时间: 2025-05-27 13:26)
-d731153 | 获取文件提交历史: apk/release/mobile-arm64_v8a.apk...
-文件提交信息: d731153 (时间: 2025-05-27 13:26)
-2025-05-27 13:26 |
-| [leanback.apk](https://github.com/tmxia/iptv/raw/main/apk/leanback.apk) | 获取文件提交历史: apk/release/leanback-armeabi_v7a.apk...
-文件提交信息: d731153 (时间: 2025-05-27 13:26)
-d731153 | 获取文件提交历史: apk/release/leanback-armeabi_v7a.apk...
-文件提交信息: d731153 (时间: 2025-05-27 13:26)
-2025-05-27 13:26 |
 | [karing-win.zip](https://github.com/tmxia/iptv/raw/main/apk/karing-win.zip) | v1.1.3.721 | 2025-06-04 |
 | [karing.apk](https://github.com/tmxia/iptv/raw/main/apk/karing.apk) | v1.1.3.721 | 2025-06-04 |
+| [mytv-tv-beta.apk](https://github.com/tmxia/iptv/raw/main/apk/mytv-tv-beta.apk) | V1.2.0.141 | 2025-06-03 |
+| [mytv-tv.apk](https://github.com/tmxia/iptv/raw/main/apk/mytv-tv.apk) | V1.1.1.135 | 2025-05-27 |
+| [simple_live-tv.apk](https://github.com/tmxia/iptv/raw/main/apk/simple_live-tv.apk) | v1.3.5 | 2025-05-27 |
+| [simple_live.apk](https://github.com/tmxia/iptv/raw/main/apk/simple_live.apk) | v1.8.6 | 2025-05-27 |
+| [mobile.apk](https://github.com/tmxia/iptv/raw/main/apk/mobile.apk) | 2.9.3 | 2025-05-27 |
+| [leanback.apk](https://github.com/tmxia/iptv/raw/main/apk/leanback.apk) | 2.9.3 | 2025-05-27 |
 <!-- VERSION_TABLE_END -->
