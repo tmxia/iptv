@@ -13,41 +13,82 @@ jobs:
           PAT: ${{ secrets.TRIGGER_ALL_PAT }}
         with:
           script: |
-            try {
-              // List all workflows in the repository
-              const workflows = await github.rest.actions.listRepoWorkflows({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
+            const { owner, repo } = context.repo;
+            const githubToken = process.env.PAT;
+            const delayMinutes = 2; // 设置间隔时间为2分钟
+            const currentWorkflowName = 'Trigger All Workflows';
+            
+            // 获取所有工作流
+            const listWorkflows = async () => {
+              const response = await github.rest.actions.listRepoWorkflows({
+                owner,
+                repo
               });
-
-              // Filter out the current workflow (this one)
-              const otherWorkflows = workflows.data.workflows.filter(
-                workflow => workflow.name !== 'Trigger All Workflows'
-              );
-
-              // Trigger each workflow individually
-              for (const workflow of otherWorkflows) {
-                try {
-                  console.log(`Triggering workflow: ${workflow.name}`);
-                  await github.rest.actions.createWorkflowDispatch({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    workflow_id: workflow.id,
-                    ref: 'main', // Change to your default branch if not main
-                    headers: {
-                      authorization: `Bearer ${process.env.PAT}`
-                    }
-                  });
-                  console.log(`Successfully triggered: ${workflow.name}`);
-                } catch (error) {
-                  console.error(`Failed to trigger workflow ${workflow.name}: ${error}`);
-                  // Mark the step as failed but continue triggering others
-                  core.setFailed(`Failed to trigger ${workflow.name}`);
+              return response.data.workflows;
+            };
+            
+            // 触发单个工作流
+            const triggerWorkflow = async (workflow) => {
+              try {
+                console.log(`Starting workflow: ${workflow.name} (ID: ${workflow.id})`);
+                
+                await github.rest.actions.createWorkflowDispatch({
+                  owner,
+                  repo,
+                  workflow_id: workflow.id,
+                  ref: 'main',
+                  headers: {
+                    authorization: `Bearer ${githubToken}`
+                  }
+                });
+                
+                console.log(`✅ Successfully started workflow: ${workflow.name}`);
+                return true;
+              } catch (error) {
+                console.log(`❌ Failed to start workflow ${workflow.name}: ${error.message}`);
+                return false;
+              }
+            };
+            
+            // 等待函数
+            const wait = (minutes) => {
+              return new Promise(resolve => {
+                console.log(`Waiting for ${minutes} minutes...`);
+                setTimeout(resolve, minutes * 60 * 1000);
+              });
+            };
+            
+            try {
+              // 主执行逻辑
+              const workflows = await listWorkflows();
+              const filteredWorkflows = workflows.filter(w => w.name !== currentWorkflowName);
+              let successCount = 0;
+              let totalCount = filteredWorkflows.length;
+              
+              console.log(`Found ${totalCount} workflows to trigger`);
+              
+              for (let i = 0; i < totalCount; i++) {
+                const workflow = filteredWorkflows[i];
+                
+                // 触发当前工作流
+                const result = await triggerWorkflow(workflow);
+                if (result) successCount++;
+                
+                // 如果不是最后一个工作流，则等待2分钟
+                if (i < totalCount - 1) {
+                  await wait(delayMinutes);
                 }
               }
-
-              console.log(`Triggered ${otherWorkflows.length} workflows`);
+              
+              console.log(`Triggered ${successCount}/${totalCount} workflows`);
+              
+              if (successCount < totalCount) {
+                core.setFailed(`Failed to trigger ${totalCount - successCount} workflows`);
+              } else {
+                console.log('✅ All workflows triggered successfully');
+              }
+              
             } catch (error) {
-              console.error('Unexpected error:', error);
-              core.setFailed('Unexpected error: ' + error.message);
+              console.log(`Main execution error: ${error.message}`);
+              core.setFailed(`Workflow trigger failed: ${error.message}`);
             }
