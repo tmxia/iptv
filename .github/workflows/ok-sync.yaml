@@ -25,7 +25,7 @@ jobs:
       env:
         SOURCE_REPO: "FongMi/Release"
         SOURCE_BRANCH: "okjack"
-        APK_DIR: "apk/release"  # APK文件所在目录
+        APK_DIR: "apk/release"
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
         STABLE_APK_NAME: "leanback-armeabi_v7a.apk"
@@ -51,15 +51,14 @@ jobs:
           exit 1
         fi
 
-        # 函数：获取文件提交历史
+        # 函数：获取文件提交历史（仅返回数据，不输出额外信息）
         get_file_commit_info() {
           local file_name="$1"
-          echo "获取文件提交历史: $APK_DIR/$file_name..."
           
           # 获取文件提交历史（只取最新的一条）
           COMMIT_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/commits?path=$APK_DIR/$file_name&sha=$SOURCE_BRANCH&per_page=1")
-          if [ $? -ne 0 ]; then
-            echo "错误: 无法获取文件提交历史"
+          if [ $? -ne 0 ] || [ -z "$COMMIT_JSON" ]; then
+            echo "错误: 无法获取文件提交历史" >&2
             exit 1
           fi
           
@@ -68,8 +67,6 @@ jobs:
           COMMIT_DATE=$(echo "$COMMIT_JSON" | jq -r '.[0].commit.committer.date')
           SHORT_SHA=${COMMIT_SHA:0:7}
           COMMIT_DATE_UTC8=$(TZ=Asia/Shanghai date -d "$COMMIT_DATE" +'%Y-%m-%d %H:%M')
-          
-          echo "文件提交信息: $SHORT_SHA (时间: $COMMIT_DATE_UTC8)"
           
           # 返回短SHA和日期
           echo "$SHORT_SHA,$COMMIT_DATE_UTC8"
@@ -80,12 +77,14 @@ jobs:
         STABLE_COMMIT_INFO=$(get_file_commit_info "$STABLE_APK_NAME")
         STABLE_SHORT_SHA=$(echo "$STABLE_COMMIT_INFO" | cut -d, -f1)
         STABLE_COMMIT_DATE=$(echo "$STABLE_COMMIT_INFO" | cut -d, -f2)
+        echo "稳定版提交信息: $STABLE_SHORT_SHA ($STABLE_COMMIT_DATE)"
         
         # 获取预发行版APK提交信息
         echo "===== 获取预发行版提交信息 ====="
         PRE_RELEASE_COMMIT_INFO=$(get_file_commit_info "$PRE_RELEASE_APK_NAME")
         PRE_RELEASE_SHORT_SHA=$(echo "$PRE_RELEASE_COMMIT_INFO" | cut -d, -f1)
         PRE_RELEASE_COMMIT_DATE=$(echo "$PRE_RELEASE_COMMIT_INFO" | cut -d, -f2)
+        echo "预发行版提交信息: $PRE_RELEASE_SHORT_SHA ($PRE_RELEASE_COMMIT_DATE)"
 
         # 获取目标仓库当前版本文件
         echo "获取目标仓库版本文件..."
@@ -108,13 +107,19 @@ jobs:
           # 尝试解析JSON
           if echo "$VERSION_CONTENT" | jq -e . >/dev/null 2>&1; then
             # 获取当前稳定版版本
-            CURRENT_STABLE_VERSION=$(echo "$VERSION_CONTENT" | jq -r ".$STABLE_TARGET_NAME" | cut -d, -f1)
-            CURRENT_STABLE_DATE=$(echo "$VERSION_CONTENT" | jq -r ".$STABLE_TARGET_NAME" | cut -d, -f2)
+            STABLE_FULL_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".$STABLE_TARGET_NAME")
+            if [ "$STABLE_FULL_VALUE" != "null" ] && [[ "$STABLE_FULL_VALUE" == *,* ]]; then
+              CURRENT_STABLE_VERSION=$(echo "$STABLE_FULL_VALUE" | cut -d, -f1)
+              CURRENT_STABLE_DATE=$(echo "$STABLE_FULL_VALUE" | cut -d, -f2)
+            fi
             echo "目标仓库当前稳定版版本: $CURRENT_STABLE_VERSION (日期: $CURRENT_STABLE_DATE)"
             
             # 获取当前预发行版版本
-            CURRENT_PRE_RELEASE_VERSION=$(echo "$VERSION_CONTENT" | jq -r ".$PRE_RELEASE_TARGET_NAME" | cut -d, -f1)
-            CURRENT_PRE_RELEASE_DATE=$(echo "$VERSION_CONTENT" | jq -r ".$PRE_RELEASE_TARGET_NAME" | cut -d, -f2)
+            PRE_RELEASE_FULL_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".$PRE_RELEASE_TARGET_NAME")
+            if [ "$PRE_RELEASE_FULL_VALUE" != "null" ] && [[ "$PRE_RELEASE_FULL_VALUE" == *,* ]]; then
+              CURRENT_PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_FULL_VALUE" | cut -d, -f1)
+              CURRENT_PRE_RELEASE_DATE=$(echo "$PRE_RELEASE_FULL_VALUE" | cut -d, -f2)
+            fi
             echo "目标仓库当前预发行版版本: $CURRENT_PRE_RELEASE_VERSION (日期: $CURRENT_PRE_RELEASE_DATE)"
           else
             echo "警告: 版本文件格式无效，将重置"
@@ -139,13 +144,19 @@ jobs:
             return 1
           fi
           
+          # 检查文件大小
+          FILESIZE=$(stat -c%s "$WORK_DIR/$file_name")
+          if [ "$FILESIZE" -lt 100000 ]; then  # 小于100KB可能是错误
+            echo "警告: 下载的文件大小异常 ($FILESIZE 字节)"
+          fi
+          
           # 重命名文件
           mv "$WORK_DIR/$file_name" "$WORK_DIR/$target_name"
           echo "文件已重命名为: $target_name"
           return 0
         }
 
-        # 函数：上传文件
+        # 函数：上传文件（优化版）
         upload_file() {
           local target_path="$1"
           local file_name="$2"
@@ -166,26 +177,38 @@ jobs:
           # 创建提交信息
           local commit_msg="更新文件: $target_path (提交: $commit_sha)"
           
-          # 创建JSON请求文件
-          local json_file="$WORK_DIR/request_$file_name.json"
+          # 获取简单文件名
+          local simple_target_filename=$(basename "$target_path")
+          local local_file_path="$WORK_DIR/$file_name"
           
-          # 手动构建JSON文件
-          {
-            echo '{'
-            echo "  \"message\": \"$commit_msg\","
-            echo -n '  "content": "'
-            base64 -w0 "$WORK_DIR/$file_name" | tr -d '\n'
-            echo '",'
-            echo "  \"sha\": \"$sha\""
-            echo '}'
-          } > "$json_file"
+          # 检查文件是否存在且非空
+          if [ ! -f "$local_file_path" ]; then
+            echo "错误: 本地文件不存在: $local_file_path"
+            return 1
+          fi
+          
+          FILESIZE=$(stat -c%s "$local_file_path")
+          if [ "$FILESIZE" -eq 0 ]; then
+            echo "错误: 本地文件为空: $local_file_path"
+            return 1
+          fi
+          
+          # 编码文件内容
+          CONTENT_BASE64=$(base64 -w0 "$local_file_path")
+          
+          # 创建JSON数据
+          JSON_DATA=$(jq -n \
+            --arg msg "$commit_msg" \
+            --arg content "$CONTENT_BASE64" \
+            --arg sha "$sha" \
+            '{message: $msg, content: $content, sha: $sha}')
           
           # 上传文件
           RESPONSE_JSON=$(curl -s \
                 -X PUT \
                 -H "Authorization: token $TOKEN" \
                 -H "Content-Type: application/json" \
-                --data-binary "@$json_file" \
+                -d "$JSON_DATA" \
                 "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
           
           # 检查错误
@@ -329,7 +352,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0   # 保留最近5次运行记录
-          retain_days: 0         # 保留7天内的运行记录
+          keep_minimum_runs: 5   # 保留最近5次运行记录
+          retain_days: 7         # 保留7天内的运行记录
           delete_workflow_pattern: "OK APK Sync from Source Repository"
           repository: ${{ github.repository }}
