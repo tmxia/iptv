@@ -21,13 +21,20 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y jq curl unzip
         
-    - name: Install aapt2 for APK version extraction
+    - name: Install Android SDK for aapt2
       run: |
-        # 下载aapt2工具
-        curl -sL https://github.com/AndroBugs/AndroBugs_Framework/raw/master/tools/aapt2 -o aapt2
-        chmod +x aapt2
-        sudo mv aapt2 /usr/local/bin/
-        echo "aapt2已安装"
+        # 安装Android SDK命令行工具
+        SDK_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip"
+        curl -sL "$SDK_TOOLS_URL" -o sdk-tools.zip
+        unzip -q sdk-tools.zip -d android-sdk
+        
+        # 设置环境变量
+        echo "ANDROID_SDK_ROOT=$GITHUB_WORKSPACE/android-sdk" >> $GITHUB_ENV
+        echo "$GITHUB_WORKSPACE/android-sdk/cmdline-tools/bin" >> $GITHUB_PATH
+        
+        # 接受许可并安装build-tools
+        yes | android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=$GITHUB_WORKSPACE/android-sdk "build-tools;34.0.0"
+        echo "aapt2路径: $GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2"
         
     - name: Run APK sync script
       env:
@@ -59,27 +66,32 @@ jobs:
           exit 1
         fi
 
-        # 函数：从APK文件中提取版本号
+        # 函数：从APK文件中提取版本号（仅输出版本号）
         extract_apk_version() {
           local apk_path="$1"
-          echo "从APK提取版本号: $apk_path"
+          echo "从APK提取版本号: $apk_path" >&2
           
           # 使用aapt2获取版本信息
-          VERSION_INFO=$(aapt2 dump badging "$apk_path" | grep "versionName")
+          VERSION_INFO=$("$GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2" dump badging "$apk_path" | grep "versionName")
           
           # 提取版本号 (格式: versionName='2.9.3')
           VERSION=$(echo "$VERSION_INFO" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           
           if [ -z "$VERSION" ]; then
-            echo "警告: 无法提取版本号, 使用默认值"
-            VERSION="unknown"
+            echo "警告: 无法提取版本号, 使用提交哈希" >&2
+            # 获取文件提交历史中的版本号
+            COMMIT_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/commits?path=$APK_DIR/$STABLE_APK_NAME&sha=$SOURCE_BRANCH&per_page=1")
+            VERSION=$(echo "$COMMIT_JSON" | jq -r '.[0].commit.message' | grep -oP 'v\d+\.\d+\.\d+' | head -1)
+            if [ -z "$VERSION" ]; then
+              VERSION="unknown"
+            fi
           fi
           
-          echo "提取的版本号: $VERSION"
+          echo "提取的版本号: $VERSION" >&2
           echo "$VERSION"
         }
 
-        # 函数：获取文件提交日期
+        # 函数：获取文件提交日期（仅输出日期）
         get_file_commit_date() {
           local file_name="$1"
           
@@ -95,7 +107,7 @@ jobs:
           # 只保留年月日
           COMMIT_DATE_UTC8=$(TZ=Asia/Shanghai date -d "$COMMIT_DATE" +'%Y-%m-%d')
           
-          echo "文件提交日期: $COMMIT_DATE_UTC8"
+          echo "文件提交日期: $COMMIT_DATE_UTC8" >&2
           echo "$COMMIT_DATE_UTC8"
         }
 
@@ -195,26 +207,29 @@ jobs:
           
           # 检查文件是否存在且非空
           if [ ! -f "$file_path" ]; then
-            echo "错误: 本地文件不存在: $file_path"
+            echo "错误: 本地文件不存在: $file_path" >&2
             return 1
           fi
           
           FILESIZE=$(stat -c%s "$file_path")
           if [ "$FILESIZE" -eq 0 ]; then
-            echo "错误: 本地文件为空: $file_path"
+            echo "错误: 本地文件为空: $file_path" >&2
             return 1
           fi
           
           # 编码文件内容
           CONTENT_BASE64=$(base64 -w0 "$file_path")
           
-          # 创建临时JSON文件
+          # 创建JSON数据
+          JSON_DATA=$(jq -n \
+            --arg msg "$commit_msg" \
+            --arg content "$CONTENT_BASE64" \
+            --arg sha "$sha" \
+            '{message: $msg, content: $content, sha: $sha}')
+          
+          # 使用临时文件存储JSON数据
           JSON_FILE="$WORK_DIR/request.json"
-          echo '{' > "$JSON_FILE"
-          echo "  \"message\": \"$commit_msg\"," >> "$JSON_FILE"
-          echo "  \"content\": \"$CONTENT_BASE64\"," >> "$JSON_FILE"
-          echo "  \"sha\": \"$sha\"" >> "$JSON_FILE"
-          echo '}' >> "$JSON_FILE"
+          echo "$JSON_DATA" > "$JSON_FILE"
           
           # 上传文件
           RESPONSE_JSON=$(curl -s \
@@ -227,9 +242,9 @@ jobs:
           # 检查错误
           local error_message=$(echo "$RESPONSE_JSON" | jq -r '.message')
           if [ "$error_message" != "null" ] && [ ! -z "$error_message" ]; then
-            echo "错误: 文件上传失败 - $error_message"
-            echo "完整响应:"
-            echo "$RESPONSE_JSON"
+            echo "错误: 文件上传失败 - $error_message" >&2
+            echo "完整响应:" >&2
+            echo "$RESPONSE_JSON" >&2
             return 1
           else
             echo "上传成功: $target_path ($version)"
