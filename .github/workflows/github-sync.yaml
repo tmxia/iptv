@@ -43,17 +43,21 @@ jobs:
           exit 1
         fi
 
-        # 获取原始文件名
-        ORIG_FILENAME=$(curl -sI "$APKPURE_URL" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2)
+        # 获取原始文件名 (修正：添加-L跟随重定向)
+        ORIG_FILENAME=$(curl -sLI "$APKPURE_URL" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2)
         echo "原始文件名: $ORIG_FILENAME"
 
-        # 从文件名提取版本号
+        # 从文件名提取版本号 (修正：使用更可靠的正则表达式)
         if [[ "$ORIG_FILENAME" =~ _([0-9]+\.[0-9]+\.[0-9]+)_ ]]; then
           VERSION="${BASH_REMATCH[1]}"
           echo "提取的版本号: $VERSION"
+        elif [[ "$ORIG_FILENAME" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+          VERSION="${BASH_REMATCH[1]}"
+          echo "提取的版本号（备用匹配）: $VERSION"
         else
           echo "警告: 无法从文件名提取版本号 ($ORIG_FILENAME)"
           VERSION=$(date +%Y%m%d%H%M)
+          echo "使用时间戳作为版本号: $VERSION"
         fi
 
         # 重命名XAPK文件
@@ -66,8 +70,10 @@ jobs:
             "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
         CURRENT_VERSION=""
+        CURRENT_CONTENT=""
         if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
           VERSION_CONTENT=$(echo "$TARGET_VERSION_JSON" | jq -r '.content' | base64 -d)
+          CURRENT_CONTENT="$VERSION_CONTENT"
           CURRENT_VERSION=$(echo "$VERSION_CONTENT" | jq -r ".\"$VERSION_KEY\"")
           if [ "$CURRENT_VERSION" = "null" ]; then
             CURRENT_VERSION=""
@@ -104,12 +110,12 @@ jobs:
           exit 0
         fi
 
-        # 更新版本文件
+        # 更新版本文件 (修正：保留现有内容)
         echo "更新版本文件..."
         NEW_VERSION_CONTENT="{}"
-        if [ -n "$CURRENT_VERSION" ]; then
-          # 如果已有版本文件，更新特定键值
-          NEW_VERSION_CONTENT=$(echo "$VERSION_CONTENT" | jq --arg key "$VERSION_KEY" --arg value "$VERSION" '.[$key] = $value')
+        if [ -n "$CURRENT_CONTENT" ]; then
+          # 更新特定键值，保留其他内容
+          NEW_VERSION_CONTENT=$(echo "$CURRENT_CONTENT" | jq --arg key "$VERSION_KEY" --arg value "$VERSION" '.[$key] = $value')
         else
           # 如果无版本文件，创建新JSON
           NEW_VERSION_CONTENT=$(jq -n --arg key "$VERSION_KEY" --arg value "$VERSION" '{($key): $value}')
