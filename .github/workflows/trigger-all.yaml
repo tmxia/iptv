@@ -1,0 +1,48 @@
+name: Trigger All Workflows
+
+on:
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  trigger-workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger other workflows
+        uses: actions/github-script@v6
+        env:
+          PAT: ${{ secrets.TRIGGER_ALL_PAT }}
+        with:
+          script: |
+            // 获取所有工作流
+            const workflows = await github.rest.actions.listRepoWorkflows({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            
+            // 过滤掉当前工作流
+            const otherWorkflows = workflows.data.workflows.filter(
+              workflow => workflow.name !== 'Trigger All Workflows'
+            );
+            
+            // 触发每个工作流
+            for (const workflow of otherWorkflows) {
+              console.log(`触发工作流: ${workflow.name} (ID: ${workflow.id})`);
+              
+              try {
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: workflow.id,
+                  ref: 'main',  # 使用您仓库的主分支
+                  headers: {
+                    authorization: `Bearer ${process.env.PAT}`
+                  }
+                });
+                console.log(`✅ 成功触发: ${workflow.name}`);
+              } catch (error) {
+                console.error(`❌ 触发失败: ${workflow.name}`, error);
+                core.setFailed(`触发 ${workflow.name} 失败`);
+              }
+            }
+            
+            return `已触发 ${otherWorkflows.length} 个工作流`;
