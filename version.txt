@@ -1,4 +1,4 @@
 {
-  "leanback.apk": "d731153,2025-05-27",
-  "mobile.apk": "d731153,2025-05-27"
+  "leanback.apk": "从APK提取版本号: /tmp/tmp.g1381xLkR9/leanback-armeabi_v7a.apk\n警告: 无法提取版本号, 使用默认值\n提取的版本号: unknown\nunknown,文件提交日期: 2025-05-27\n2025-05-27",
+  "mobile.apk": "从APK提取版本号: /tmp/tmp.g1381xLkR9/mobile-arm64_v8a.apk\n警告: 无法提取版本号, 使用默认值\n提取的版本号: unknown\nunknown,文件提交日期: 2025-05-27\n2025-05-27"
 }
