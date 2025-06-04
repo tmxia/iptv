@@ -1,198 +1,204 @@
-name: Karing Beta Sync from Source Repository
+name: Karing Beta Sync from Source Repository 
+ 
+on: 
+  schedule: 
+- cron: '0 */1 * * *'  # 每1小时运行一次 
+  workflow_dispatch: 
+ 
+permissions: 
+  contents: write 
+  actions: write 
+ 
+jobs: 
+  sync: 
+    runs-on: ubuntu-latest 
+    steps: 
+- name: Checkout current repository 
+      uses: actions/checkout@v3 
+      with: 
+        fetch-depth: 0  # 获取完整历史记录 
+ 
+- name: Install dependencies 
+      run: | 
+        sudo apt-get update 
+        sudo apt-get install -y jq curl 
+        
+- name: Configure Git 
+      run: | 
+        git config --global user.name "GitHub Actions" 
+        git config --global user.email "actions@github.com" 
+        
+- name: Run sync script 
+      env: 
+        SOURCE_REPO: "KaringX/karing" 
+        TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+        APK_PATTERN: "android_arm64-v8a.apk" 
+        WIN_PATTERN: "windows_x64.zip" 
+        ANDROID_TARGET_NAME: "karing.apk" 
+        WINDOWS_TARGET_NAME: "karing-win.zip" 
+      run: | 
+        # 目标文件路径 
+        ANDROID_TARGET_PATH="apk/$ANDROID_TARGET_NAME" 
+        WINDOWS_TARGET_PATH="apk/$WINDOWS_TARGET_NAME" 
+        
+        # 创建临时工作目录 
+        WORK_DIR=$(mktemp -d) 
+        echo "创建临时目录: $WORK_DIR" 
+        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT 
+ 
+        # 获取所有预发布版 
+        echo "获取预发布版本信息..." 
+        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases") 
+        if [ $? -ne 0 ]; then 
+          echo "错误: 无法获取发布信息" 
+          exit 1 
+        fi 
+ 
+        # 提取最新预发布版 
 
-on:
-  schedule:
-    - cron: '0 */1 * * *'  # 每1小时运行一次
-  workflow_dispatch:
+LATEST_PRE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]')
+        if [ -z "$LATEST_PRE_RELEASE" ] || [ "$LATEST_PRE_RELEASE" = "null" ]; then 
+          echo "错误: 未找到预发布版本" 
+          exit 1 
+        fi 
+        
+        PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name') 
+        PRE_RELEASE_PUBLISHED_AT=$(echo "$LATEST_PRE_RELEASE" | jq -r '.published_at') 
+        # 转换为北京时间并格式化为 YYYY-MM-DD 
+        PRE_RELEASE_DATE_UTC8=$(TZ=UTC date -d "$PRE_RELEASE_PUBLISHED_AT" +'%Y-%m-%d') 
+        echo "源仓库最新预发布版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE_UTC8)" 
+ 
+        # 检查本地版本文件 
+        if [ ! -f "version.txt" ]; then 
+          echo "{}" > version.txt 
+        fi 
+        
+        # 读取当前版本信息 
+        CURRENT_VERSION_JSON=$(cat version.txt) 
+        CURRENT_ANDROID_VERSION=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$ANDROID_TARGET_NAME\"" | cut -d, -f1) 
+        CURRENT_WINDOWS_VERSION=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$WINDOWS_TARGET_NAME\"" | cut -d, -f1) 
+        
+        echo "当前Android版本: ${CURRENT_ANDROID_VERSION:-无}" 
+        echo "当前Windows版本: ${CURRENT_WINDOWS_VERSION:-无}" 
+ 
+        # 检查是否需要更新 
+        need_update=false 
+        
+        # 检查Android版本和文件 
+        if [ "$PRE_RELEASE_VERSION" != "$CURRENT_ANDROID_VERSION" ] || [ ! -f "$ANDROID_TARGET_PATH" ]; then 
+          echo "Android需要更新: 版本不匹配或文件不存在" 
+          need_update=true 
+        fi 
+        
+        # 检查Windows版本和文件 
+        if [ "$PRE_RELEASE_VERSION" != "$CURRENT_WINDOWS_VERSION" ] || [ ! -f "$WINDOWS_TARGET_PATH" ]; then 
+          echo "Windows需要更新: 版本不匹配或文件不存在" 
+          need_update=true 
+        fi 
+        
+        if [ "$need_update" = false ]; then 
+          echo "版本相同且文件存在，无需更新" 
+          exit 0 
+        fi 
+ 
+        # 下载新版本文件 
+        echo "下载新版本文件..." 
+        
+        # 查找Android APK文件 
 
-permissions:
-  contents: write
-  actions: write
+apk_download_url=$(echo "$LATEST_PRE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
+        if [ -z "$apk_download_url" ]; then 
+          echo "错误: 未找到匹配的Android APK文件" 
+          exit 1 
+        fi 
+        
+        # 查找Windows ZIP文件 
 
-jobs:
-  sync:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout current repository
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0  # 获取完整历史记录
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl
+win_download_url=$(echo "$LATEST_PRE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$WIN_PATTERN'")) | .browser_download_url' | head -1)
+        if [ -z "$win_download_url" ]; then 
+          echo "错误: 未找到匹配的Windows ZIP文件" 
+          exit 1 
+        fi 
         
-    - name: Configure Git
-      run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "actions@github.com"
+        # 确保apk目录存在 
+        mkdir -p apk 
         
-    - name: Run sync script
-      env:
-        SOURCE_REPO: "KaringX/karing"
-        TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        APK_PATTERN: "android_arm64-v8a.apk"
-        WIN_PATTERN: "windows_x64.zip"
-        ANDROID_TARGET_NAME: "karing.apk"
-        WINDOWS_TARGET_NAME: "karing-win.zip"
-      run: |
-        # 目标文件路径
-        ANDROID_TARGET_PATH="apk/$ANDROID_TARGET_NAME"
-        WINDOWS_TARGET_PATH="apk/$WINDOWS_TARGET_NAME"
+        # 下载Android APK 
+        apk_source_name=$(basename "$apk_download_url") 
+        echo "下载Android APK: $apk_source_name" 
+        curl -sL "$apk_download_url" -o "$WORK_DIR/$apk_source_name" 
+        if [ ! -f "$WORK_DIR/$apk_source_name" ]; then 
+          echo "错误: Android APK下载失败" 
+          exit 1 
+        fi 
         
-        # 创建临时工作目录
-        WORK_DIR=$(mktemp -d)
-        echo "创建临时目录: $WORK_DIR"
-        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
-
-        # 获取所有预发布版
-        echo "获取预发布版本信息..."
-        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
-        if [ $? -ne 0 ]; then
-          echo "错误: 无法获取发布信息"
-          exit 1
-        fi
-
-        # 提取最新预发布版
-        LATEST_PRE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]')
-        if [ -z "$LATEST_PRE_RELEASE" ] || [ "$LATEST_PRE_RELEASE" = "null" ]; then
-          echo "错误: 未找到预发布版本"
-          exit 1
-        fi
+        # 下载Windows ZIP 
+        win_source_name=$(basename "$win_download_url") 
+        echo "下载Windows ZIP: $win_source_name" 
+        curl -sL "$win_download_url" -o "$WORK_DIR/$win_source_name" 
+        if [ ! -f "$WORK_DIR/$win_source_name" ]; then 
+          echo "错误: Windows ZIP下载失败" 
+          exit 1 
+        fi 
         
-        PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
-        echo "源仓库最新预发布版: $PRE_RELEASE_VERSION"
-
-        # 检查本地版本文件
-        if [ ! -f "version.txt" ]; then
-          echo "{}" > version.txt
-        fi
-        
-        # 读取当前版本信息
-        CURRENT_VERSION_JSON=$(cat version.txt)
-        CURRENT_ANDROID_VERSION=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$ANDROID_TARGET_NAME\"")
-        CURRENT_WINDOWS_VERSION=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$WINDOWS_TARGET_NAME\"")
-        
-        echo "当前Android版本: ${CURRENT_ANDROID_VERSION:-无}"
-        echo "当前Windows版本: ${CURRENT_WINDOWS_VERSION:-无}"
-
-        # 检查是否需要更新
-        need_update=false
-        
-        # 检查Android版本和文件
-        if [ "$PRE_RELEASE_VERSION" != "$CURRENT_ANDROID_VERSION" ] || [ ! -f "$ANDROID_TARGET_PATH" ]; then
-          echo "Android需要更新: 版本不匹配或文件不存在"
-          need_update=true
-        fi
-        
-        # 检查Windows版本和文件
-        if [ "$PRE_RELEASE_VERSION" != "$CURRENT_WINDOWS_VERSION" ] || [ ! -f "$WINDOWS_TARGET_PATH" ]; then
-          echo "Windows需要更新: 版本不匹配或文件不存在"
-          need_update=true
-        fi
-        
-        if [ "$need_update" = false ]; then
-          echo "版本相同且文件存在，无需更新"
-          exit 0
-        fi
-
-        # 下载新版本文件
-        echo "下载新版本文件..."
-        
-        # 查找Android APK文件
-        apk_download_url=$(echo "$LATEST_PRE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
-        if [ -z "$apk_download_url" ]; then
-          echo "错误: 未找到匹配的Android APK文件"
-          exit 1
-        fi
-        
-        # 查找Windows ZIP文件
-        win_download_url=$(echo "$LATEST_PRE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$WIN_PATTERN'")) | .browser_download_url' | head -1)
-        if [ -z "$win_download_url" ]; then
-          echo "错误: 未找到匹配的Windows ZIP文件"
-          exit 1
-        fi
-        
-        # 确保apk目录存在
-        mkdir -p apk
-        
-        # 下载Android APK
-        apk_source_name=$(basename "$apk_download_url")
-        echo "下载Android APK: $apk_source_name"
-        curl -sL "$apk_download_url" -o "$WORK_DIR/$apk_source_name"
-        if [ ! -f "$WORK_DIR/$apk_source_name" ]; then
-          echo "错误: Android APK下载失败"
-          exit 1
-        fi
-        
-        # 下载Windows ZIP
-        win_source_name=$(basename "$win_download_url")
-        echo "下载Windows ZIP: $win_source_name"
-        curl -sL "$win_download_url" -o "$WORK_DIR/$win_source_name"
-        if [ ! -f "$WORK_DIR/$win_source_name" ]; then
-          echo "错误: Windows ZIP下载失败"
-          exit 1
-        fi
-        
-        # 重命名并移动到目标位置
-        mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH"
-        mv "$WORK_DIR/$win_source_name" "$WINDOWS_TARGET_PATH"
-        echo "文件已保存到: $ANDROID_TARGET_PATH 和 $WINDOWS_TARGET_PATH"
-
-        # 更新版本文件（保留其他键值）
-        UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
-          --arg android_ver "$PRE_RELEASE_VERSION" \
-          --arg win_ver "$PRE_RELEASE_VERSION" \
-          --arg android_key "$ANDROID_TARGET_NAME" \
-          --arg win_key "$WINDOWS_TARGET_NAME" \
-          '.[$android_key] = $android_ver | .[$win_key] = $win_ver')
+        # 重命名并移动到目标位置 
+        mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH" 
+        mv "$WORK_DIR/$win_source_name" "$WINDOWS_TARGET_PATH" 
+        echo "文件已保存到: $ANDROID_TARGET_PATH 和 $WINDOWS_TARGET_PATH" 
+ 
+        # 更新版本文件（保留其他键值） 
+        UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \ 
+--arg android_ver "$PRE_RELEASE_VERSION,$PRE_RELEASE_DATE_UTC8" \ 
+--arg win_ver "$PRE_RELEASE_VERSION,$PRE_RELEASE_DATE_UTC8" \ 
+--arg android_key "$ANDROID_TARGET_NAME" \ 
+--arg win_key "$WINDOWS_TARGET_NAME" \ 
+          '.[$android_key] = $android_ver | .[$win_key] = $win_ver') 
           
-        echo "$UPDATED_VERSION_JSON" > version.txt
-
-        # 添加所有更改
-        git add apk/ version.txt
+        echo "$UPDATED_VERSION_JSON" > version.txt 
+ 
+        # 添加所有更改 
+        git add apk/ version.txt 
         
-        # 检查是否有更改
-        if git diff-index --quiet HEAD --; then
-          echo "没有需要提交的更改"
-          exit 0
-        fi
-
-        # 提交更改
-        git commit -m "更新预发布版本: $PRE_RELEASE_VERSION"
+        # 检查是否有更改 
+        if git diff-index --quiet HEAD --; then 
+          echo "没有需要提交的更改" 
+          exit 0 
+        fi 
+ 
+        # 提交更改 
+        git commit -m "更新预发布版本: $PRE_RELEASE_VERSION" 
         
-        # 推送到远程仓库
-        echo "推送到远程仓库..."
-        git remote set-url origin https://x-access-token:$TOKEN@github.com/${{ github.repository }}.git
-        git push origin HEAD:${{ github.ref }}
+        # 推送到远程仓库 
+        echo "推送到远程仓库..." 
+        git remote set-url origin https://x-access-token:$TOKEN@github.com/${{ github.repository }}.git 
+        git push origin HEAD:${{ github.ref }} 
         
-        if [ $? -eq 0 ]; then
-          echo "推送成功"
-        else
-          echo "错误: 推送失败"
-          exit 1
-        fi
-
-        echo "同步完成! 状态: 成功"
-        echo "Android文件: $ANDROID_TARGET_PATH ($PRE_RELEASE_VERSION)"
-        echo "Windows文件: $WINDOWS_TARGET_PATH ($PRE_RELEASE_VERSION)"
-        exit 0
-
-  cleanup_self:
-    name: Cleanup Self Workflow History
-    runs-on: ubuntu-latest
-    needs: sync
-    if: ${{ always() }}
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Delete old workflow runs
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0
-          retain_days: 0
-          delete_workflow_pattern: "Karing Beta Sync from Source Repository"
-          repository: ${{ github.repository }}
+        if [ $? -eq 0 ]; then 
+          echo "推送成功" 
+        else 
+          echo "错误: 推送失败" 
+          exit 1 
+        fi 
+ 
+        echo "同步完成! 状态: 成功" 
+        echo "Android文件: $ANDROID_TARGET_PATH ($PRE_RELEASE_VERSION, $PRE_RELEASE_DATE_UTC8)" 
+        echo "Windows文件: $WINDOWS_TARGET_PATH ($PRE_RELEASE_VERSION, $PRE_RELEASE_DATE_UTC8)" 
+        exit 0 
+ 
+  cleanup_self: 
+    name: Cleanup Self Workflow History 
+    runs-on: ubuntu-latest 
+    needs: sync 
+    if: ${{ always() }} 
+    permissions: 
+      actions: write 
+      contents: read 
+    steps: 
+- name: Delete old workflow runs 
+        uses: Mattraks/delete-workflow-runs@v2 
+        with: 
+          token: ${{ secrets.GITHUB_TOKEN }} 
+          keep_minimum_runs: 0 
+          retain_days: 0 
+          delete_workflow_pattern: "Karing Beta Sync from Source Repository" 
+          repository: ${{ github.repository }} 
