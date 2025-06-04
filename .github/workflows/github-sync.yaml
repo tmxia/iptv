@@ -25,7 +25,7 @@ jobs:
       env:
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        XAPK_NAME: "GitHub.xapk"
+        XAPK_NAME: "github.xapk"
         VERSION_KEY: "github.xapk"
         APKPURE_URL: "https://d.apkpure.net/b/XAPK/com.github.android?version=latest"
       run: |
