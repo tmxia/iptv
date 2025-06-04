@@ -8,6 +8,5 @@
   "leanback-pro.apk": "v3.3.3,2025-05-27",
   "mobile-pro.apk": "v3.3.2,2025-05-27",
   "bv.apk": "v0.2.9,2024-12-06",
-  "bv-beta.apk": "alpha-r838,2025-06-01",
-  "github.zip": "1.212.0,2025-06-05"
+  "bv-beta.apk": "alpha-r838,2025-06-01"
 }
