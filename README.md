@@ -9,6 +9,4 @@
 | [mytv-tv.apk](https://github.com/tmxia/iptv/raw/main/apk/mytv-tv.apk) | V1.1.1.135 | 2025-05-27 |
 | [simple_live-tv.apk](https://github.com/tmxia/iptv/raw/main/apk/simple_live-tv.apk) | v1.3.5 | 2025-05-27 |
 | [simple_live.apk](https://github.com/tmxia/iptv/raw/main/apk/simple_live.apk) | v1.8.6 | 2025-05-27 |
-| [mobile.apk](https://github.com/tmxia/iptv/raw/main/apk/mobile.apk) | 2.9.3 | 2025-05-27 |
-| [leanback.apk](https://github.com/tmxia/iptv/raw/main/apk/leanback.apk) | 2.9.3 | 2025-05-27 |
 <!-- VERSION_TABLE_END -->
