@@ -40,20 +40,27 @@ jobs:
             sudo apt-get install -y jq
           fi
           
+          # 获取仓库信息
+          REPO_NAME="${{ github.repository }}"
+          BASE_URL="https://github.com/${REPO_NAME}/raw/main/apk/"
+          
           # 生成包含三列的新表格，按日期倒序排列
           echo "## 应用版本信息" > table.md
           echo "| 文件名称 | 版本号 | 更新日期 |" >> table.md
           echo "|----------|--------|----------|" >> table.md
           
-          # 解析version.txt，按日期倒序排序
-          jq -r 'to_entries | 
+          # 解析version.txt，按日期倒序排序，并为文件名添加超链接
+          jq -r --arg base_url "$BASE_URL" '
+            to_entries | 
             map({
               key: .key, 
               version: (.value | split(",")[0]), 
-              date: (.value | split(",")[1])
+              date: (.value | split(",")[1]),
+              url: ("\($base_url)" + (.key | @uri))  # 对文件名进行URL编码
             }) | 
             sort_by(.date) | reverse[] | 
-            "| \(.key) | \(.version) | \(.date) |"' version.txt >> table.md
+            "| [\(.key)](\(.url)) | \(.version) | \(.date) |"
+          ' version.txt >> table.md
 
           # 更新README.md
           awk -v new="$(cat table.md)" '
@@ -73,7 +80,7 @@ jobs:
             echo "No changes to commit"
           else
             git add -A
-            git commit -m "Update version table [skip ci]"
+            git commit -m "Update version table with download links [skip ci]"
             git push
           fi
 
