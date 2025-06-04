@@ -23,13 +23,13 @@ jobs:
         
     - name: Run APK sync script
       env:
-        SOURCE_REPO: "aaa1115910/bv"
+        SOURCE_REPO: "FongMi/Release"
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        STABLE_APK_PATTERN: "release_default_universal.apk"  # 稳定版匹配模式
-        PRE_RELEASE_APK_PATTERN: "alpha_default_universal.apk"  # 预发行版匹配模式
-        STABLE_KEY_NAME: "bv.apk"
-        PRE_RELEASE_KEY_NAME: "bv-beta.apk"
+        STABLE_APK_PATTERN: "leanback-armeabi_v7a.apk"  # 稳定版匹配模式
+        PRE_RELEASE_APK_PATTERN: "mobile-arm64_v8a.apk"  # 预发行版匹配模式
+        STABLE_KEY_NAME: "leanback.apk"
+        PRE_RELEASE_KEY_NAME: "mobile.apk"
       run: |
         # 从环境变量获取配置
         STABLE_TARGET_FILENAME="apk/$STABLE_KEY_NAME"
