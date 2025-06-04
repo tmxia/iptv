@@ -8,8 +8,6 @@
 | karing.apk | v1.1.3.721,2025-06-04 |
 | karing-win.zip | v1.1.3.721,2025-06-04 |
 | github.xapk | 1.212.0 |
-| mytv-tv.apk | V1.1.1.135 |
-| mytv-tv-beta.apk | V1.2.0.141 |
 | leanback-pro.apk | leanback-pro-20250527 |
 | mobile-pro.apk | mobile-pro-20250527 |
 | bv.apk | v0.2.9,2024-12-06 |
