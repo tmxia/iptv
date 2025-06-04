@@ -1,4 +1,4 @@
-name: OK APK Sync from TELEGRAM
+name: OK PRO APK Sync from TELEGRAM
 
 concurrency: 
   group: ${{ github.workflow }}-${{ github.ref }}
