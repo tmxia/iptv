@@ -1,7 +1,7 @@
 name: Trigger All Workflows
 
 on:
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   trigger-workflows:
@@ -14,49 +14,40 @@ jobs:
         with:
           script: |
             try {
-              // 获取所有工作流
+              // List all workflows in the repository
               const workflows = await github.rest.actions.listRepoWorkflows({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
               });
-              
-              // 过滤掉当前工作流
+
+              // Filter out the current workflow (this one)
               const otherWorkflows = workflows.data.workflows.filter(
                 workflow => workflow.name !== 'Trigger All Workflows'
               );
-              
-              // 分批触发工作流（避免 API 速率限制）
-              const chunkSize = 5;
-              for (let i = 0; i < otherWorkflows.length; i += chunkSize) {
-                const chunk = otherWorkflows.slice(i, i + chunkSize);
-                
-                await Promise.all(chunk.map(async workflow => {
-                  console.log(`触发工作流: ${workflow.name} (ID: ${workflow.id})`);
-                  
-                  try {
-                    await github.rest.actions.createWorkflowDispatch({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      workflow_id: workflow.id,
-                      ref: 'main',  # 使用您仓库的主分支
-                      headers: {
-                        authorization: `Bearer ${process.env.PAT}`
-                      }
-                    });
-                    console.log(`✅ 成功触发: ${workflow.name}`);
-                  } catch (error) {
-                    console.error(`❌ 触发失败: ${workflow.name}`, error);
-                  }
-                }));
-                
-                // 批次间延迟
-                if (i + chunkSize < otherWorkflows.length) {
-                  await new Promise(resolve => setTimeout(resolve, 1000));
+
+              // Trigger each workflow individually
+              for (const workflow of otherWorkflows) {
+                try {
+                  console.log(`Triggering workflow: ${workflow.name}`);
+                  await github.rest.actions.createWorkflowDispatch({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    workflow_id: workflow.id,
+                    ref: 'main', // Change to your default branch if not main
+                    headers: {
+                      authorization: `Bearer ${process.env.PAT}`
+                    }
+                  });
+                  console.log(`Successfully triggered: ${workflow.name}`);
+                } catch (error) {
+                  console.error(`Failed to trigger workflow ${workflow.name}: ${error}`);
+                  // Mark the step as failed but continue triggering others
+                  core.setFailed(`Failed to trigger ${workflow.name}`);
                 }
               }
-              
-              return `已触发 ${otherWorkflows.length} 个工作流`;
+
+              console.log(`Triggered ${otherWorkflows.length} workflows`);
             } catch (error) {
-              console.error('主脚本错误:', error);
-              core.setFailed('触发工作流失败: ' + error.message);
+              console.error('Unexpected error:', error);
+              core.setFailed('Unexpected error: ' + error.message);
             }
