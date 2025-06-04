@@ -19,7 +19,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl
+        sudo apt-get install -y jq curl pv
         
     - name: Download and process GitHub XAPK
       env:
@@ -34,30 +34,40 @@ jobs:
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 下载XAPK文件
+        # 下载XAPK文件（带进度条）
         echo "正在下载GitHub XAPK文件..."
-        curl -L -o "$WORK_DIR/original.xapk" "$APKPURE_URL"
+        FILENAME=$(curl -sI "$APKPURE_URL" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2)
         
-        if [ ! -f "$WORK_DIR/original.xapk" ]; then
+        if [ -z "$FILENAME" ]; then
+          # 如果无法从header获取文件名，使用默认文件名
+          FILENAME="github_$(date +%Y%m%d).xapk"
+          echo "无法从header获取文件名，使用默认文件名: $FILENAME"
+          curl -L "$APKPURE_URL" | pv -bpet -s $(curl -sI "$APKPURE_URL" | grep -i 'content-length' | awk '{print $2}' | tr -d '\r') > "$WORK_DIR/$FILENAME"
+        else
+          echo "原始文件名: $FILENAME"
+          curl -L "$APKPURE_URL" | pv -bpet -s $(curl -sI "$APKPURE_URL" | grep -i 'content-length' | awk '{print $2}' | tr -d '\r') > "$WORK_DIR/$FILENAME"
+        fi
+        
+        if [ ! -f "$WORK_DIR/$FILENAME" ]; then
           echo "错误: XAPK下载失败"
           exit 1
         fi
 
-        # 获取原始文件名
-        ORIG_FILENAME=$(curl -sI "$APKPURE_URL" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2)
-        echo "原始文件名: $ORIG_FILENAME"
-
-        # 从文件名提取版本号
-        if [[ "$ORIG_FILENAME" =~ _([0-9]+\.[0-9]+\.[0-9]+)_ ]]; then
+        # 从文件名提取版本号（改进的正则表达式）
+        if [[ "$FILENAME" =~ _([0-9]+\.[0-9]+\.[0-9]+)_ ]]; then
+          VERSION="${BASH_REMATCH[1]}"
+          echo "提取的版本号: $VERSION"
+        elif [[ "$FILENAME" =~ _([0-9]+\.[0-9]+)_ ]]; then
           VERSION="${BASH_REMATCH[1]}"
           echo "提取的版本号: $VERSION"
         else
-          echo "警告: 无法从文件名提取版本号 ($ORIG_FILENAME)"
-          VERSION=$(date +%Y%m%d%H%M)
+          echo "警告: 无法从文件名提取版本号 ($FILENAME)"
+          # 使用更精确的时间戳格式
+          VERSION=$(date +%Y.%m.%d-%H%M)
         fi
 
         # 重命名XAPK文件
-        mv "$WORK_DIR/original.xapk" "$WORK_DIR/$XAPK_NAME"
+        mv "$WORK_DIR/$FILENAME" "$WORK_DIR/$XAPK_NAME"
         echo "已重命名为: $XAPK_NAME"
 
         # 获取目标仓库当前版本
