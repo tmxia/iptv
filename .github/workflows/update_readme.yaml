@@ -39,13 +39,13 @@ jobs:
             sudo apt-get update 
             sudo apt-get install -y jq 
           fi 
-          
+ 
           # 生成表格 
           echo "## 应用版本信息" > table.md 
 
 echo "| 文件名称 | 版本号 | 更新日期 |" >> table.md
 echo "|----------|--------|----------|" >> table.md
-          
+ 
           # 处理 version.txt 中的数据，分割版本号和更新日期 
 
 jq -r 'to_entries[] | split(",") as $parts | "| \(.key) | \($parts[0]) | \($parts[1]) |"' version.txt >> table.md
@@ -63,10 +63,10 @@ jq -r 'to_entries[] | split(",") as $parts | "| \(.key) | \($parts[0]) | \($part
         run: | 
           git config user.name "github-actions" 
           git config user.email "actions@users.noreply.github.com" 
-          
+ 
           # 添加所有更改 
           git add -A 
-          
+ 
           # 检查是否有更改 
           if git diff --quiet && git diff --cached --quiet; then 
             echo "No changes to commit" 
