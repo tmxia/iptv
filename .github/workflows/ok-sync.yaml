@@ -76,8 +76,8 @@ jobs:
         
         def commit_and_push(message):
             try:
-                # 添加所有更改
-                subprocess.run(["git", "add", "."], cwd=GIT_DIR, check=True)
+                # 只添加apk目录和版本文件
+                subprocess.run(["git", "add", APK_DIR, "version.txt"], cwd=GIT_DIR, check=True)
                 
                 # 检查是否有更改
                 status = subprocess.run(["git", "status", "--porcelain"], cwd=GIT_DIR, capture_output=True, text=True)
@@ -130,8 +130,16 @@ jobs:
             version = f"{filename.split('.')[0]}-{date_str}"
             download_path = os.path.join(WORK_DIR, filename)
             
-            with tqdm(total=message.document.size, unit='B', unit_scale=True, 
-                      desc=f"下载 {filename}", dynamic_ncols=True) as pbar:
+            # 使用tqdm实现单行进度条
+            with tqdm(
+                total=message.document.size,
+                unit='B',
+                unit_scale=True,
+                desc=f"下载 {filename}",
+                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}',
+                ascii=True,
+                ncols=80
+            ) as pbar:
                 last = 0
                 def callback(current, total):
                     nonlocal last
@@ -237,10 +245,10 @@ jobs:
                 log("提交失败")
                 return 4
             
-            # 清理
-            for file in os.listdir(WORK_DIR):
-                os.remove(os.path.join(WORK_DIR, file))
-            log("临时文件已清理")
+            # 清理临时目录
+            if os.path.exists(WORK_DIR):
+                shutil.rmtree(WORK_DIR)
+                log("临时目录已清理")
             
             log("="*50)
             log("同步任务完成")
