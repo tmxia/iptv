@@ -6,6 +6,7 @@ on:
       - 'version.txt'
   schedule:
     - cron: '0 * * * *'  # 每小时自动检查一次
+  workflow_dispatch:
 
 jobs:
   update-readme:
