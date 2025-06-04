@@ -3,6 +3,7 @@
 ## 应用版本信息
 | 文件名称 | 版本号 | 更新日期 |
 |----------|--------|----------|
+| [github.zip](https://github.com/tmxia/iptv/raw/main/apk/github.zip) | v1.212.0 | 2025-06-05 |
 | [karing-win.zip](https://github.com/tmxia/iptv/raw/main/apk/karing-win.zip) | v1.1.3.721 | 2025-06-04 |
 | [karing.apk](https://github.com/tmxia/iptv/raw/main/apk/karing.apk) | v1.1.3.721 | 2025-06-04 |
 | [mytv-tv-beta.apk](https://github.com/tmxia/iptv/raw/main/apk/mytv-tv-beta.apk) | V1.2.0.141 | 2025-06-03 |
