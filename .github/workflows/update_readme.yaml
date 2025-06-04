@@ -1,0 +1,62 @@
+name: Update README and Cleanup Workflow
+
+on:
+  push:
+    paths:
+      - 'version.txt'
+  schedule:
+    - cron: '0 * * * *'  # 每小时自动检查一次
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update README
+        run: |
+          sudo apt-get install -y jq
+          
+          # 生成表格
+          echo "## 应用版本信息" > table.md
+          echo "| 文件名称 | 版本号 |" >> table.md
+          echo "|----------|--------|" >> table.md
+          
+          jq -r 'to_entries[] | "| \(.key) | \(.value) |"' version.txt >> table.md
+
+          # 更新README
+          awk -v new="$(cat table.md)" '
+            /<!-- VERSION_TABLE_START -->/ {print; print new; skip=1}
+            /<!-- VERSION_TABLE_END -->/ {skip=0}
+            skip {next} {print}
+          ' README.md > tmp && mv tmp README.md
+
+          rm table.md
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git diff --quiet && git diff --staged --quiet || git commit -am "Update version table [skip ci]"
+          git push
+
+  cleanup_self:
+    name: Cleanup Workflow History
+    runs-on: ubuntu-latest
+    needs: [update-readme]  # 依赖于更新README的job
+    if: ${{ always() }}     # 无论主任务成功与否都执行
+    permissions:
+      actions: write        # 需要写入权限来删除运行记录
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "Update README and Cleanup Workflow"
+          repository: ${{ github.repository }}
