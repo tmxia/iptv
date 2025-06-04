@@ -19,6 +19,8 @@ jobs:
         repository: ${{ github.repository }}
         token: ${{ secrets.GITHUB_TOKEN }}
         path: target-repo
+        # 添加fetch-depth以获取完整历史记录
+        fetch-depth: 0
 
     - name: Install dependencies
       run: |
@@ -167,6 +169,10 @@ jobs:
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
 
+        # 拉取最新更改（防止推送冲突）
+        echo "拉取远程最新更改..."
+        git pull origin main --rebase
+
         # 添加所有更改
         git add .
         
@@ -181,6 +187,7 @@ jobs:
         git commit -m "$COMMIT_MESSAGE"
         
         # 推送更改
+        echo "推送更改到远程仓库..."
         git push origin main
         echo "更改已推送到仓库"
 
