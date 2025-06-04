@@ -9,5 +9,6 @@
   "bv-beta.apk": "alpha-r838,2025-06-01",
   "leanback-pro.apk": "leanback-pro-20250527,2025-05-27",
   "mobile-pro.apk": "mobile-pro-20250527,2025-05-27",
-  "github.xapk": "1.212.0,2025-06-04"
+  "github.xapk": "1.212.0,2025-06-04",
+  "github.zip": "1.212.0,2025-06-04"
 }
