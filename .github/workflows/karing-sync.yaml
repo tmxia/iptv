@@ -15,16 +15,22 @@ jobs:
     steps:
     - name: Checkout current repository
       uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # 获取完整历史记录
 
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y jq curl
         
+    - name: Configure Git
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        
     - name: Run sync script
       env:
         SOURCE_REPO: "KaringX/karing"
-        TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
         APK_PATTERN: "android_arm64-v8a.apk"
         WIN_PATTERN: "windows_x64.zip"
@@ -39,16 +45,6 @@ jobs:
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
-
-        # 验证令牌访问权限
-        echo "验证GitHub令牌权限..."
-        RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" \
-                  "https://api.github.com/repos/$TARGET_REPO")
-        if [ "$RESPONSE" != "200" ]; then
-          echo "错误: 令牌无效 (HTTP $RESPONSE)"
-          echo "请检查工作流权限设置"
-          exit 1
-        fi
 
         # 获取所有预发布版
         echo "获取预发布版本信息..."
@@ -68,56 +64,31 @@ jobs:
         PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
         echo "源仓库最新预发布版: $PRE_RELEASE_VERSION"
 
-        # 获取目标仓库当前版本
-        echo "获取目标仓库当前版本文件..."
-        TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-
-        # 初始化当前版本
-        CURRENT_ANDROID_VERSION=""
-        CURRENT_WINDOWS_VERSION=""
-        
-        if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
-          VERSION_CONTENT=$(echo "$TARGET_VERSION_JSON" | jq -r '.content' | base64 -d)
-          
-          # 解析版本文件
-          if echo "$VERSION_CONTENT" | jq -e . >/dev/null 2>&1; then
-            CURRENT_ANDROID_VERSION=$(echo "$VERSION_CONTENT" | jq -r ".android")
-            CURRENT_WINDOWS_VERSION=$(echo "$VERSION_CONTENT" | jq -r ".windows")
-          else
-            echo "警告: 版本文件格式无效，将重置"
-          fi
+        # 检查本地版本文件
+        CURRENT_VERSION=""
+        if [ -f "version.txt" ]; then
+          CURRENT_VERSION=$(jq -r '.version' version.txt 2>/dev/null)
         fi
         
-        echo "目标仓库当前Android版本: ${CURRENT_ANDROID_VERSION:-无}"
-        echo "目标仓库当前Windows版本: ${CURRENT_WINDOWS_VERSION:-无}"
+        echo "当前版本: ${CURRENT_VERSION:-无}"
 
         # 检查是否需要更新
         need_update=false
         
         # 检查版本是否匹配
-        if [ "$PRE_RELEASE_VERSION" != "$CURRENT_ANDROID_VERSION" ] || \
-           [ "$PRE_RELEASE_VERSION" != "$CURRENT_WINDOWS_VERSION" ]; then
-          echo "发现新版本: $PRE_RELEASE_VERSION (当前Android: $CURRENT_ANDROID_VERSION, Windows: $CURRENT_WINDOWS_VERSION)"
+        if [ "$PRE_RELEASE_VERSION" != "$CURRENT_VERSION" ]; then
+          echo "发现新版本: $PRE_RELEASE_VERSION (当前: $CURRENT_VERSION)"
           need_update=true
         fi
         
         # 检查文件是否存在
-        check_file_existence() {
-          local file_path=$1
-          local response=$(curl -s -o /dev/null -w "%{http_code}" \
-              -H "Authorization: token $TOKEN" \
-              "https://api.github.com/repos/$TARGET_REPO/contents/$file_path")
-          [ "$response" -eq 200 ]
-        }
-        
-        if ! check_file_existence "$ANDROID_TARGET_PATH"; then
-          echo "目标仓库中不存在Android文件: $ANDROID_TARGET_PATH"
+        if [ ! -f "$ANDROID_TARGET_PATH" ]; then
+          echo "本地不存在Android文件: $ANDROID_TARGET_PATH"
           need_update=true
         fi
         
-        if ! check_file_existence "$WINDOWS_TARGET_PATH"; then
-          echo "目标仓库中不存在Windows文件: $WINDOWS_TARGET_PATH"
+        if [ ! -f "$WINDOWS_TARGET_PATH" ]; then
+          echo "本地不存在Windows文件: $WINDOWS_TARGET_PATH"
           need_update=true
         fi
         
@@ -143,6 +114,9 @@ jobs:
           exit 1
         fi
         
+        # 确保apk目录存在
+        mkdir -p apk
+        
         # 下载Android APK
         apk_source_name=$(basename "$apk_download_url")
         echo "下载Android APK: $apk_source_name"
@@ -161,120 +135,35 @@ jobs:
           exit 1
         fi
         
-        # 重命名文件
-        mv "$WORK_DIR/$apk_source_name" "$WORK_DIR/$ANDROID_TARGET_NAME"
-        mv "$WORK_DIR/$win_source_name" "$WORK_DIR/$WINDOWS_TARGET_NAME"
-        echo "文件已重命名: $ANDROID_TARGET_NAME, $WINDOWS_TARGET_NAME"
+        # 重命名并移动到目标位置
+        mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH"
+        mv "$WORK_DIR/$win_source_name" "$WINDOWS_TARGET_PATH"
+        echo "文件已保存到: $ANDROID_TARGET_PATH 和 $WINDOWS_TARGET_PATH"
 
-        # 上传文件函数
-        upload_file() {
-          local target_path=$1
-          local source_file=$2
-          local file_type=$3
-          
-          echo "上传$file_type文件: $target_path..."
-          
-          # 检查文件是否存在
-          CONTENT_JSON=$(curl -s -H "Authorization: token $TOKEN" \
-                          "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
-          
-          sha=""
-          if [ "$(echo "$CONTENT_JSON" | jq -r '.message')" != "Not Found" ]; then
-            sha=$(echo "$CONTENT_JSON" | jq -r '.sha')
-          fi
-          
-          # 创建JSON请求
-          json_file="$WORK_DIR/request_$file_type.json"
-          {
-            echo '{'
-            echo "  \"message\": \"更新$file_type预发布版: $PRE_RELEASE_VERSION\","
-            echo -n '  "content": "'
-            base64 -w0 "$WORK_DIR/$source_file" | tr -d '\n'
-            echo '",'
-            echo "  \"sha\": \"$sha\""
-            echo '}'
-          } > "$json_file"
-          
-          # 上传文件
-          RESPONSE_JSON=$(curl -s \
-                -X PUT \
-                -H "Authorization: token $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data-binary "@$json_file" \
-                "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
-          
-          # 检查错误
-          error_message=$(echo "$RESPONSE_JSON" | jq -r '.message')
-          if [ "$error_message" != "null" ] && [ ! -z "$error_message" ]; then
-            echo "错误: $file_type文件上传失败 - $error_message"
-            return 1
-          else
-            echo "上传成功: $target_path ($PRE_RELEASE_VERSION)"
-            return 0
-          fi
-        }
+        # 创建版本文件
+        echo "{\"version\": \"$PRE_RELEASE_VERSION\"}" > version.txt
 
-        # 更新版本文件
-        update_version() {
-          echo "更新版本文件..."
-          VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
-                          "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-
-          # 创建新版本内容
-          NEW_VERSION_DATA=$(jq -n \
-            --arg android "$PRE_RELEASE_VERSION" \
-            --arg windows "$PRE_RELEASE_VERSION" \
-            '{android: $android, windows: $windows}')
-          
-          NEW_VERSION_CONTENT=$(echo "$NEW_VERSION_DATA" | jq .)
-
-          # 检查文件是否存在
-          SHA_VERSION=""
-          if [ "$(echo "$VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
-            SHA_VERSION=$(echo "$VERSION_JSON" | jq -r '.sha')
-          fi
-
-          # 创建JSON数据
-          JSON_VERSION=$(jq -n \
-              --arg msg "更新预发布版本: $PRE_RELEASE_VERSION" \
-              --arg content "$(echo -n "$NEW_VERSION_CONTENT" | base64 -w0)" \
-              --arg sha "$SHA_VERSION" \
-              '{message: $msg, content: $content, sha: $sha}')
-
-          # 上传版本文件
-          VERSION_RESPONSE=$(curl -s \
-                    -X PUT \
-                    -H "Authorization: token $TOKEN" \
-                    -H "Content-Type: application/json" \
-                    -d "$JSON_VERSION" \
-                    "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-
-          # 检查错误
-          ERROR_MESSAGE_VERSION=$(echo "$VERSION_RESPONSE" | jq -r '.message')
-          if [ "$ERROR_MESSAGE_VERSION" != "null" ]; then
-            echo "错误: 版本文件上传失败 - $ERROR_MESSAGE_VERSION"
-            return 1
-          fi
-          return 0
-        }
-
-        # 上传文件
-        upload_file "$ANDROID_TARGET_PATH" "$ANDROID_TARGET_NAME" "Android"
-        if [ $? -ne 0 ]; then
-          echo "错误: Android文件上传失败"
-          exit 1
-        fi
+        # 添加所有更改
+        git add apk/ version.txt
         
-        upload_file "$WINDOWS_TARGET_PATH" "$WINDOWS_TARGET_NAME" "Windows"
-        if [ $? -ne 0 ]; then
-          echo "错误: Windows文件上传失败"
-          exit 1
+        # 检查是否有更改
+        if git diff-index --quiet HEAD --; then
+          echo "没有需要提交的更改"
+          exit 0
         fi
+
+        # 提交更改
+        git commit -m "更新预发布版本: $PRE_RELEASE_VERSION"
         
-        # 更新版本文件
-        update_version
-        if [ $? -ne 0 ]; then
-          echo "错误: 版本更新失败"
+        # 推送到远程仓库
+        echo "推送到远程仓库..."
+        git remote set-url origin https://x-access-token:$TOKEN@github.com/${{ github.repository }}.git
+        git push origin HEAD:${{ github.ref }}
+        
+        if [ $? -eq 0 ]; then
+          echo "推送成功"
+        else
+          echo "错误: 推送失败"
           exit 1
         fi
 
