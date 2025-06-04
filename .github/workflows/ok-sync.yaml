@@ -5,6 +5,10 @@ on:
     - cron: '0 */2 * * *'  # 每2小时运行一次
   workflow_dispatch:
 
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   actions: write
@@ -13,6 +17,15 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    - name: Acquire Repository Lock 🔒
+      uses: softprops/turnstyle@v1
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 600
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Checkout target repository
       uses: actions/checkout@v3
       with:
@@ -28,16 +41,13 @@ jobs:
         
     - name: Install Android SDK for aapt2
       run: |
-        # 安装Android SDK命令行工具
         SDK_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip"
         curl -sL "$SDK_TOOLS_URL" -o sdk-tools.zip
         unzip -q sdk-tools.zip -d android-sdk
         
-        # 设置环境变量
         echo "ANDROID_SDK_ROOT=$GITHUB_WORKSPACE/android-sdk" >> $GITHUB_ENV
         echo "$GITHUB_WORKSPACE/android-sdk/cmdline-tools/bin" >> $GITHUB_PATH
         
-        # 接受许可并安装build-tools
         yes | android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=$GITHUB_WORKSPACE/android-sdk "build-tools;34.0.0"
         echo "aapt2路径: $GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2"
         
@@ -52,11 +62,9 @@ jobs:
         STABLE_TARGET_NAME: "leanback.apk"
         PRE_RELEASE_TARGET_NAME: "mobile.apk"
       run: |
-        # 设置目标路径
         STABLE_TARGET_PATH="apk/$STABLE_TARGET_NAME"
         PRE_RELEASE_TARGET_PATH="apk/$PRE_RELEASE_TARGET_NAME"
         
-        # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
@@ -84,15 +92,11 @@ jobs:
           local apk_path="$1"
           echo "从APK提取版本号: $apk_path" >&2
           
-          # 使用aapt2获取版本信息
           VERSION_INFO=$("$GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2" dump badging "$apk_path" | grep "versionName")
-          
-          # 提取版本号 (格式: versionName='2.9.3')
           VERSION=$(echo "$VERSION_INFO" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           
           if [ -z "$VERSION" ]; then
             echo "警告: 无法提取版本号, 使用提交哈希" >&2
-            # 获取文件提交历史中的版本号
             COMMIT_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/commits?path=$APK_DIR/$STABLE_APK_NAME&sha=$SOURCE_BRANCH&per_page=1")
             VERSION=$(echo "$COMMIT_JSON" | jq -r '.[0].commit.message' | grep -oP 'v\d+\.\d+\.\d+' | head -1)
             if [ -z "$VERSION" ]; then
@@ -100,7 +104,6 @@ jobs:
             fi
           fi
           
-          # 确保版本号以"v"开头
           if [[ ! "$VERSION" =~ ^v ]]; then
             VERSION="v$VERSION"
           fi
@@ -113,16 +116,13 @@ jobs:
         get_file_commit_date() {
           local file_name="$1"
           
-          # 获取文件提交历史（只取最新的一条）
           COMMIT_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/commits?path=$APK_DIR/$file_name&sha=$SOURCE_BRANCH&per_page=1")
           if [ $? -ne 0 ] || [ -z "$COMMIT_JSON" ]; then
             echo "错误: 无法获取文件提交历史" >&2
             exit 1
           fi
           
-          # 提取提交日期
           COMMIT_DATE=$(echo "$COMMIT_JSON" | jq -r '.[0].commit.committer.date')
-          # 只保留年月日
           COMMIT_DATE_UTC8=$(TZ=Asia/Shanghai date -d "$COMMIT_DATE" +'%Y-%m-%d')
           
           echo "文件提交日期: $COMMIT_DATE_UTC8" >&2
@@ -137,21 +137,14 @@ jobs:
         echo "稳定版版本: $STABLE_VERSION, 日期: $STABLE_COMMIT_DATE"
         echo "预发行版版本: $PRE_RELEASE_VERSION, 日期: $PRE_RELEASE_COMMIT_DATE"
 
-        # 准备目标仓库目录
         TARGET_DIR="$GITHUB_WORKSPACE/target-repo"
-        
-        # 更新版本文件
         VERSION_FILE="$TARGET_DIR/version.txt"
         
-        # 如果版本文件不存在，创建空JSON
         if [ ! -f "$VERSION_FILE" ]; then
           echo "{}" > "$VERSION_FILE"
         fi
         
-        # 读取当前版本数据
         CURRENT_VERSION_DATA=$(cat "$VERSION_FILE")
-        
-        # 更新版本数据
         NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
             --arg stable_key "$STABLE_TARGET_NAME" \
             --arg stable_value "$STABLE_VERSION,$STABLE_COMMIT_DATE" \
@@ -162,20 +155,14 @@ jobs:
         echo "$NEW_VERSION_DATA" | jq -r . > "$VERSION_FILE"
         echo "版本文件已更新"
 
-        # 复制APK文件到目标仓库
         mkdir -p "$TARGET_DIR/apk"
         cp "$WORK_DIR/$STABLE_APK_NAME" "$TARGET_DIR/$STABLE_TARGET_PATH"
         cp "$WORK_DIR/$PRE_RELEASE_APK_NAME" "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
         echo "APK文件已复制到目标仓库"
 
-        # 配置Git用户
         cd "$TARGET_DIR"
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
-
-        # 拉取最新更改（防止推送冲突）
-        echo "拉取远程最新更改..."
-        git pull origin main --rebase
 
         # 添加所有更改
         git add .
@@ -186,17 +173,56 @@ jobs:
           exit 0
         fi
 
-        # 提交更改
         COMMIT_MESSAGE="更新APK: $STABLE_TARGET_NAME ($STABLE_VERSION) 和 $PRE_RELEASE_TARGET_NAME ($PRE_RELEASE_VERSION)"
         git commit -m "$COMMIT_MESSAGE"
         
-        # 推送更改
-        echo "推送更改到远程仓库..."
-        git push origin main
-        echo "更改已推送到仓库"
+        # 推送重试机制 (最多3次)
+        for i in {1..3}; do
+          echo "尝试 $i/3: 拉取远程最新更改..."
+          git pull origin main --rebase || {
+            echo "拉取失败，等待10秒后重试..."
+            sleep 10
+            continue
+          }
+          
+          echo "尝试 $i/3: 推送更改..."
+          if git push origin main; then
+            echo "推送成功!"
+            break
+          else
+            echo "推送失败，等待10秒后重试..."
+            sleep 10
+          fi
+        done
+        
+        if [ $i -eq 3 ]; then
+          echo "错误: 经过3次尝试后仍无法推送更改"
+          exit 1
+        fi
 
         echo "同步完成! 状态: 成功"
-        exit 0
+
+    - name: Release Repository Lock 🔓
+      if: always()
+      uses: softprops/turnstyle@v1
+      with:
+        continue-on-error: true
+        action: unlock
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const message = `🚨 APK同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: message
+          })
 
   cleanup_self:
     name: Cleanup Self Workflow History
