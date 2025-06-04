@@ -1,5 +1,9 @@
 name: OK APK Sync from TELEGRAM
 
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   schedule:
     - cron: '0 */3 * * *'  # 每3小时运行一次
@@ -25,7 +29,7 @@ jobs:
         python-version: '3.10'
 
     - name: Install dependencies
-      run: pip install telethon tqdm requests
+      run: pip install telethon requests
 
     - name: Run APK Sync
       env:
@@ -42,12 +46,12 @@ jobs:
         import sys
         import subprocess
         import shutil
+        import time
         from datetime import datetime
-        from telethon import TelegramClient, events
+        from telethon import TelegramClient
         from telethon.sessions import StringSession
         from telethon.tl.types import DocumentAttributeFilename
-        from tqdm import tqdm
-
+        
         # 配置参数
         APK_FILES = ["leanback-pro.apk", "mobile-pro.apk"]
         APK_DIR = "apk"
@@ -59,6 +63,14 @@ jobs:
         
         def log(message):
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}")
+        
+        def format_size(size):
+            """将字节数转换为易读的格式"""
+            for unit in ['B', 'KB', 'MB', 'GB']:
+                if size < 1024.0:
+                    return f"{size:.1f}{unit}"
+                size /= 1024.0
+            return f"{size:.1f}GB"
         
         def setup_git():
             try:
@@ -85,9 +97,14 @@ jobs:
                     log("没有更改需要提交")
                     return True
                 
-                # 提交并推送
+                # 提交更改
                 subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
                 
+                # 拉取远程最新更改并变基
+                log("拉取远程最新更改并变基...")
+                subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=GIT_DIR, check=True)
+                
+                # 推送更改
                 token = os.environ['GITHUB_TOKEN']
                 actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
                 repo = os.environ['TARGET_REPO']
@@ -104,8 +121,20 @@ jobs:
                     log("推送成功")
                     return True
                 else:
-                    log(f"推送失败: {result.stderr.strip()}")
-                    return False
+                    # 如果推送失败，尝试强制推送
+                    log(f"推送失败，尝试强制推送: {result.stderr.strip()}")
+                    force_result = subprocess.run(
+                        ["git", "push", "--force", repo_url, "HEAD:main"],
+                        cwd=GIT_DIR,
+                        capture_output=True,
+                        text=True
+                    )
+                    if force_result.returncode == 0:
+                        log("强制推送成功")
+                        return True
+                    else:
+                        log(f"强制推送失败: {force_result.stderr.strip()}")
+                        return False
             except Exception as e:
                 log(f"Git操作失败: {str(e)}")
                 return False
@@ -130,23 +159,36 @@ jobs:
             version = f"{filename.split('.')[0]}-{date_str}"
             download_path = os.path.join(WORK_DIR, filename)
             
-            # 使用tqdm实现单行进度条
-            with tqdm(
-                total=message.document.size,
-                unit='B',
-                unit_scale=True,
-                desc=f"下载 {filename}",
-                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}',
-                ascii=True,
-                ncols=80
-            ) as pbar:
-                last = 0
-                def callback(current, total):
-                    nonlocal last
-                    pbar.update(current - last)
-                    last = current
+            total_size = message.document.size
+            log(f"开始下载: {filename} ({format_size(total_size)})")
+            
+            start_time = time.time()
+            last_progress_time = start_time
+            last_downloaded = 0
+            
+            def callback(current, total):
+                nonlocal last_progress_time, last_downloaded
+                current_time = time.time()
                 
-                await client.download_media(message, file=download_path, progress_callback=callback)
+                # 每2秒或下载完成时更新一次进度
+                if current_time - last_progress_time > 2 or current == total:
+                    elapsed = current_time - start_time
+                    percent = int((current / total) * 100)
+                    speed = (current - last_downloaded) / (current_time - last_progress_time)
+                    
+                    # 更新日志
+                    log(f"下载中: {filename} - {percent}% ({format_size(current)}/{format_size(total)}) "
+                         f"[速度: {format_size(speed)}/s]")
+                    
+                    last_progress_time = current_time
+                    last_downloaded = current
+            
+            await client.download_media(message, file=download_path, progress_callback=callback)
+            
+            # 下载完成后显示最终信息
+            elapsed = time.time() - start_time
+            avg_speed = total_size / elapsed if elapsed > 0 else 0
+            log(f"下载完成: {filename} - 耗时: {elapsed:.1f}秒, 平均速度: {format_size(avg_speed)}/s")
             
             return {"path": download_path, "version": version}
         
