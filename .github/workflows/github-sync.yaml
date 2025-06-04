@@ -19,14 +19,15 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl
+        sudo apt-get install -y jq curl zip unzip
         
     - name: Download and process GitHub XAPK
       env:
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
         XAPK_NAME: "github.xapk"
-        VERSION_KEY: "github.xapk"
+        ZIP_NAME: "github.zip"  # 新增ZIP文件名
+        VERSION_KEY: "github.xapk"  # 保持原键名，但值格式改为 "版本号,日期"
         APKPURE_URL: "https://d.apkpure.net/b/XAPK/com.github.android?version=latest"
       run: |
         # 创建临时工作目录
@@ -59,29 +60,55 @@ jobs:
           VERSION=$(date +%Y%m%d%H%M)
           echo "使用时间戳作为版本号: $VERSION"
         fi
+        
+        # 获取当前日期（北京时间）
+        CURRENT_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
+        echo "当前日期: $CURRENT_DATE"
 
         # 重命名XAPK文件
         mv "$WORK_DIR/original.xapk" "$WORK_DIR/$XAPK_NAME"
         echo "已重命名为: $XAPK_NAME"
+        
+        # 将XAPK压缩为ZIP文件
+        echo "将XAPK文件压缩为ZIP..."
+        zip -j "$WORK_DIR/$ZIP_NAME" "$WORK_DIR/$XAPK_NAME"
+        if [ ! -f "$WORK_DIR/$ZIP_NAME" ]; then
+          echo "错误: ZIP文件创建失败"
+          exit 1
+        fi
+        echo "已创建ZIP文件: $ZIP_NAME"
 
         # 获取目标仓库当前版本
         echo "获取目标仓库当前版本..."
         TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
-        CURRENT_VERSION=""
+        CURRENT_VALUE=""
         CURRENT_CONTENT=""
         if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
           VERSION_CONTENT=$(echo "$TARGET_VERSION_JSON" | jq -r '.content' | base64 -d)
           CURRENT_CONTENT="$VERSION_CONTENT"
-          CURRENT_VERSION=$(echo "$VERSION_CONTENT" | jq -r ".\"$VERSION_KEY\"")
-          if [ "$CURRENT_VERSION" = "null" ]; then
-            CURRENT_VERSION=""
+          CURRENT_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".\"$VERSION_KEY\"")
+          if [ "$CURRENT_VALUE" = "null" ]; then
+            CURRENT_VALUE=""
           fi
         fi
         
-        echo "当前版本: $CURRENT_VERSION"
-        echo "新版本: $VERSION"
+        # 提取当前版本号（如果存在）
+        CURRENT_VERSION=""
+        CURRENT_DATE_OLD=""
+        if [ -n "$CURRENT_VALUE" ] && [[ "$CURRENT_VALUE" == *,* ]]; then
+          CURRENT_VERSION=$(echo "$CURRENT_VALUE" | cut -d, -f1)
+          CURRENT_DATE_OLD=$(echo "$CURRENT_VALUE" | cut -d, -f2)
+        else
+          CURRENT_VERSION="$CURRENT_VALUE"
+        fi
+        
+        echo "当前版本: $CURRENT_VERSION (日期: $CURRENT_DATE_OLD)"
+        echo "新版本: $VERSION (日期: $CURRENT_DATE)"
+        
+        # 创建新版本值
+        NEW_VALUE="$VERSION,$CURRENT_DATE"
 
         # 检查是否需要更新
         NEED_UPDATE=false
@@ -92,16 +119,16 @@ jobs:
           NEED_UPDATE=true
         else
           # 2. 版本相同但文件不存在时需要更新
-          echo "检查XAPK文件是否存在..."
-          XAPK_EXIST_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+          echo "检查ZIP文件是否存在..."
+          ZIP_EXIST_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
               -H "Authorization: token $TOKEN" \
-              "https://api.github.com/repos/$TARGET_REPO/contents/apk/$XAPK_NAME")
+              "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
           
-          if [ "$XAPK_EXIST_RESPONSE" -ne 200 ]; then
-            echo "XAPK文件不存在 (HTTP $XAPK_EXIST_RESPONSE)，需要上传"
+          if [ "$ZIP_EXIST_RESPONSE" -ne 200 ]; then
+            echo "ZIP文件不存在 (HTTP $ZIP_EXIST_RESPONSE)，需要上传"
             NEED_UPDATE=true
           else
-            echo "版本相同且XAPK文件存在，无需更新"
+            echo "版本相同且ZIP文件存在，无需更新"
           fi
         fi
 
@@ -115,10 +142,10 @@ jobs:
         NEW_VERSION_CONTENT="{}"
         if [ -n "$CURRENT_CONTENT" ]; then
           # 更新特定键值，保留其他内容
-          NEW_VERSION_CONTENT=$(echo "$CURRENT_CONTENT" | jq --arg key "$VERSION_KEY" --arg value "$VERSION" '.[$key] = $value')
+          NEW_VERSION_CONTENT=$(echo "$CURRENT_CONTENT" | jq --arg key "$VERSION_KEY" --arg value "$NEW_VALUE" '.[$key] = $value')
         else
           # 如果无版本文件，创建新JSON
-          NEW_VERSION_CONTENT=$(jq -n --arg key "$VERSION_KEY" --arg value "$VERSION" '{($key): $value}')
+          NEW_VERSION_CONTENT=$(jq -n --arg key "$VERSION_KEY" --arg value "$NEW_VALUE" '{($key): $value}')
         fi
 
         echo "新版本文件内容:"
@@ -138,7 +165,7 @@ jobs:
 
         # 创建JSON请求
         JSON_VERSION=$(jq -n \
-            --arg msg "更新GitHub版本: $VERSION" \
+            --arg msg "更新GitHub版本: $VERSION ($CURRENT_DATE)" \
             --arg content "$VERSION_BASE64" \
             --arg sha "$SHA_VERSION" \
             '{message: $msg, content: $content, sha: $sha}')
@@ -159,44 +186,44 @@ jobs:
           exit 1
         fi
 
-        # 上传XAPK文件
-        echo "上传XAPK文件..."
-        XAPK_JSON=$(curl -s -H "Authorization: token $TOKEN" \
-                    "https://api.github.com/repos/$TARGET_REPO/contents/apk/$XAPK_NAME")
+        # 上传ZIP文件
+        echo "上传ZIP文件..."
+        ZIP_JSON=$(curl -s -H "Authorization: token $TOKEN" \
+                    "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
         
-        SHA_XAPK=""
-        if [ "$(echo "$XAPK_JSON" | jq -r '.message')" != "Not Found" ]; then
-          SHA_XAPK=$(echo "$XAPK_JSON" | jq -r '.sha')
+        SHA_ZIP=""
+        if [ "$(echo "$ZIP_JSON" | jq -r '.message')" != "Not Found" ]; then
+          SHA_ZIP=$(echo "$ZIP_JSON" | jq -r '.sha')
         fi
 
         # 创建JSON请求文件（处理大文件）
         JSON_FILE="$WORK_DIR/request.json"
         {
           echo '{'
-          echo "  \"message\": \"更新GitHub XAPK: $VERSION\","
+          echo "  \"message\": \"更新GitHub ZIP: $VERSION ($CURRENT_DATE)\","
           echo -n '  "content": "'
-          base64 -w0 "$WORK_DIR/$XAPK_NAME" | tr -d '\n'
+          base64 -w0 "$WORK_DIR/$ZIP_NAME" | tr -d '\n'
           echo '",'
-          echo "  \"sha\": \"$SHA_XAPK\""
+          echo "  \"sha\": \"$SHA_ZIP\""
           echo '}'
         } > "$JSON_FILE"
 
-        # 上传XAPK文件
-        XAPK_RESPONSE=$(curl -s \
+        # 上传ZIP文件
+        ZIP_RESPONSE=$(curl -s \
                   -X PUT \
                   -H "Authorization: token $TOKEN" \
                   -H "Content-Type: application/json" \
                   --data-binary "@$JSON_FILE" \
-                  "https://api.github.com/repos/$TARGET_REPO/contents/apk/$XAPK_NAME")
+                  "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
 
         # 检查错误
-        ERROR_MESSAGE_XAPK=$(echo "$XAPK_RESPONSE" | jq -r '.message')
-        if [ "$ERROR_MESSAGE_XAPK" != "null" ]; then
-          echo "错误: XAPK文件上传失败 - $ERROR_MESSAGE_XAPK"
+        ERROR_MESSAGE_ZIP=$(echo "$ZIP_RESPONSE" | jq -r '.message')
+        if [ "$ERROR_MESSAGE_ZIP" != "null" ]; then
+          echo "错误: ZIP文件上传失败 - $ERROR_MESSAGE_ZIP"
           exit 1
         fi
 
-        echo "同步完成! 新版本: $VERSION"
+        echo "同步完成! 新版本: $VERSION, 日期: $CURRENT_DATE"
 
   cleanup_self:
     name: Cleanup Self Workflow History
