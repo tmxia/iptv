@@ -2,7 +2,7 @@ name: OK APK Sync from Source Repository
 
 on:
   schedule:
-    - cron: '0 */24 * * *'  # 每24小时运行一次
+    - cron: '0 */2 * * *'  # 每2小时运行一次
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,6 @@ jobs:
         repository: ${{ github.repository }}
         token: ${{ secrets.GITHUB_TOKEN }}
         path: target-repo
-        # 添加fetch-depth以获取完整历史记录
         fetch-depth: 0
 
     - name: Install dependencies
@@ -80,7 +79,7 @@ jobs:
           exit 1
         fi
 
-        # 提取版本号
+        # 提取版本号并添加"v"前缀
         extract_apk_version() {
           local apk_path="$1"
           echo "从APK提取版本号: $apk_path" >&2
@@ -99,6 +98,11 @@ jobs:
             if [ -z "$VERSION" ]; then
               VERSION="unknown"
             fi
+          fi
+          
+          # 确保版本号以"v"开头
+          if [[ ! "$VERSION" =~ ^v ]]; then
+            VERSION="v$VERSION"
           fi
           
           echo "提取的版本号: $VERSION" >&2
@@ -207,7 +211,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 5   # 保留最近5次运行记录
-          retain_days: 7         # 保留7天内的运行记录
+          keep_minimum_runs: 0
+          retain_days: 0
           delete_workflow_pattern: "OK APK Sync from Source Repository"
           repository: ${{ github.repository }}
