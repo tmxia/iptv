@@ -331,5 +331,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "OK APK Sync from TELEGRAM"
+          delete_workflow_pattern: "OK PRO APK Sync from TELEGRAM"
           repository: ${{ github.repository }}
