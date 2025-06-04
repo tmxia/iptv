@@ -3,10 +3,13 @@
 ## 应用版本信息
 | 文件名称 | 版本号 | 更新日期 |
 |----------|--------|----------|
+| github.xapk | 1.212.0 | 2025-06-04 |
 | karing-win.zip | v1.1.3.721 | 2025-06-04 |
 | karing.apk | v1.1.3.721 | 2025-06-04 |
 | mytv-tv-beta.apk | V1.2.0.141 | 2025-06-03 |
 | bv-beta.apk | alpha-r838 | 2025-06-01 |
+| mobile-pro.apk | mobile-pro-20250527 | 2025-05-27 |
+| leanback-pro.apk | leanback-pro-20250527 | 2025-05-27 |
 | simple_live-tv.apk | v1.3.5 | 2025-05-27 |
 | simple_live.apk | v1.8.6 | 2025-05-27 |
 | mytv-tv.apk | V1.1.1.135 | 2025-05-27 |
