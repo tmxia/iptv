@@ -26,8 +26,8 @@ jobs:
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
         XAPK_NAME: "github.xapk"
-        ZIP_NAME: "github.zip"  # 新增ZIP文件名
-        VERSION_KEY: "github.xapk"  # 保持原键名，但值格式改为 "版本号,日期"
+        ZIP_NAME: "github.zip"  # ZIP文件名
+        VERSION_KEY: "github.zip"  # 修复：使用ZIP文件名作为键名
         APKPURE_URL: "https://d.apkpure.net/b/XAPK/com.github.android?version=latest"
       run: |
         # 创建临时工作目录
@@ -44,11 +44,11 @@ jobs:
           exit 1
         fi
 
-        # 获取原始文件名 (修正：添加-L跟随重定向)
+        # 获取原始文件名
         ORIG_FILENAME=$(curl -sLI "$APKPURE_URL" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2)
         echo "原始文件名: $ORIG_FILENAME"
 
-        # 从文件名提取版本号 (修正：使用更可靠的正则表达式)
+        # 从文件名提取版本号
         if [[ "$ORIG_FILENAME" =~ _([0-9]+\.[0-9]+\.[0-9]+)_ ]]; then
           VERSION="${BASH_REMATCH[1]}"
           echo "提取的版本号: $VERSION"
@@ -137,7 +137,7 @@ jobs:
           exit 0
         fi
 
-        # 更新版本文件 (修正：保留现有内容)
+        # 更新版本文件
         echo "更新版本文件..."
         NEW_VERSION_CONTENT="{}"
         if [ -n "$CURRENT_CONTENT" ]; then
@@ -165,7 +165,7 @@ jobs:
 
         # 创建JSON请求
         JSON_VERSION=$(jq -n \
-            --arg msg "更新GitHub版本: $VERSION ($CURRENT_DATE)" \
+            --arg msg "更新GitHub ZIP: $VERSION ($CURRENT_DATE)" \
             --arg content "$VERSION_BASE64" \
             --arg sha "$SHA_VERSION" \
             '{message: $msg, content: $content, sha: $sha}')
