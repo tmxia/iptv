@@ -1,4 +1,6 @@
 {
   "leanback.apk": "2.9.3,2025-05-27",
-  "mobile.apk": "2.9.3,2025-05-27"
+  "mobile.apk": "2.9.3,2025-05-27",
+  "simple_live.apk": "v1.8.6,2025-05-27",
+  "simple_live-tv.apk": "v1.3.5,2025-05-27"
 }
