@@ -19,7 +19,15 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl
+        sudo apt-get install -y jq curl unzip
+        
+    - name: Install aapt2 for APK version extraction
+      run: |
+        # 下载aapt2工具
+        curl -sL https://github.com/AndroBugs/AndroBugs_Framework/raw/master/tools/aapt2 -o aapt2
+        chmod +x aapt2
+        sudo mv aapt2 /usr/local/bin/
+        echo "aapt2已安装"
         
     - name: Run APK sync script
       env:
@@ -51,8 +59,28 @@ jobs:
           exit 1
         fi
 
-        # 函数：获取文件提交历史（仅返回数据，不输出额外信息）
-        get_file_commit_info() {
+        # 函数：从APK文件中提取版本号
+        extract_apk_version() {
+          local apk_path="$1"
+          echo "从APK提取版本号: $apk_path"
+          
+          # 使用aapt2获取版本信息
+          VERSION_INFO=$(aapt2 dump badging "$apk_path" | grep "versionName")
+          
+          # 提取版本号 (格式: versionName='2.9.3')
+          VERSION=$(echo "$VERSION_INFO" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          
+          if [ -z "$VERSION" ]; then
+            echo "警告: 无法提取版本号, 使用默认值"
+            VERSION="unknown"
+          fi
+          
+          echo "提取的版本号: $VERSION"
+          echo "$VERSION"
+        }
+
+        # 函数：获取文件提交日期
+        get_file_commit_date() {
           local file_name="$1"
           
           # 获取文件提交历史（只取最新的一条）
@@ -62,30 +90,43 @@ jobs:
             exit 1
           fi
           
-          # 提取提交信息
-          COMMIT_SHA=$(echo "$COMMIT_JSON" | jq -r '.[0].sha')
+          # 提取提交日期
           COMMIT_DATE=$(echo "$COMMIT_JSON" | jq -r '.[0].commit.committer.date')
-          SHORT_SHA=${COMMIT_SHA:0:7}
           # 只保留年月日
           COMMIT_DATE_UTC8=$(TZ=Asia/Shanghai date -d "$COMMIT_DATE" +'%Y-%m-%d')
           
-          # 返回短SHA和日期
-          echo "$SHORT_SHA,$COMMIT_DATE_UTC8"
+          echo "文件提交日期: $COMMIT_DATE_UTC8"
+          echo "$COMMIT_DATE_UTC8"
         }
 
-        # 获取稳定版APK提交信息
-        echo "===== 获取稳定版提交信息 ====="
-        STABLE_COMMIT_INFO=$(get_file_commit_info "$STABLE_APK_NAME")
-        STABLE_SHORT_SHA=$(echo "$STABLE_COMMIT_INFO" | cut -d, -f1)
-        STABLE_COMMIT_DATE=$(echo "$STABLE_COMMIT_INFO" | cut -d, -f2)
-        echo "稳定版提交信息: $STABLE_SHORT_SHA ($STABLE_COMMIT_DATE)"
+        # 下载稳定版APK
+        echo "下载稳定版APK..."
+        STABLE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$STABLE_APK_NAME"
+        curl -sL "$STABLE_DOWNLOAD_URL" -o "$WORK_DIR/$STABLE_APK_NAME"
+        if [ ! -f "$WORK_DIR/$STABLE_APK_NAME" ]; then
+          echo "错误: 稳定版APK下载失败"
+          exit 1
+        fi
         
-        # 获取预发行版APK提交信息
-        echo "===== 获取预发行版提交信息 ====="
-        PRE_RELEASE_COMMIT_INFO=$(get_file_commit_info "$PRE_RELEASE_APK_NAME")
-        PRE_RELEASE_SHORT_SHA=$(echo "$PRE_RELEASE_COMMIT_INFO" | cut -d, -f1)
-        PRE_RELEASE_COMMIT_DATE=$(echo "$PRE_RELEASE_COMMIT_INFO" | cut -d, -f2)
-        echo "预发行版提交信息: $PRE_RELEASE_SHORT_SHA ($PRE_RELEASE_COMMIT_DATE)"
+        # 下载预发行版APK
+        echo "下载预发行版APK..."
+        PRE_RELEASE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$PRE_RELEASE_APK_NAME"
+        curl -sL "$PRE_RELEASE_DOWNLOAD_URL" -o "$WORK_DIR/$PRE_RELEASE_APK_NAME"
+        if [ ! -f "$WORK_DIR/$PRE_RELEASE_APK_NAME" ]; then
+          echo "错误: 预发行版APK下载失败"
+          exit 1
+        fi
+
+        # 提取版本号
+        STABLE_VERSION=$(extract_apk_version "$WORK_DIR/$STABLE_APK_NAME")
+        PRE_RELEASE_VERSION=$(extract_apk_version "$WORK_DIR/$PRE_RELEASE_APK_NAME")
+        
+        # 获取更新日期
+        STABLE_COMMIT_DATE=$(get_file_commit_date "$STABLE_APK_NAME")
+        PRE_RELEASE_COMMIT_DATE=$(get_file_commit_date "$PRE_RELEASE_APK_NAME")
+        
+        echo "稳定版版本: $STABLE_VERSION, 日期: $STABLE_COMMIT_DATE"
+        echo "预发行版版本: $PRE_RELEASE_VERSION, 日期: $PRE_RELEASE_COMMIT_DATE"
 
         # 获取目标仓库当前版本文件
         echo "获取目标仓库版本文件..."
@@ -103,7 +144,7 @@ jobs:
         if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
           # 提取内容并解码
           VERSION_CONTENT=$(echo "$TARGET_VERSION_JSON" | jq -r '.content' | base64 -d)
-          echo "版本文件内容:"
+          echo "当前版本文件内容:"
           echo "$VERSION_CONTENT"
           
           # 尝试解析JSON
@@ -131,39 +172,11 @@ jobs:
           echo "目标仓库无版本文件，将创建新版本文件"
         fi
 
-        # 函数：下载文件
-        download_file() {
-          local file_name="$1"
-          local target_name="$2"
-          
-          # 构建下载URL
-          DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$file_name"
-          echo "下载文件: $DOWNLOAD_URL"
-          
-          # 下载文件
-          curl -sL "$DOWNLOAD_URL" -o "$WORK_DIR/$file_name"
-          if [ ! -f "$WORK_DIR/$file_name" ]; then
-            echo "错误: 文件下载失败"
-            return 1
-          fi
-          
-          # 检查文件大小
-          FILESIZE=$(stat -c%s "$WORK_DIR/$file_name")
-          if [ "$FILESIZE" -lt 100000 ]; then  # 小于100KB可能是错误
-            echo "警告: 下载的文件大小异常 ($FILESIZE 字节)"
-          fi
-          
-          # 重命名文件
-          mv "$WORK_DIR/$file_name" "$WORK_DIR/$target_name"
-          echo "文件已重命名为: $target_name"
-          return 0
-        }
-
-        # 函数：上传文件（优化版）
+        # 函数：上传文件（安全方式）
         upload_file() {
           local target_path="$1"
-          local file_name="$2"
-          local commit_sha="$3"
+          local file_path="$2"
+          local version="$3"
           
           echo "上传文件: $target_path..."
           
@@ -178,40 +191,37 @@ jobs:
           fi
           
           # 创建提交信息
-          local commit_msg="更新文件: $target_path (提交: $commit_sha)"
-          
-          # 获取简单文件名
-          local simple_target_filename=$(basename "$target_path")
-          local local_file_path="$WORK_DIR/$file_name"
+          local commit_msg="更新文件: $target_path (版本: $version)"
           
           # 检查文件是否存在且非空
-          if [ ! -f "$local_file_path" ]; then
-            echo "错误: 本地文件不存在: $local_file_path"
+          if [ ! -f "$file_path" ]; then
+            echo "错误: 本地文件不存在: $file_path"
             return 1
           fi
           
-          FILESIZE=$(stat -c%s "$local_file_path")
+          FILESIZE=$(stat -c%s "$file_path")
           if [ "$FILESIZE" -eq 0 ]; then
-            echo "错误: 本地文件为空: $local_file_path"
+            echo "错误: 本地文件为空: $file_path"
             return 1
           fi
           
           # 编码文件内容
-          CONTENT_BASE64=$(base64 -w0 "$local_file_path")
+          CONTENT_BASE64=$(base64 -w0 "$file_path")
           
-          # 创建JSON数据
-          JSON_DATA=$(jq -n \
-            --arg msg "$commit_msg" \
-            --arg content "$CONTENT_BASE64" \
-            --arg sha "$sha" \
-            '{message: $msg, content: $content, sha: $sha}')
+          # 创建临时JSON文件
+          JSON_FILE="$WORK_DIR/request.json"
+          echo '{' > "$JSON_FILE"
+          echo "  \"message\": \"$commit_msg\"," >> "$JSON_FILE"
+          echo "  \"content\": \"$CONTENT_BASE64\"," >> "$JSON_FILE"
+          echo "  \"sha\": \"$sha\"" >> "$JSON_FILE"
+          echo '}' >> "$JSON_FILE"
           
           # 上传文件
           RESPONSE_JSON=$(curl -s \
                 -X PUT \
                 -H "Authorization: token $TOKEN" \
                 -H "Content-Type: application/json" \
-                -d "$JSON_DATA" \
+                --data-binary "@$JSON_FILE" \
                 "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
           
           # 检查错误
@@ -222,53 +232,35 @@ jobs:
             echo "$RESPONSE_JSON"
             return 1
           else
-            echo "上传成功: $target_path ($commit_sha)"
+            echo "上传成功: $target_path ($version)"
             return 0
           fi
         }
 
-        # 处理稳定版文件
+        # 检查是否需要更新稳定版
         STABLE_NEED_UPDATE=false
-        if [ "$STABLE_SHORT_SHA" != "$CURRENT_STABLE_VERSION" ]; then
-          echo "===== 更新稳定版文件 ====="
-          echo "发现新版本: $STABLE_SHORT_SHA (当前: $CURRENT_STABLE_VERSION)"
-          
-          # 下载文件
-          download_file "$STABLE_APK_NAME" "$STABLE_TARGET_NAME"
-          if [ $? -eq 0 ]; then
-            STABLE_NEED_UPDATE=true
-          else
-            echo "错误: 稳定版文件下载失败"
-            exit 1
-          fi
+        if [ "$STABLE_VERSION" != "$CURRENT_STABLE_VERSION" ] || [ "$STABLE_COMMIT_DATE" != "$CURRENT_STABLE_DATE" ]; then
+          echo "===== 需要更新稳定版 ====="
+          STABLE_NEED_UPDATE=true
         else
-          echo "稳定版无需更新 (当前版本: $CURRENT_STABLE_VERSION)"
+          echo "稳定版无需更新 (当前版本: $CURRENT_STABLE_VERSION, 日期: $CURRENT_STABLE_DATE)"
         fi
 
-        # 处理预发行版文件
+        # 检查是否需要更新预发行版
         PRE_RELEASE_NEED_UPDATE=false
-        if [ "$PRE_RELEASE_SHORT_SHA" != "$CURRENT_PRE_RELEASE_VERSION" ]; then
-          echo "===== 更新预发行版文件 ====="
-          echo "发现新版本: $PRE_RELEASE_SHORT_SHA (当前: $CURRENT_PRE_RELEASE_VERSION)"
-          
-          # 下载文件
-          download_file "$PRE_RELEASE_APK_NAME" "$PRE_RELEASE_TARGET_NAME"
-          if [ $? -eq 0 ]; then
-            PRE_RELEASE_NEED_UPDATE=true
-          else
-            echo "错误: 预发行版文件下载失败"
-            exit 1
-          fi
+        if [ "$PRE_RELEASE_VERSION" != "$CURRENT_PRE_RELEASE_VERSION" ] || [ "$PRE_RELEASE_COMMIT_DATE" != "$CURRENT_PRE_RELEASE_DATE" ]; then
+          echo "===== 需要更新预发行版 ====="
+          PRE_RELEASE_NEED_UPDATE=true
         else
-          echo "预发行版无需更新 (当前版本: $CURRENT_PRE_RELEASE_VERSION)"
+          echo "预发行版无需更新 (当前版本: $CURRENT_PRE_RELEASE_VERSION, 日期: $CURRENT_PRE_RELEASE_DATE)"
         fi
 
         # 更新版本数据（仅更新APK部分，保留其他内容）
         NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
             --arg stable_key "$STABLE_TARGET_NAME" \
-            --arg stable_value "$STABLE_SHORT_SHA,$STABLE_COMMIT_DATE" \
+            --arg stable_value "$STABLE_VERSION,$STABLE_COMMIT_DATE" \
             --arg pre_key "$PRE_RELEASE_TARGET_NAME" \
-            --arg pre_value "$PRE_RELEASE_SHORT_SHA,$PRE_RELEASE_COMMIT_DATE" \
+            --arg pre_value "$PRE_RELEASE_VERSION,$PRE_RELEASE_COMMIT_DATE" \
             '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
             
         NEW_VERSION_CONTENT=$(echo "$NEW_VERSION_DATA" | jq -r .)
@@ -292,7 +284,7 @@ jobs:
 
         # 创建JSON数据
         JSON_VERSION=$(jq -n \
-            --arg msg "更新APK版本: 稳定版=$STABLE_SHORT_SHA, 预发行版=$PRE_RELEASE_SHORT_SHA" \
+            --arg msg "更新APK版本: 稳定版=$STABLE_VERSION, 预发行版=$PRE_RELEASE_VERSION" \
             --arg content "$VERSION_BASE64" \
             --arg sha "$SHA_VERSION" \
             '{message: $msg, content: $content, sha: $sha}')
@@ -315,9 +307,14 @@ jobs:
           echo "版本文件更新成功"
         fi
 
+        # 重命名APK文件
+        mv "$WORK_DIR/$STABLE_APK_NAME" "$WORK_DIR/$STABLE_TARGET_NAME"
+        mv "$WORK_DIR/$PRE_RELEASE_APK_NAME" "$WORK_DIR/$PRE_RELEASE_TARGET_NAME"
+        echo "APK文件已重命名"
+
         # 上传稳定版文件（如果需要）
         if [ "$STABLE_NEED_UPDATE" = true ]; then
-          upload_file "$STABLE_TARGET_PATH" "$STABLE_TARGET_NAME" "$STABLE_SHORT_SHA"
+          upload_file "$STABLE_TARGET_PATH" "$WORK_DIR/$STABLE_TARGET_NAME" "$STABLE_VERSION"
           if [ $? -ne 0 ]; then
             echo "错误: 稳定版文件上传失败"
             exit 1
@@ -326,7 +323,7 @@ jobs:
 
         # 上传预发行版文件（如果需要）
         if [ "$PRE_RELEASE_NEED_UPDATE" = true ]; then
-          upload_file "$PRE_RELEASE_TARGET_PATH" "$PRE_RELEASE_TARGET_NAME" "$PRE_RELEASE_SHORT_SHA"
+          upload_file "$PRE_RELEASE_TARGET_PATH" "$WORK_DIR/$PRE_RELEASE_TARGET_NAME" "$PRE_RELEASE_VERSION"
           if [ $? -ne 0 ]; then
             echo "错误: 预发行版文件上传失败"
             exit 1
@@ -334,8 +331,8 @@ jobs:
         fi
 
         echo "同步完成! 状态: 成功"
-        echo "稳定版: $STABLE_TARGET_NAME ($STABLE_SHORT_SHA, $STABLE_COMMIT_DATE)"
-        echo "预发行版: $PRE_RELEASE_TARGET_NAME ($PRE_RELEASE_SHORT_SHA, $PRE_RELEASE_COMMIT_DATE)"
+        echo "稳定版: $STABLE_TARGET_NAME ($STABLE_VERSION, $STABLE_COMMIT_DATE)"
+        echo "预发行版: $PRE_RELEASE_TARGET_NAME ($PRE_RELEASE_VERSION, $PRE_RELEASE_COMMIT_DATE)"
         
         exit 0
 
