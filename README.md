@@ -12,4 +12,6 @@
 | mobile-pro.apk | mobile-pro-20250527 |
 | bv.apk | v0.2.9,2024-12-06 |
 | bv-beta.apk | alpha-r838,2025-06-01 |
+| mytv-tv.apk | V1.1.1.135,2025-05-27 |
+| mytv-tv-beta.apk | V1.2.0.141,2025-06-03 |
 <!-- VERSION_TABLE_END -->
