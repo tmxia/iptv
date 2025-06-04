@@ -157,6 +157,8 @@ jobs:
         async def download_apk(client, message, filename):
             date_str = message.date.strftime("%Y%m%d")
             version = f"{filename.split('.')[0]}-{date_str}"
+            # 新增ISO格式日期（YYYY-MM-DD）
+            date_iso = message.date.strftime("%Y-%m-%d")
             download_path = os.path.join(WORK_DIR, filename)
             
             total_size = message.document.size
@@ -190,7 +192,7 @@ jobs:
             avg_speed = total_size / elapsed if elapsed > 0 else 0
             log(f"下载完成: {filename} - 耗时: {elapsed:.1f}秒, 平均速度: {format_size(avg_speed)}/s")
             
-            return {"path": download_path, "version": version}
+            return {"path": download_path, "version": version, "date_iso": date_iso}
         
         async def find_new_apks(client):
             log("连接Telegram...")
@@ -219,15 +221,22 @@ jobs:
             for filename, msg in latest_msgs.items():
                 date_str = msg.date.strftime("%Y%m%d")
                 version = f"{filename.split('.')[0]}-{date_str}"
-                current = current_versions.get(filename, "")
                 
-                if version != current:
-                    log(f"发现新版本: {filename} ({current} → {version})")
+                # 处理当前版本值（可能是旧格式或新格式）
+                current_value = current_versions.get(filename, "")
+                if ',' in current_value:
+                    # 如果是新格式 "版本号,日期"，则提取版本部分
+                    current_version = current_value.split(',')[0]
+                else:
+                    current_version = current_value
+                
+                if version != current_version:
+                    log(f"发现新版本: {filename} ({current_version} → {version})")
                     apk_data = await download_apk(client, msg, filename)
                     if apk_data:
                         updates[filename] = apk_data
                 else:
-                    log(f"{filename} 已是最新版本: {current}")
+                    log(f"{filename} 已是最新版本: {current_version}")
             
             return updates if updates else None
         
@@ -272,9 +281,12 @@ jobs:
             for filename, data in new_apks.items():
                 target_path = os.path.join(target_dir, filename)
                 shutil.copy2(data["path"], target_path)
-                current_versions[filename] = data["version"]
-                updated[filename] = data["version"]
-                log(f"已更新: {filename} (版本: {data['version']})")
+                
+                # 更新版本信息为 "版本号,日期" 格式
+                new_value = f"{data['version']},{data['date_iso']}"
+                current_versions[filename] = new_value
+                updated[filename] = new_value
+                log(f"已更新: {filename} (版本: {new_value})")
             
             # 更新版本文件
             update_versions(current_versions)
