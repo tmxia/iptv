@@ -1,3 +1,5 @@
 {
-  "github.xapk": "1.212.0"
+  "github.xapk": "1.212.0",
+  "simple_live.apk": "v1.8.6",
+  "simple_live-tv.apk": "v1.3.5"
 }
