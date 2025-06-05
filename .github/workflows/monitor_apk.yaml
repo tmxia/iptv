@@ -24,9 +24,9 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y cmake libgit2-dev pkg-config
         python -m pip install --upgrade pip
-        pip install telethon pygit2
+        pip install telethon pygit2 requests
 
-    - name: Run detection and notification
+    - name: Download and run detection script
       env:
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
@@ -34,4 +34,9 @@ jobs:
         TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-        python -c "import os; import re; import pygit2; from datetime import datetime; from telethon import TelegramClient; from telethon.sessions import StringSession; def get_file_latest_commit(repo, file_path):    try:        walker = repo.walk(repo.head.target, pygit2.GIT_SORT_TIME);        for commit in walker:            try:                if file_path in commit.tree:                    return commit;            except KeyError:                continue;        return None;    except Exception as e:        print(f'Error getting commit for {file_path}: {str(e)}');        return None; def extract_version_from_commit(commit):    if not commit:        return 'unknown';    version_match = re.search(r'v?(\d+\.\d+\.\d+)', commit.message);    if version_match:        return version_match.group(1);    version_match = re.search(r'v?(\d+\.\d+)', commit.message);    if version_match:        return version_match.group(1);    return str(commit.id)[:7]; def main():    repo_path = pygit2.discover_repository(os.getcwd());    if not repo_path:        print('Not a git repository!');        return;    repo = pygit2.Repository(repo_path);    current_commit = repo[repo.head.target];    try:        last_commit = current_commit.parents[0];    except IndexError:        last_commit = None;    changed_apks = [];    apk_dir = 'apk';    if last_commit:        diff = repo.diff(last_commit, current_commit);    else:        empty_tree = repo.TreeBuilder().write();        diff = repo.diff(empty_tree, current_commit.tree);    for delta in diff.deltas:        file_path = delta.new_file.path if delta.new_file.path else delta.old_file.path;        if not file_path.startswith(apk_dir):            continue;        if delta.status not in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):            continue;        file_commit = get_file_latest_commit(repo, file_path);        version = extract_version_from_commit(file_commit);        if file_commit:            update_date = datetime.fromtimestamp(file_commit.commit_time).strftime('%Y-%m-%d');        else:            update_date = 'unknown';        raw_url = f'https://raw.githubusercontent.com/{os.getenv(\"GITHUB_REPOSITORY\")}/{current_commit.id}/{file_path}';        changed_apks.append({'name': os.path.basename(file_path), 'version': version, 'date': update_date, 'url': raw_url});    if not changed_apks:        print('No APK changes detected.');        return;    message = '📱 *APK 更新通知*\\n\\n';    for apk in changed_apks:        message += f'🔹 [{apk[\"name\"]}]({apk[\"url\
+        # 从 Gist 下载可维护的脚本
+        SCRIPT_URL="https://gist.githubusercontent.com/tmxia/你的gistID/raw/detect_apk_changes.py"
+        curl -sSL -o detect_apk_changes.py "$SCRIPT_URL"
+        
+        # 执行脚本
+        python detect_apk_changes.py
