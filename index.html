@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPTV直播播放器 | 江苏、山西、重庆频道</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.1.4/dist/hls.min.js"></script>
+    <style>
+        :root {
+            --primary-blue: #1a73e8;
+            --primary-orange: #f57c00;
+            --primary-purple: #8e24aa;
+            --dark-bg: #121212;
+            --card-bg: rgba(30, 30, 36, 0.8);
+            --player-bg: rgba(20, 20, 25, 0.95);
+            --text-light: #e0e0e0;
+            --text-lighter: #f5f5f5;
+            --highlight: #4fc3f7;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Noto Sans SC', 'Segoe UI', sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0a1929, #142a45, #1d3b5a);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+            color: var(--text-light);
+            min-height: 100vh;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 25px;
+        }
+        
+        header {
+            text-align: center;
+            padding: 30px 0 20px;
+            position: relative;
+            z-index: 10;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        
+        .logo-icon {
+            font-size: 3rem;
+            margin-right: 15px;
+            color: var(--highlight);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        header h1 {
+            font-size: 2.8rem;
+            margin-bottom: 10px;
+            background: linear-gradient(45deg, #4fc3f7, #29b6f6, #039be5);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            font-weight: 700;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            max-width: 800px;
+            margin: 0 auto 15px;
+            color: #bbdefb;
+        }
+        
+        /* 播放器部分 */
+        .player-section {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        
+        @media (max-width: 1000px) {
+            .player-section {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .player-container {
+            background: var(--player-bg);
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+            position: relative;
+            padding-top: 56.25%; /* 16:9 Aspect Ratio */
+            height: 0;
+        }
+        
+        #video-player {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+        }
+        
+        .player-controls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+            z-index: 20;
+        }
+        
+        .player-container:hover .player-controls {
+            transform: translateY(0);
+        }
+        
+        .control-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            margin: 0 5px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
+        
+        .volume-container {
+            display: flex;
+            align-items: center;
+            margin: 0 15px;
+        }
+        
+        #volume-slider {
+            width: 80px;
+            margin: 0 10px;
+        }
+        
+        .channel-info {
+            flex-grow: 1;
+            padding: 0 15px;
+        }
+        
+        .channel-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .channel-status {
+            font-size: 0.9rem;
+            color: #81d4fa;
+        }
+        
+        .fullscreen-btn {
+            margin-left: auto;
+        }
+        
+        /* 频道列表 */
+        .channels-container {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            max-height: 600px;
+        }
+        
+        .channels-header {
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .channels-header h2 {
+            font-size: 1.5rem;
+            color: var(--text-lighter);
+        }
+        
+        .region-selector {
+            display: flex;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 30px;
+            padding: 5px;
+        }
+        
+        .region-btn {
+            padding: 8px 15px;
+            border-radius: 20px;
+            border: none;
+            background: transparent;
+            color: var(--text-light);
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s;
+        }
+        
+        .region-btn.active {
+            background: rgba(79, 195, 247, 0.2);
+            color: var(--highlight);
+        }
+        
+        .channels-list {
+            overflow-y: auto;
+            flex-grow: 1;
+            padding: 10px;
+        }
+        
+        .channel-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .channel-item:hover {
+            background: rgba(79, 195, 247, 0.1);
+        }
+        
+        .channel-item.active {
+            background: rgba(79, 195, 247, 0.2);
+            border-left: 3px solid var(--highlight);
+        }
+        
+        .channel-logo {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(79, 195, 247, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-size: 1.2rem;
+        }
+        
+        .channel-details {
+            flex-grow: 1;
+        }
+        
+        .channel-name {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+        
+        .channel-category {
+            font-size: 0.85rem;
+            color: #81d4fa;
+        }
+        
+        /* 播放列表卡片 */
+        .cards-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            transition: all 0.4s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+        }
+        
+        .card-header {
+            padding: 20px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .card-header::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+        }
+        
+        .js .card-header::before {
+            background: linear-gradient(90deg, #0072ff, #00c6ff);
+        }
+        
+        .sx .card-header::before {
+            background: linear-gradient(90deg, #f46b45, #eea849);
+        }
+        
+        .cq .card-header::before {
+            background: linear-gradient(90deg, #7b4397, #dc2430);
+        }
+        
+        .card-header h2 {
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+            color: var(--text-lighter);
+        }
+        
+        .card-header i {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+            display: block;
+        }
+        
+        .js .card-header i {
+            color: #00c6ff;
+        }
+        
+        .sx .card-header i {
+            color: #eea849;
+        }
+        
+        .cq .card-header i {
+            color: #dc2430;
+        }
+        
+        .card-content {
+            padding: 0 20px 20px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .card-content p {
+            margin-bottom: 20px;
+            color: #d0d0ff;
+            flex-grow: 1;
+        }
+        
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            text-align: center;
+            text-decoration: none;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        .js .btn {
+            background: linear-gradient(90deg, #0072ff, #00c6ff);
+            color: white;
+        }
+        
+        .sx .btn {
+            background: linear-gradient(90deg, #f46b45, #eea849);
+            color: white;
+        }
+        
+        .cq .btn {
+            background: linear-gradient(90deg, #7b4397, #dc2430);
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: scale(1.03);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .btn i {
+            margin-right: 10px;
+        }
+        
+        /* 指南部分样式 */
+        .guide-section {
+            background: var(--card-bg);
+            border-radius: 15px;
+            padding: 30px;
+            margin: 20px 0;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .section-title {
+            font-size: 2rem;
+            margin-bottom: 25px;
+            color: #4fc3f7;
+            display: flex;
+            align-items: center;
+        }
+        
+        .section-title i {
+            margin-right: 15px;
+        }
+        
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .step-card {
+            background: rgba(25, 25, 35, 0.6);
+            border-radius: 10px;
+            padding: 25px;
+            border-left: 4px solid #4fc3f7;
+        }
+        
+        .step-number {
+            background: #4fc3f7;
+            color: #0d47a1;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        
+        .step-card h3 {
+            margin-bottom: 12px;
+            color: var(--text-lighter);
+        }
+        
+        .player-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .player-item {
+            background: rgba(25, 25, 35, 0.6);
+            border-radius: 10px;
+            padding: 20px;
+            width: calc(50% - 10px);
+            border-left: 4px solid #29b6f6;
+        }
+        
+        .player-item h3 {
+            color: #29b6f6;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .player-item h3 i {
+            margin-right: 10px;
+        }
+        
+        .player-item ul {
+            padding-left: 20px;
+        }
+        
+        .player-item li {
+            margin-bottom: 8px;
+        }
+        
+        .note-box {
+            background: rgba(255, 152, 0, 0.1);
+            border-left: 4px solid #ff9800;
+            padding: 15px;
+            border-radius: 0 8px 8px 0;
+            margin: 25px 0;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 40px 0 20px;
+            margin-top: 30px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.9rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 2.2rem;
+            }
+            
+            .cards-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .player-item {
+                width: 100%;
+            }
+            
+            .steps {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .url-box {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 12px 15px;
+            font-family: monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin: 15px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 0.95rem;
+            color: #81d4fa;
+        }
+        
+        .copy-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #81d4fa;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.9rem;
+            margin-left: 10px;
+        }
+        
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 15;
+            flex-direction: column;
+            color: white;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 5px solid var(--highlight);
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <i class="fas fa-satellite-dish logo-icon"></i>
+                <div>
+                    <h1>IPTV直播播放器</h1>
+                    <p class="subtitle">江苏、山西、重庆地区电视频道 - 直接在线播放</p>
+                </div>
+            </div>
+        </header>
+        
+        <!-- 播放器区域 -->
+        <section class="player-section">
+            <div class="player-container">
+                <video id="video-player" controls></video>
+                <div class="loading-overlay" id="loading-overlay">
+                    <div class="spinner"></div>
+                    <p>正在加载频道，请稍候...</p>
+                </div>
+                <div class="player-controls">
+                    <button class="control-btn" id="play-pause-btn">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    <div class="volume-container">
+                        <button class="control-btn" id="mute-btn">
+                            <i class="fas fa-volume-up"></i>
+                        </button>
+                        <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="1">
+                    </div>
+                    <div class="channel-info">
+                        <div class="channel-title" id="current-channel">选择频道开始播放</div>
+                        <div class="channel-status" id="player-status">准备就绪</div>
+                    </div>
+                    <button class="control-btn fullscreen-btn" id="fullscreen-btn">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 频道列表 -->
+            <div class="channels-container">
+                <div class="channels-header">
+                    <h2><i class="fas fa-list"></i> 频道列表</h2>
+                    <div class="region-selector">
+                        <button class="region-btn active" data-region="all">全部</button>
+                        <button class="region-btn" data-region="js">江苏</button>
+                        <button class="region-btn" data-region="sx">山西</button>
+                        <button class="region-btn" data-region="cq">重庆</button>
+                    </div>
+                </div>
+                <div class="channels-list" id="channels-list">
+                    <!-- 频道将通过JS动态加载 -->
+                </div>
+            </div>
+        </section>
+        
+        <!-- 播放列表卡片 -->
+        <div class="cards-container">
+            <!-- 江苏播放列表卡片 -->
+            <div class="card js">
+                <div class="card-header">
+                    <i class="fas fa-water"></i>
+                    <h2>江苏播放列表</h2>
+                    <p>江苏地区热门电视频道</p>
+                </div>
+                <div class="card-content">
+                    <p>该播放列表包含江苏省内各大卫视频道及地方频道，如江苏卫视、南京新闻综合、苏州社会经济等热门频道。</p>
+                    <div class="url-box">
+                        https://vip.123pan.cn/1814643527/tv/jd-js.m3u
+                        <button class="copy-btn" onclick="copyUrl('https://vip.123pan.cn/1814643527/tv/jd-js.m3u')">
+                            <i class="fas fa-copy"></i> 复制
+                        </button>
+                    </div>
+                    <a href="https://vip.123pan.cn/1814643527/tv/jd-js.m3u" class="btn" target="_blank">
+                        <i class="fas fa-download"></i>下载播放列表
+                    </a>
+                </div>
+            </div>
+            
+            <!-- 山西播放列表卡片 -->
+            <div class="card sx">
+                <div class="card-header">
+                    <i class="fas fa-mountain"></i>
+                    <h2>山西播放列表</h2>
+                    <p>山西地区特色电视频道</p>
+                </div>
+                <div class="card-content">
+                    <p>该播放列表包含山西省内各大卫视频道及地方频道，如山西卫视、太原新闻、晋中文化等特色频道，展现三晋文化魅力。</p>
+                    <div class="url-box">
+                        https://vip.123pan.cn/1814643527/tv/jd-sx.m3u
+                        <button class="copy-btn" onclick="copyUrl('https://vip.123pan.cn/1814643527/tv/jd-sx.m3u')">
+                            <i class="fas fa-copy"></i> 复制
+                        </button>
+                    </div>
+                    <a href="https://vip.123pan.cn/1814643527/tv/jd-sx.m3u" class="btn" target="_blank">
+                        <i class="fas fa-download"></i>下载播放列表
+                    </a>
+                </div>
+            </div>
+            
+            <!-- 重庆播放列表卡片 -->
+            <div class="card cq">
+                <div class="card-header">
+                    <i class="fas fa-mountain-city"></i>
+                    <h2>重庆播放列表</h2>
+                    <p>山城重庆特色电视频道</p>
+                </div>
+                <div class="card-content">
+                    <p>该播放列表包含重庆卫视、重庆新闻、重庆影视等特色频道，以及各区县地方频道，全面展现山城重庆独特魅力。</p>
+                    <div class="url-box">
+                        https://vip.123pan.cn/1814643527/tv/jd-cq.m3u
+                        <button class="copy-btn" onclick="copyUrl('https://vip.123pan.cn/1814643527/tv/jd-cq.m3u')">
+                            <i class="fas fa-copy"></i> 复制
+                        </button>
+                    </div>
+                    <a href="https://vip.123pan.cn/1814643527/tv/jd-cq.m3u" class="btn" target="_blank">
+                        <i class="fas fa-download"></i>下载播放列表
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <!-- GitHub部署指南 -->
+        <section class="guide-section">
+            <h2 class="section-title"><i class="fab fa-github"></i> GitHub部署指南</h2>
+            <p>将此页面部署到GitHub非常简单，只需几个步骤：</p>
+            
+            <div class="steps">
+                <div class="step-card">
+                    <div class="step-number">1</div>
+                    <h3>创建GitHub仓库</h3>
+                    <p>登录GitHub账号，创建新仓库，例如命名为"iptv"</p>
+                </div>
+                
+                <div class="step-card">
+                    <div class="step-number">2</div>
+                    <h3>上传HTML文件</h3>
+                    <p>将此HTML文件上传到仓库，命名为"index.html"</p>
+                </div>
+                
+                <div class="step-card">
+                    <div class="step-number">3</div>
+                    <h3>启用GitHub Pages</h3>
+                    <p>进入仓库设置 → Pages → 选择分支和根目录 → 保存</p>
+                </div>
+                
+                <div class="step-card">
+                    <div class="step-number">4</div>
+                    <h3>访问您的页面</h3>
+                    <p>几分钟后，通过 https://[您的用户名].github.io/iptv/ 访问</p>
+                </div>
+            </div>
+            
+            <div class="note-box">
+                <p><strong>注意：</strong> GitHub Pages 仅支持静态内容。播放功能需要浏览器支持HLS流媒体播放。</p>
+            </div>
+        </section>
+        
+        <!-- 播放器使用指南 -->
+        <section class="guide-section">
+            <h2 class="section-title"><i class="fas fa-tv"></i> 使用说明</h2>
+            <p>本播放器支持以下功能：</p>
+            
+            <div class="player-list">
+                <div class="player-item">
+                    <h3><i class="fas fa-play-circle"></i> 播放控制</h3>
+                    <ul>
+                        <li>点击频道列表中的频道名称开始播放</li>
+                        <li>使用播放器底部的控制按钮进行播放/暂停</li>
+                        <li>调整音量滑块控制音量大小</li>
+                    </ul>
+                </div>
+                
+                <div class="player-item">
+                    <h3><i class="fas fa-filter"></i> 频道筛选</h3>
+                    <ul>
+                        <li>使用顶部区域按钮筛选不同地区的频道</li>
+                        <li>"全部"显示所有可用频道</li>
+                        <li>支持按江苏、山西、重庆地区筛选</li>
+                    </ul>
+                </div>
+                
+                <div class="player-item">
+                    <h3><i class="fas fa-expand"></i> 全屏模式</h3>
+                    <ul>
+                        <li>点击全屏按钮进入全屏观看模式</li>
+                        <li>按ESC键退出全屏模式</li>
+                        <li>支持键盘快捷键控制播放</li>
+                    </ul>
+                </div>
+                
+                <div class="player-item">
+                    <h3><i class="fas fa-mobile-alt"></i> 移动设备支持</h3>
+                    <ul>
+                        <li>在手机和平板上自动适配界面</li>
+                        <li>支持触摸控制播放</li>
+                        <li>横屏模式获得最佳观看体验</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="note-box">
+                <p><strong>提示：</strong> 播放质量取决于您的网络速度和频道服务器状态。如果某个频道无法播放，请尝试选择其他频道。</p>
+            </div>
+        </section>
+        
+        <footer>
+            <p>© 2023 IPTV直播播放器 | 仓库: <a href="https://github.com/tmxia/iptv" target="_blank">https://github.com/tmxia/iptv</a></p>
+            <p style="margin-top:10px;">访问链接: <a href="https://tmxia.github.io/iptv/" target="_blank">https://tmxia.github.io/iptv/</a></p>
+        </footer>
+    </div>
+    
+    <script>
+        // 频道数据
+        const channels = [
+            // 江苏频道
+            { id: 'js1', name: '江苏卫视', category: '卫视频道', region: 'js', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u#江苏卫视' },
+            { id: 'js2', name: '南京新闻综合', category: '地方频道', region: 'js', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u#南京新闻' },
+            { id: 'js3', name: '苏州社会经济', category: '地方频道', region: 'js', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u#苏州经济' },
+            { id: 'js4', name: '无锡都市资讯', category: '地方频道', region: 'js', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u#无锡资讯' },
+            { id: 'js5', name: '江苏公共新闻', category: '新闻频道', region: 'js', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u#公共新闻' },
+            
+            // 山西频道
+            { id: 'sx1', name: '山西卫视', category: '卫视频道', region: 'sx', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u#山西卫视' },
+            { id: 'sx2', name: '太原新闻', category: '新闻频道', region: 'sx', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u#太原新闻' },
+            { id: 'sx3', name: '晋中文化', category: '文化频道', region: 'sx', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u#晋中文化' },
+            { id: 'sx4', name: '大同生活', category: '生活频道', region: 'sx', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u#大同生活' },
+            { id: 'sx5', name: '山西经济资讯', category: '经济频道', region: 'sx', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u#经济资讯' },
+            
+            // 重庆频道
+            { id: 'cq1', name: '重庆卫视', category: '卫视频道', region: 'cq', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u#重庆卫视' },
+            { id: 'cq2', name: '重庆新闻', category: '新闻频道', region: 'cq', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u#重庆新闻' },
+            { id: 'cq3', name: '重庆影视', category: '影视娱乐', region: 'cq', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u#重庆影视' },
+            { id: 'cq4', name: '渝北综合', category: '地方频道', region: 'cq', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u#渝北综合' },
+            { id: 'cq5', name: '万州文化旅游', category: '文化旅游', region: 'cq', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u#万州文化' }
+        ];
+
+        // DOM元素
+        const videoPlayer = document.getElementById('video-player');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const muteBtn = document.getElementById('mute-btn');
+        const volumeSlider = document.getElementById('volume-slider');
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+        const currentChannel = document.getElementById('current-channel');
+        const playerStatus = document.getElementById('player-status');
+        const channelsList = document.getElementById('channels-list');
+        const regionBtns = document.querySelectorAll('.region-btn');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        
+        // HLS播放器实例
+        let hls = new Hls();
+        
+        // 初始化播放器
+        function initPlayer() {
+            // 绑定HLS播放器
+            hls.attachMedia(videoPlayer);
+            
+            // 播放/暂停按钮事件
+            playPauseBtn.addEventListener('click', togglePlayPause);
+            
+            // 静音按钮事件
+            muteBtn.addEventListener('click', toggleMute);
+            
+            // 音量滑块事件
+            volumeSlider.addEventListener('input', setVolume);
+            
+            // 全屏按钮事件
+            fullscreenBtn.addEventListener('click', toggleFullscreen);
+            
+            // 视频播放事件
+            videoPlayer.addEventListener('play', updatePlayButton);
+            videoPlayer.addEventListener('pause', updatePlayButton);
+            
+            // 加载频道列表
+            renderChannels('all');
+            
+            // 添加区域筛选事件
+            regionBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    regionBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    renderChannels(btn.dataset.region);
+                });
+            });
+        }
+        
+        // 渲染频道列表
+        function renderChannels(region) {
+            channelsList.innerHTML = '';
+            
+            const filteredChannels = region === 'all' 
+                ? channels 
+                : channels.filter(ch => ch.region === region);
+            
+            filteredChannels.forEach(channel => {
+                const channelItem = document.createElement('div');
+                channelItem.className = 'channel-item';
+                channelItem.dataset.id = channel.id;
+                channelItem.innerHTML = `
+                    <div class="channel-logo">
+                        <i class="fas fa-tv"></i>
+                    </div>
+                    <div class="channel-details">
+                        <div class="channel-name">${channel.name}</div>
+                        <div class="channel-category">${channel.category}</div>
+                    </div>
+                `;
+                
+                channelItem.addEventListener('click', () => playChannel(channel));
+                channelsList.appendChild(channelItem);
+            });
+            
+            // 默认播放第一个频道
+            if (filteredChannels.length > 0) {
+                setTimeout(() => {
+                    const firstChannel = filteredChannels[0];
+                    playChannel(firstChannel);
+                    channelsList.querySelector(`[data-id="${firstChannel.id}"]`).classList.add('active');
+                }, 500);
+            }
+        }
+        
+        // 播放频道
+        function playChannel(channel) {
+            // 显示加载状态
+            loadingOverlay.style.display = 'flex';
+            playerStatus.textContent = '正在加载频道...';
+            currentChannel.textContent = channel.name;
+            
+            // 移除所有频道的active状态
+            document.querySelectorAll('.channel-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // 设置当前频道为active
+            document.querySelector(`[data-id="${channel.id}"]`).classList.add('active');
+            
+            // 停止当前播放
+            if (hls) {
+                hls.destroy();
+            }
+            
+            // 创建新的HLS实例
+            hls = new Hls();
+            hls.attachMedia(videoPlayer);
+            
+            // 加载媒体
+            hls.loadSource(channel.url);
+            
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                videoPlayer.play();
+                playerStatus.textContent = '正在播放';
+                loadingOverlay.style.display = 'none';
+            });
+            
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                console.error('播放错误:', data);
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            playerStatus.textContent = '网络错误，请重试';
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            playerStatus.textContent = '媒体错误，尝试修复...';
+                            hls.recoverMediaError();
+                            break;
+                        default:
+                            playerStatus.textContent = '无法播放该频道';
+                            break;
+                    }
+                }
+            });
+        }
+        
+        // 切换播放/暂停
+        function togglePlayPause() {
+            if (videoPlayer.paused) {
+                videoPlayer.play();
+            } else {
+                videoPlayer.pause();
+            }
+        }
+        
+        // 更新播放按钮状态
+        function updatePlayButton() {
+            const icon = videoPlayer.paused ? 'fa-play' : 'fa-pause';
+            playPauseBtn.innerHTML = `<i class="fas ${icon}"></i>`;
+        }
+        
+        // 切换静音
+        function toggleMute() {
+            videoPlayer.muted = !videoPlayer.muted;
+            const icon = videoPlayer.muted ? 'fa-volume-mute' : 'fa-volume-up';
+            muteBtn.innerHTML = `<i class="fas ${icon}"></i>`;
+        }
+        
+        // 设置音量
+        function setVolume() {
+            videoPlayer.volume = volumeSlider.value;
+        }
+        
+        // 切换全屏
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                videoPlayer.requestFullscreen().catch(err => {
+                    console.error(`全屏请求失败: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+        
+        // 复制URL功能
+        function copyUrl(url) {
+            navigator.clipboard.writeText(url)
+                .then(() => {
+                    alert('链接已复制到剪贴板！');
+                })
+                .catch(err => {
+                    console.error('复制失败:', err);
+                });
+        }
+        
+        // 页面加载完成后初始化播放器
+        document.addEventListener('DOMContentLoaded', initPlayer);
+    </script>
+</body>
+</html>
