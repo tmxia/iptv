@@ -90,7 +90,7 @@ jobs:
         AAPT2_PATH = f"{ANDROID_SDK_ROOT}/build-tools/34.0.0/aapt2"
         os.makedirs(WORK_DIR, exist_ok=True)
         
-        # 配置日志
+        # 配置日志 - 简化下载日志
         logging.basicConfig(
             level=logging.INFO,
             format='[%(asctime)s] %(message)s',
@@ -219,6 +219,39 @@ jobs:
                 log.error(f"提取版本号失败: {str(e)}")
                 return None
         
+        async def download_apk(client, message, filename):
+            download_path = os.path.join(WORK_DIR, filename)
+            total_size = message.document.size
+            
+            # 简化下载日志 - 只显示开始和完成
+            log.info(f"开始下载: {filename} ({format_size(total_size)})")
+            start_time = time.time()
+            
+            # 下载文件（禁用详细进度日志）
+            await client.download_media(message, file=download_path)
+            
+            # 计算下载速度
+            elapsed = time.time() - start_time
+            avg_speed = total_size / elapsed if elapsed > 0 else 0
+            log.info(f"下载完成: {filename} - 耗时: {elapsed:.1f}秒, 平均速度: {format_size(avg_speed)}/s")
+            
+            # 从APK提取版本号
+            version = extract_apk_version(download_path)
+            if not version:
+                # 如果无法提取版本号，使用日期作为后备
+                date_str = message.date.strftime("%Y%m%d")
+                version = f"v{filename.split('.')[0]}-{date_str}"
+                log.info(f"使用后备版本号: {version}")
+            
+            # 只保留日期部分（YYYY-MM-DD）
+            date_iso = message.date.strftime("%Y-%m-%d")
+            
+            return {
+                "path": download_path,
+                "version": version,
+                "date_iso": date_iso
+            }
+        
         def should_download_apk(filename, msg_date, current_versions, version_file_exists):
             """智能判断是否需要下载APK"""
             # 如果版本文件不存在，总是需要下载
@@ -240,98 +273,24 @@ jobs:
                 current_version = current_value
                 current_date_str = "1970-01-01"  # 设置为很旧的日期强制更新
             
-            # 将日期字符串转换为日期对象
-            try:
-                current_date = datetime.strptime(current_date_str, "%Y-%m-%d").date()
-            except ValueError:
-                log.warning(f"版本文件中的日期格式无效: {current_date_str}，强制更新")
-                return True
-            
-            # 消息日期转换为UTC+8时区
+            # 将消息日期转换为日期字符串（YYYY-MM-DD）
             utc8 = pytz.timezone('Asia/Shanghai')
             msg_date_utc8 = msg_date.astimezone(utc8)
-            msg_date_only = msg_date_utc8.date()
+            msg_date_str = msg_date_utc8.strftime("%Y-%m-%d")
             
             # 如果消息日期比记录日期新，需要下载
-            if msg_date_only > current_date:
-                log.info(f"新发布日期: {msg_date_only} > 当前日期: {current_date}，需要下载")
+            if msg_date_str > current_date_str:
+                log.info(f"新发布日期: {msg_date_str} > 当前日期: {current_date_str}，需要下载")
                 return True
             
             # 如果消息日期比记录日期早，不需要下载
-            if msg_date_only < current_date:
-                log.info(f"消息日期 {msg_date_only} 早于当前日期 {current_date}，跳过下载")
+            if msg_date_str < current_date_str:
+                log.info(f"消息日期 {msg_date_str} 早于当前日期 {current_date_str}，跳过下载")
                 return False
             
-            # 同一天的情况 - 需要进一步检查
-            log.info(f"同一天发布的消息 ({msg_date_only})，需要检查是否为新版本")
-            
-            # 检查消息是否在版本文件记录时间之后（考虑同一天多次发布）
-            try:
-                # 尝试解析版本文件中的完整时间戳（如果有）
-                if 'T' in current_date_str:
-                    current_datetime = datetime.strptime(current_date_str, "%Y-%m-%dT%H:%M:%S%z")
-                    if msg_date > current_datetime:
-                        log.info(f"消息时间 {msg_date} 晚于记录时间 {current_datetime}，需要下载")
-                        return True
-            except:
-                # 如果无法解析完整时间戳，默认需要下载
-                log.info("无法解析完整时间戳，保守策略 - 需要下载")
-                return True
-            
-            # 默认情况下，同一天需要下载
+            # 同一天的情况 - 总是下载（避免错过同一天多次更新）
+            log.info(f"同一天发布的消息 ({msg_date_str})，需要下载")
             return True
-        
-        async def download_apk(client, message, filename):
-            download_path = os.path.join(WORK_DIR, filename)
-            
-            total_size = message.document.size
-            log.info(f"开始下载: {filename} ({format_size(total_size)})")
-            
-            start_time = time.time()
-            last_progress_time = start_time
-            last_downloaded = 0
-            
-            def callback(current, total):
-                nonlocal last_progress_time, last_downloaded
-                current_time = time.time()
-                
-                # 每2秒或下载完成时更新一次进度
-                if current_time - last_progress_time > 2 or current == total:
-                    elapsed = current_time - start_time
-                    percent = int((current / total) * 100)
-                    speed = (current - last_downloaded) / (current_time - last_progress_time)
-                    
-                    # 更新日志
-                    log.info(f"下载中: {filename} - {percent}% ({format_size(current)}/{format_size(total)}) "
-                         f"[速度: {format_size(speed)}/s]")
-                    
-                    last_progress_time = current_time
-                    last_downloaded = current
-            
-            await client.download_media(message, file=download_path, progress_callback=callback)
-            
-            # 下载完成后显示最终信息
-            elapsed = time.time() - start_time
-            avg_speed = total_size / elapsed if elapsed > 0 else 0
-            log.info(f"下载完成: {filename} - 耗时: {elapsed:.1f}秒, 平均速度: {format_size(avg_speed)}/s")
-            
-            # 从APK提取版本号
-            version = extract_apk_version(download_path)
-            if not version:
-                # 如果无法提取版本号，使用日期作为后备
-                date_str = message.date.strftime("%Y%m%d")
-                version = f"v{filename.split('.')[0]}-{date_str}"
-                log.info(f"使用后备版本号: {version}")
-            
-            # ISO格式日期（YYYY-MM-DD）
-            date_iso = message.date.strftime("%Y-%m-%d")
-            
-            return {
-                "path": download_path,
-                "version": version,
-                "date_iso": date_iso,
-                "full_date": message.date.isoformat()  # 保存完整时间戳
-            }
         
         async def find_new_apks(client):
             log.info("连接Telegram...")
@@ -383,7 +342,7 @@ jobs:
                     log.info(f"发现新版本: {filename} ({current_version} → {apk_data['version']})")
                     updates[filename] = apk_data
                 else:
-                    log.info(f"{filename} 版本相同 ({current_version})，但日期不同，更新日期信息")
+                    log.info(f"{filename} 版本相同 ({current_version})，更新日期信息")
                     # 即使版本相同，也更新日期信息
                     updates[filename] = apk_data
             
@@ -430,8 +389,8 @@ jobs:
                     target_path = os.path.join(target_dir, filename)
                     shutil.copy2(data["path"], target_path)
                     
-                    # 更新版本信息为 "版本号,完整ISO日期" 格式
-                    new_value = f"{data['version']},{data['full_date']}"
+                    # 更新版本信息为 "版本号,日期" 格式 (YYYY-MM-DD)
+                    new_value = f"{data['version']},{data['date_iso']}"
                     current_versions[filename] = new_value
                     log.info(f"已更新: {filename} (版本: {new_value})")
                     updated = True
