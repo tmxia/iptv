@@ -73,7 +73,7 @@ jobs:
         import time
         import re
         import logging
-        from datetime import datetime, timedelta
+        from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         from telethon.tl.types import DocumentAttributeFilename
@@ -90,7 +90,7 @@ jobs:
         AAPT2_PATH = f"{ANDROID_SDK_ROOT}/build-tools/34.0.0/aapt2"
         os.makedirs(WORK_DIR, exist_ok=True)
         
-        # 配置日志 - 简化下载日志
+        # 配置日志
         logging.basicConfig(
             level=logging.INFO,
             format='[%(asctime)s] %(message)s',
@@ -193,7 +193,6 @@ jobs:
         def extract_apk_version(apk_path):
             """使用aapt2从APK提取版本号"""
             try:
-                log.info(f"从APK提取版本号: {apk_path}")
                 result = subprocess.run(
                     [AAPT2_PATH, "dump", "badging", apk_path],
                     capture_output=True,
@@ -210,10 +209,7 @@ jobs:
                             # 确保版本号以"v"开头
                             if not version.startswith('v'):
                                 version = 'v' + version
-                            log.info(f"提取的版本号: {version}")
                             return version
-                
-                log.warning(f"警告: 无法从 {apk_path} 提取版本号")
                 return None
             except Exception as e:
                 log.error(f"提取版本号失败: {str(e)}")
@@ -227,7 +223,7 @@ jobs:
             log.info(f"开始下载: {filename} ({format_size(total_size)})")
             start_time = time.time()
             
-            # 下载文件（禁用详细进度日志）
+            # 下载文件
             await client.download_media(message, file=download_path)
             
             # 计算下载速度
@@ -288,9 +284,9 @@ jobs:
                 log.info(f"消息日期 {msg_date_str} 早于当前日期 {current_date_str}，跳过下载")
                 return False
             
-            # 同一天的情况 - 总是下载（避免错过同一天多次更新）
-            log.info(f"同一天发布的消息 ({msg_date_str})，需要下载")
-            return True
+            # 同一天的情况 - 不需要下载（假设同一天不会有多个版本）
+            log.info(f"同一天发布的消息 ({msg_date_str})，版本相同则跳过")
+            return False
         
         async def find_new_apks(client):
             log.info("连接Telegram...")
@@ -342,9 +338,8 @@ jobs:
                     log.info(f"发现新版本: {filename} ({current_version} → {apk_data['version']})")
                     updates[filename] = apk_data
                 else:
-                    log.info(f"{filename} 版本相同 ({current_version})，更新日期信息")
-                    # 即使版本相同，也更新日期信息
-                    updates[filename] = apk_data
+                    # 即使日期不同但版本相同，跳过更新
+                    log.info(f"{filename} 版本相同 ({current_version})，跳过更新")
             
             return updates if updates else None
         
