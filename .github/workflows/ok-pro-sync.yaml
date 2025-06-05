@@ -17,6 +17,15 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    - name: Acquire Repository Lock 🔒
+      uses: softprops/turnstyle@v1
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200  # 20分钟超时
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
@@ -30,16 +39,13 @@ jobs:
 
     - name: Install Android SDK for aapt2
       run: |
-        # 安装Android SDK命令行工具
         SDK_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip"
         curl -sL "$SDK_TOOLS_URL" -o sdk-tools.zip
         unzip -q sdk-tools.zip -d android-sdk
         
-        # 设置环境变量
         echo "ANDROID_SDK_ROOT=$GITHUB_WORKSPACE/android-sdk" >> $GITHUB_ENV
         echo "$GITHUB_WORKSPACE/android-sdk/cmdline-tools/bin" >> $GITHUB_PATH
         
-        # 接受许可并安装build-tools
         yes | android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=$GITHUB_WORKSPACE/android-sdk "build-tools;34.0.0"
         echo "aapt2路径: $GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2"
         
@@ -66,6 +72,7 @@ jobs:
         import shutil
         import time
         import re
+        import logging
         from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
@@ -82,8 +89,13 @@ jobs:
         AAPT2_PATH = f"{ANDROID_SDK_ROOT}/build-tools/34.0.0/aapt2"
         os.makedirs(WORK_DIR, exist_ok=True)
         
-        def log(message):
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}")
+        # 配置日志
+        logging.basicConfig(
+            level=logging.INFO,
+            format='[%(asctime)s] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        log = logging.getLogger()
         
         def format_size(size):
             """将字节数转换为易读的格式"""
@@ -100,11 +112,15 @@ jobs:
                 
                 subprocess.run(["git", "config", "user.name", actor], cwd=GIT_DIR, check=True)
                 subprocess.run(["git", "config", "user.email", email], cwd=GIT_DIR, check=True)
-                subprocess.run(["git", "pull", "origin", "main"], cwd=GIT_DIR, check=True)
-                log("Git配置完成")
+                
+                # 拉取最新更改（防止冲突）
+                log.info("拉取远程最新更改...")
+                subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=GIT_DIR, check=True)
+                
+                log.info("Git配置完成")
                 return True
             except Exception as e:
-                log(f"Git设置失败: {str(e)}")
+                log.error(f"Git设置失败: {str(e)}")
                 return False
         
         def commit_and_push(message):
@@ -115,49 +131,42 @@ jobs:
                 # 检查是否有更改
                 status = subprocess.run(["git", "status", "--porcelain"], cwd=GIT_DIR, capture_output=True, text=True)
                 if not status.stdout.strip():
-                    log("没有更改需要提交")
+                    log.info("没有更改需要提交")
                     return True
                 
                 # 提交更改
                 subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
                 
-                # 拉取远程最新更改并变基
-                log("拉取远程最新更改并变基...")
-                subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=GIT_DIR, check=True)
-                
-                # 推送更改
                 token = os.environ['GITHUB_TOKEN']
                 actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
                 repo = os.environ['TARGET_REPO']
                 repo_url = f"https://{actor}:{token}@github.com/{repo}.git"
                 
-                result = subprocess.run(
-                    ["git", "push", repo_url, "HEAD:main"],
-                    cwd=GIT_DIR,
-                    capture_output=True,
-                    text=True
-                )
-                
-                if result.returncode == 0:
-                    log("推送成功")
-                    return True
-                else:
-                    # 如果推送失败，尝试强制推送
-                    log(f"推送失败，尝试强制推送: {result.stderr.strip()}")
-                    force_result = subprocess.run(
-                        ["git", "push", "--force", repo_url, "HEAD:main"],
-                        cwd=GIT_DIR,
-                        capture_output=True,
-                        text=True
-                    )
-                    if force_result.returncode == 0:
-                        log("强制推送成功")
+                # 重试机制（最多3次）
+                max_attempts = 3
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        log.info(f"尝试 {attempt}/{max_attempts}: 拉取远程最新更改并变基...")
+                        subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=GIT_DIR, check=True)
+                        
+                        log.info(f"尝试 {attempt}/{max_attempts}: 推送更改...")
+                        subprocess.run(
+                            ["git", "push", repo_url, "HEAD:main"],
+                            cwd=GIT_DIR,
+                            check=True
+                        )
+                        log.info("推送成功")
                         return True
-                    else:
-                        log(f"强制推送失败: {force_result.stderr.strip()}")
-                        return False
+                    except subprocess.CalledProcessError as e:
+                        log.warning(f"尝试 {attempt} 失败: {str(e)}")
+                        if attempt < max_attempts:
+                            log.info("等待10秒后重试...")
+                            time.sleep(10)
+                        else:
+                            log.error(f"经过{max_attempts}次尝试后仍无法推送更改")
+                            return False
             except Exception as e:
-                log(f"Git操作失败: {str(e)}")
+                log.error(f"Git操作失败: {str(e)}")
                 return False
         
         def get_current_versions():
@@ -167,7 +176,7 @@ jobs:
                     with open(version_path, "r") as f:
                         return json.load(f)
                 except:
-                    log("版本文件格式错误，重新初始化")
+                    log.warning("版本文件格式错误，重新初始化")
             return {}
         
         def update_versions(versions):
@@ -178,7 +187,7 @@ jobs:
         def extract_apk_version(apk_path):
             """使用aapt2从APK提取版本号"""
             try:
-                log(f"从APK提取版本号: {apk_path}")
+                log.info(f"从APK提取版本号: {apk_path}")
                 result = subprocess.run(
                     [AAPT2_PATH, "dump", "badging", apk_path],
                     capture_output=True,
@@ -195,20 +204,20 @@ jobs:
                             # 确保版本号以"v"开头
                             if not version.startswith('v'):
                                 version = 'v' + version
-                            log(f"提取的版本号: {version}")
+                            log.info(f"提取的版本号: {version}")
                             return version
                 
-                log(f"警告: 无法从 {apk_path} 提取版本号")
+                log.warning(f"警告: 无法从 {apk_path} 提取版本号")
                 return None
             except Exception as e:
-                log(f"提取版本号失败: {str(e)}")
+                log.error(f"提取版本号失败: {str(e)}")
                 return None
         
         async def download_apk(client, message, filename):
             download_path = os.path.join(WORK_DIR, filename)
             
             total_size = message.document.size
-            log(f"开始下载: {filename} ({format_size(total_size)})")
+            log.info(f"开始下载: {filename} ({format_size(total_size)})")
             
             start_time = time.time()
             last_progress_time = start_time
@@ -225,7 +234,7 @@ jobs:
                     speed = (current - last_downloaded) / (current_time - last_progress_time)
                     
                     # 更新日志
-                    log(f"下载中: {filename} - {percent}% ({format_size(current)}/{format_size(total)}) "
+                    log.info(f"下载中: {filename} - {percent}% ({format_size(current)}/{format_size(total)}) "
                          f"[速度: {format_size(speed)}/s]")
                     
                     last_progress_time = current_time
@@ -236,7 +245,7 @@ jobs:
             # 下载完成后显示最终信息
             elapsed = time.time() - start_time
             avg_speed = total_size / elapsed if elapsed > 0 else 0
-            log(f"下载完成: {filename} - 耗时: {elapsed:.1f}秒, 平均速度: {format_size(avg_speed)}/s")
+            log.info(f"下载完成: {filename} - 耗时: {elapsed:.1f}秒, 平均速度: {format_size(avg_speed)}/s")
             
             # 从APK提取版本号
             version = extract_apk_version(download_path)
@@ -244,7 +253,7 @@ jobs:
                 # 如果无法提取版本号，使用日期作为后备
                 date_str = message.date.strftime("%Y%m%d")
                 version = f"v{filename.split('.')[0]}-{date_str}"
-                log(f"使用后备版本号: {version}")
+                log.info(f"使用后备版本号: {version}")
             
             # ISO格式日期（YYYY-MM-DD）
             date_iso = message.date.strftime("%Y-%m-%d")
@@ -256,14 +265,14 @@ jobs:
             }
         
         async def find_new_apks(client):
-            log("连接Telegram...")
+            log.info("连接Telegram...")
             await client.connect()
             if not await client.is_user_authorized():
-                log("错误: Telegram会话无效")
+                log.error("错误: Telegram会话无效")
                 return None
             
             channel = os.environ.get('TELEGRAM_CHANNEL', 'tvb_ys')
-            log(f"扫描频道: {channel}")
+            log.info(f"扫描频道: {channel}")
             entity = await client.get_entity(channel)
             
             latest_msgs = {}
@@ -295,23 +304,23 @@ jobs:
                 
                 # 检查是否有新版本
                 if apk_data["version"] != current_version:
-                    log(f"发现新版本: {filename} ({current_version} → {apk_data['version']})")
+                    log.info(f"发现新版本: {filename} ({current_version} → {apk_data['version']})")
                     updates[filename] = apk_data
                 else:
-                    log(f"{filename} 已是最新版本: {current_version}")
+                    log.info(f"{filename} 已是最新版本: {current_version}")
             
             return updates if updates else None
         
         def main():
-            log("="*50)
-            log("APK 同步工具启动")
-            log("="*50)
+            log.info("="*50)
+            log.info("APK 同步工具启动")
+            log.info("="*50)
             
             # 验证环境变量
             required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GITHUB_TOKEN']
             missing = [var for var in required if not os.environ.get(var)]
             if missing:
-                log(f"错误: 缺少环境变量: {', '.join(missing)}")
+                log.error(f"错误: 缺少环境变量: {', '.join(missing)}")
                 return 1
             
             if not setup_git():
@@ -327,11 +336,11 @@ jobs:
                 with client:
                     new_apks = client.loop.run_until_complete(find_new_apks(client))
             except Exception as e:
-                log(f"Telegram错误: {str(e)}")
+                log.error(f"Telegram错误: {str(e)}")
                 return 3
             
             if not new_apks:
-                log("没有需要更新的APK文件")
+                log.info("没有需要更新的APK文件")
                 return 0
             
             # 处理新文件
@@ -348,7 +357,7 @@ jobs:
                 new_value = f"{data['version']},{data['date_iso']}"
                 current_versions[filename] = new_value
                 updated[filename] = new_value
-                log(f"已更新: {filename} (版本: {new_value})")
+                log.info(f"已更新: {filename} (版本: {new_value})")
             
             # 更新版本文件
             update_versions(current_versions)
@@ -356,27 +365,46 @@ jobs:
             # 提交更改
             commit_msg = f"更新APK: {', '.join([f'{k}={v}' for k, v in updated.items()])}"
             if commit_and_push(commit_msg):
-                log(f"同步成功! 更新了 {len(updated)} 个文件")
+                log.info(f"同步成功! 更新了 {len(updated)} 个文件")
             else:
-                log("提交失败")
+                log.error("提交失败")
                 return 4
             
             # 清理临时目录
             if os.path.exists(WORK_DIR):
                 shutil.rmtree(WORK_DIR)
-                log("临时目录已清理")
+                log.info("临时目录已清理")
             
-            log("="*50)
-            log("同步任务完成")
-            log("="*50)
+            log.info("="*50)
+            log.info("同步任务完成")
+            log.info("="*50)
             return 0
         
         if __name__ == "__main__":
             sys.exit(main())
         EOF
 
-    - name: Cleanup
-      run: echo "APK同步任务完成"
+    - name: Release Repository Lock 🔓
+      if: always()
+      uses: softprops/turnstyle@v1
+      with:
+        continue-on-error: true
+        action: unlock
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const message = `🚨 Telegram APK同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: message
+          })
 
   cleanup_self:
     name: Cleanup Self Workflow History
