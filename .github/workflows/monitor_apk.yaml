@@ -21,12 +21,13 @@ jobs:
 
     - name: Install dependencies
       run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake libgit2-dev
         python -m pip install --upgrade pip
         pip install telethon python-dotenv pygit2
 
     - name: Run detection script
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
@@ -35,7 +36,6 @@ jobs:
       run: |
         mkdir -p .github/scripts
         cat > .github/scripts/detect_apk_changes.py << 'EOF'
-        # 下面是完整的Python脚本
         import os
         import re
         import pygit2
@@ -46,110 +46,94 @@ jobs:
         
         load_dotenv()
         
-        def get_file_history_info(repo, file_path):
-            """获取文件的提交历史和版本信息"""
+        def get_file_latest_commit(repo, file_path):
+            """获取文件的最新提交信息"""
             try:
-                # 获取文件的所有提交历史
-                walker = repo.walk(repo.head.target)
-                walker.set_sorting(pygit2.GIT_SORT_TIME)
-                
-                commits = []
+                # 查找文件的最新提交
+                walker = repo.walk(repo.head.target, pygit2.GIT_SORT_TIME)
                 for commit in walker:
                     try:
-                        # 检查文件在该提交中是否存在
                         if file_path in commit.tree:
-                            commits.append({
-                                "id": str(commit.id),
-                                "short_id": str(commit.id)[:7],
-                                "message": commit.message.strip(),
-                                "date": datetime.fromtimestamp(commit.commit_time).strftime('%Y-%m-%d'),
-                                "author": commit.author.name
-                            })
+                            return commit
                     except KeyError:
                         continue
-                
-                # 提取版本号（从最新提交消息中查找）
-                latest_commit = commits[0] if commits else None
-                version = "unknown"
-                if latest_commit:
-                    # 尝试从提交消息中提取版本号
-                    version_match = re.search(r'v?(\d+\.\d+\.\d+)', latest_commit["message"])
-                    if version_match:
-                        version = version_match.group(1)
-                    else:
-                        # 使用短提交ID作为版本标识
-                        version = latest_commit["short_id"]
-                
-                return {
-                    "version": version,
-                    "update_date": latest_commit["date"] if latest_commit else "",
-                    "commit_history": commits
-                }
+                return None
             except Exception as e:
-                print(f"Error getting history for {file_path}: {str(e)}")
-                return {
-                    "version": "unknown",
-                    "update_date": "",
-                    "commit_history": []
-                }
+                print(f"Error getting commit for {file_path}: {str(e)}")
+                return None
+        
+        def extract_version_from_commit(commit):
+            """从提交消息中提取版本号"""
+            if not commit:
+                return "unknown"
+            
+            # 尝试从提交消息中提取版本号
+            version_match = re.search(r'v?(\d+\.\d+\.\d+)', commit.message)
+            if version_match:
+                return version_match.group(1)
+            
+            # 使用短提交ID作为版本标识
+            return str(commit.id)[:7]
         
         def main():
+            # 初始化Git仓库
             repo_path = pygit2.discover_repository(os.getcwd())
             repo = pygit2.Repository(repo_path)
-            
-            # 获取当前提交
             current_commit = repo[repo.head.target]
             
-            # 获取前一个提交
+            # 获取上一个提交
             try:
                 last_commit = current_commit.parents[0]
             except IndexError:
-                # 初始提交没有父提交
                 last_commit = None
             
             # 检测变更的APK文件
             changed_apks = []
             apk_dir = "apk"
             
+            # 比较差异
             if last_commit:
-                # 比较差异
                 diff = repo.diff(last_commit, current_commit)
             else:
-                # 初始提交，与空树比较
-                diff = current_commit.tree.diff_to_tree()
+                # 初始提交的情况
+                empty_tree = repo.TreeBuilder().write()
+                diff = repo.diff(empty_tree, current_commit.tree)
             
+            # 分析差异
             for delta in diff.deltas:
                 file_path = delta.new_file.path if delta.new_file.path else delta.old_file.path
                 
                 # 只处理apk目录下的文件
                 if file_path.startswith(apk_dir) and delta.status in ('added', 'modified'):
-                    # 获取文件历史信息
-                    history_info = get_file_history_info(repo, file_path)
+                    # 获取文件最新提交信息
+                    file_commit = get_file_latest_commit(repo, file_path)
+                    
+                    # 提取版本信息
+                    version = extract_version_from_commit(file_commit)
+                    
+                    # 获取更新日期
+                    update_date = datetime.fromtimestamp(file_commit.commit_time).strftime('%Y-%m-%d') if file_commit else "unknown"
                     
                     # 构建下载URL
                     raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/{current_commit.id}/{file_path}"
                     
                     changed_apks.append({
                         "name": os.path.basename(file_path),
-                        "version": history_info["version"],
-                        "update_date": history_info["update_date"],
-                        "url": raw_url,
-                        "commit_count": len(history_info["commit_history"])
+                        "version": version,
+                        "date": update_date,
+                        "url": raw_url
                     })
             
             if not changed_apks:
                 print("No APK changes detected.")
                 return
             
-            # 准备Telegram消息
-            message = "📱 APK 更新通知\n\n"
+            # 准备Telegram消息 - 简洁格式
+            message = "📱 *APK 更新通知*\n\n"
             for apk in changed_apks:
-                message += (
-                    f"🔹 文件: {apk['name']}\n"
-                    f"➜ 版本: {apk['version']} (基于{apk['commit_count']}次提交)\n"
-                    f"📅 更新日期: {apk['update_date']}\n"
-                    f"⬇️ 下载: [点击这里]({apk['url']})\n\n"
-                )
+                # 将文件名作为下载链接
+                message += f"🔹 [{apk['name']}]({apk['url']})\n"
+                message += f"   版本: `{apk['version']}` | 日期: `{apk['date']}`\n\n"
             
             # 发送到Telegram
             client = TelegramClient(
@@ -162,6 +146,7 @@ jobs:
                 await client.send_message(
                     entity=os.getenv("TELEGRAM_CHANNEL"),
                     message=message,
+                    parse_mode='markdown',
                     link_preview=False
                 )
             
