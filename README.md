@@ -1,1 +1,18 @@
+| 文件名称 | 版本号 | 更新日期 |
+|----------|--------|----------|
+| karing-win.zip | v1.1.3.724 | 2025-06-06 |
+| karing.apk | v1.1.3.724 | 2025-06-06 |
+| mytv-tv-beta.apk | V1.2.0.142 | 2025-06-06 |
+| github.zip | v1.212.0 | 2025-06-05 |
+| bv-beta.apk | alpha-r838 | 2025-06-01 |
+| mobile-pro.apk | v3.3.2 | 2025-05-27 |
+| leanback-pro.apk | v3.3.3 | 2025-05-27 |
+| mobile.apk | v2.9.3 | 2025-05-27 |
+| leanback.apk | v2.9.3 | 2025-05-27 |
+| mytv-tv.apk | V1.1.1.135 | 2025-05-27 |
+| simple_live-tv.apk | v1.3.5 | 2025-05-27 |
+| simple_live.apk | v1.8.6 | 2025-05-27 |
+| proxypin-win.zip | v1.1.9 | 2025-05-17 |
+| proxypin.apk | v1.1.9 | 2025-05-17 |
+| bv.apk | v0.2.9 | 2024-12-06 |
 
