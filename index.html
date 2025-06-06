@@ -18,6 +18,9 @@
             --text-light: #e0e0e0;
             --text-lighter: #f5f5f5;
             --highlight: #4fc3f7;
+            --js-color: #00c6ff;
+            --sx-color: #eea849;
+            --cq-color: #dc2430;
         }
         
         * {
@@ -100,15 +103,9 @@
         /* 播放器部分 */
         .player-section {
             display: grid;
-            grid-template-columns: 1fr 350px;
+            grid-template-columns: 1fr;
             gap: 25px;
             margin-bottom: 30px;
-        }
-        
-        @media (max-width: 1000px) {
-            .player-section {
-                grid-template-columns: 1fr;
-            }
         }
         
         .player-container {
@@ -201,6 +198,59 @@
             margin-left: auto;
         }
         
+        /* 地区选择器 */
+        .region-selector-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .region-btn {
+            padding: 15px 30px;
+            border-radius: 50px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-light);
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 180px;
+            justify-content: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .region-btn:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+        }
+        
+        .region-btn.active {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+        }
+        
+        .region-btn.js {
+            background: linear-gradient(45deg, #0072ff, #00c6ff);
+        }
+        
+        .region-btn.sx {
+            background: linear-gradient(45deg, #f46b45, #eea849);
+        }
+        
+        .region-btn.cq {
+            background: linear-gradient(45deg, #7b4397, #dc2430);
+        }
+        
+        .region-btn i {
+            font-size: 1.5rem;
+        }
+        
         /* 频道列表 */
         .channels-container {
             background: var(--card-bg);
@@ -211,7 +261,7 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
             display: flex;
             flex-direction: column;
-            max-height: 600px;
+            max-height: 500px;
         }
         
         .channels-header {
@@ -228,33 +278,13 @@
             color: var(--text-lighter);
         }
         
-        .region-selector {
-            display: flex;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 30px;
-            padding: 5px;
-        }
-        
-        .region-btn {
-            padding: 8px 15px;
-            border-radius: 20px;
-            border: none;
-            background: transparent;
-            color: var(--text-light);
-            cursor: pointer;
-            font-size: 0.9rem;
-            transition: all 0.3s;
-        }
-        
-        .region-btn.active {
-            background: rgba(79, 195, 247, 0.2);
-            color: var(--highlight);
-        }
-        
         .channels-list {
             overflow-y: auto;
             flex-grow: 1;
             padding: 10px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 10px;
         }
         
         .channel-item {
@@ -262,7 +292,6 @@
             align-items: center;
             padding: 12px 15px;
             border-radius: 8px;
-            margin-bottom: 8px;
             cursor: pointer;
             transition: all 0.3s;
             background: rgba(255, 255, 255, 0.05);
@@ -405,6 +434,8 @@
             border-radius: 8px;
             transition: all 0.3s ease;
             margin-top: 10px;
+            border: none;
+            cursor: pointer;
         }
         
         .js .btn {
@@ -552,6 +583,15 @@
             .steps {
                 grid-template-columns: 1fr;
             }
+            
+            .channels-list {
+                grid-template-columns: 1fr;
+            }
+            
+            .region-btn {
+                min-width: 140px;
+                padding: 12px 20px;
+            }
         }
         
         .url-box {
@@ -612,6 +652,23 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-live {
+            background: #4CAF50;
+            box-shadow: 0 0 5px #4CAF50;
+        }
+        
+        .status-offline {
+            background: #f44336;
+        }
     </style>
 </head>
 <body>
@@ -625,6 +682,19 @@
                 </div>
             </div>
         </header>
+        
+        <!-- 地区选择器 -->
+        <div class="region-selector-container">
+            <button class="region-btn js active" data-region="js">
+                <i class="fas fa-water"></i> 江苏频道
+            </button>
+            <button class="region-btn sx" data-region="sx">
+                <i class="fas fa-mountain"></i> 山西频道
+            </button>
+            <button class="region-btn cq" data-region="cq">
+                <i class="fas fa-mountain-city"></i> 重庆频道
+            </button>
+        </div>
         
         <!-- 播放器区域 -->
         <section class="player-section">
@@ -645,8 +715,8 @@
                         <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="1">
                     </div>
                     <div class="channel-info">
-                        <div class="channel-title" id="current-channel">选择频道开始播放</div>
-                        <div class="channel-status" id="player-status">准备就绪</div>
+                        <div class="channel-title" id="current-channel">江苏卫视</div>
+                        <div class="channel-status" id="player-status">准备播放</div>
                     </div>
                     <button class="control-btn fullscreen-btn" id="fullscreen-btn">
                         <i class="fas fa-expand"></i>
@@ -658,11 +728,9 @@
             <div class="channels-container">
                 <div class="channels-header">
                     <h2><i class="fas fa-list"></i> 频道列表</h2>
-                    <div class="region-selector">
-                        <button class="region-btn active" data-region="all">全部</button>
-                        <button class="region-btn" data-region="js">江苏</button>
-                        <button class="region-btn" data-region="sx">山西</button>
-                        <button class="region-btn" data-region="cq">重庆</button>
+                    <div class="channel-info">
+                        <span class="status-indicator status-live"></span>
+                        <span id="channel-count">5个频道</span>
                     </div>
                 </div>
                 <div class="channels-list" id="channels-list">
@@ -688,9 +756,9 @@
                             <i class="fas fa-copy"></i> 复制
                         </button>
                     </div>
-                    <a href="https://vip.123pan.cn/1814643527/tv/jd-js.m3u" class="btn" target="_blank">
-                        <i class="fas fa-download"></i>下载播放列表
-                    </a>
+                    <button class="btn" onclick="playRegion('js')">
+                        <i class="fas fa-play-circle"></i>播放江苏频道
+                    </button>
                 </div>
             </div>
             
@@ -709,9 +777,9 @@
                             <i class="fas fa-copy"></i> 复制
                         </button>
                     </div>
-                    <a href="https://vip.123pan.cn/1814643527/tv/jd-sx.m3u" class="btn" target="_blank">
-                        <i class="fas fa-download"></i>下载播放列表
-                    </a>
+                    <button class="btn" onclick="playRegion('sx')">
+                        <i class="fas fa-play-circle"></i>播放山西频道
+                    </button>
                 </div>
             </div>
             
@@ -730,9 +798,9 @@
                             <i class="fas fa-copy"></i> 复制
                         </button>
                     </div>
-                    <a href="https://vip.123pan.cn/1814643527/tv/jd-cq.m3u" class="btn" target="_blank">
-                        <i class="fas fa-download"></i>下载播放列表
-                    </a>
+                    <button class="btn" onclick="playRegion('cq')">
+                        <i class="fas fa-play-circle"></i>播放重庆频道
+                    </button>
                 </div>
             </div>
         </div>
@@ -782,18 +850,18 @@
                 <div class="player-item">
                     <h3><i class="fas fa-play-circle"></i> 播放控制</h3>
                     <ul>
+                        <li>点击地区按钮加载该地区的频道列表</li>
                         <li>点击频道列表中的频道名称开始播放</li>
                         <li>使用播放器底部的控制按钮进行播放/暂停</li>
-                        <li>调整音量滑块控制音量大小</li>
                     </ul>
                 </div>
                 
                 <div class="player-item">
-                    <h3><i class="fas fa-filter"></i> 频道筛选</h3>
+                    <h3><i class="fas fa-volume-up"></i> 音量控制</h3>
                     <ul>
-                        <li>使用顶部区域按钮筛选不同地区的频道</li>
-                        <li>"全部"显示所有可用频道</li>
-                        <li>支持按江苏、山西、重庆地区筛选</li>
+                        <li>点击音量图标切换静音</li>
+                        <li>拖动音量滑块调整音量大小</li>
+                        <li>使用键盘方向键控制音量</li>
                     </ul>
                 </div>
                 
@@ -802,7 +870,7 @@
                     <ul>
                         <li>点击全屏按钮进入全屏观看模式</li>
                         <li>按ESC键退出全屏模式</li>
-                        <li>支持键盘快捷键控制播放</li>
+                        <li>双击播放器区域也可切换全屏</li>
                     </ul>
                 </div>
                 
@@ -829,28 +897,29 @@
     
     <script>
         // 频道数据
-        const channels = [
-            // 江苏频道
-            { id: 'js1', name: '江苏卫视', category: '卫视频道', region: 'js', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u#江苏卫视' },
-            { id: 'js2', name: '南京新闻综合', category: '地方频道', region: 'js', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u#南京新闻' },
-            { id: 'js3', name: '苏州社会经济', category: '地方频道', region: 'js', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u#苏州经济' },
-            { id: 'js4', name: '无锡都市资讯', category: '地方频道', region: 'js', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u#无锡资讯' },
-            { id: 'js5', name: '江苏公共新闻', category: '新闻频道', region: 'js', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u#公共新闻' },
-            
-            // 山西频道
-            { id: 'sx1', name: '山西卫视', category: '卫视频道', region: 'sx', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u#山西卫视' },
-            { id: 'sx2', name: '太原新闻', category: '新闻频道', region: 'sx', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u#太原新闻' },
-            { id: 'sx3', name: '晋中文化', category: '文化频道', region: 'sx', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u#晋中文化' },
-            { id: 'sx4', name: '大同生活', category: '生活频道', region: 'sx', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u#大同生活' },
-            { id: 'sx5', name: '山西经济资讯', category: '经济频道', region: 'sx', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u#经济资讯' },
-            
-            // 重庆频道
-            { id: 'cq1', name: '重庆卫视', category: '卫视频道', region: 'cq', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u#重庆卫视' },
-            { id: 'cq2', name: '重庆新闻', category: '新闻频道', region: 'cq', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u#重庆新闻' },
-            { id: 'cq3', name: '重庆影视', category: '影视娱乐', region: 'cq', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u#重庆影视' },
-            { id: 'cq4', name: '渝北综合', category: '地方频道', region: 'cq', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u#渝北综合' },
-            { id: 'cq5', name: '万州文化旅游', category: '文化旅游', region: 'cq', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u#万州文化' }
-        ];
+        const channels = {
+            js: [
+                { id: 'js1', name: '江苏卫视', category: '卫视频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u' },
+                { id: 'js2', name: '南京新闻综合', category: '地方频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u' },
+                { id: 'js3', name: '苏州社会经济', category: '地方频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u' },
+                { id: 'js4', name: '无锡都市资讯', category: '地方频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u' },
+                { id: 'js5', name: '江苏公共新闻', category: '新闻频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u' }
+            ],
+            sx: [
+                { id: 'sx1', name: '山西卫视', category: '卫视频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u' },
+                { id: 'sx2', name: '太原新闻', category: '新闻频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u' },
+                { id: 'sx3', name: '晋中文化', category: '文化频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u' },
+                { id: 'sx4', name: '大同生活', category: '生活频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u' },
+                { id: 'sx5', name: '山西经济资讯', category: '经济频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u' }
+            ],
+            cq: [
+                { id: 'cq1', name: '重庆卫视', category: '卫视频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u' },
+                { id: 'cq2', name: '重庆新闻', category: '新闻频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u' },
+                { id: 'cq3', name: '重庆影视', category: '影视娱乐', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u' },
+                { id: 'cq4', name: '渝北综合', category: '地方频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u' },
+                { id: 'cq5', name: '万州文化旅游', category: '文化旅游', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u' }
+            ]
+        };
 
         // DOM元素
         const videoPlayer = document.getElementById('video-player');
@@ -863,9 +932,11 @@
         const channelsList = document.getElementById('channels-list');
         const regionBtns = document.querySelectorAll('.region-btn');
         const loadingOverlay = document.getElementById('loading-overlay');
+        const channelCount = document.getElementById('channel-count');
         
         // HLS播放器实例
         let hls = new Hls();
+        let currentRegion = 'js';
         
         // 初始化播放器
         function initPlayer() {
@@ -888,28 +959,50 @@
             videoPlayer.addEventListener('play', updatePlayButton);
             videoPlayer.addEventListener('pause', updatePlayButton);
             
-            // 加载频道列表
-            renderChannels('all');
-            
-            // 添加区域筛选事件
+            // 添加地区选择事件
             regionBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
-                    regionBtns.forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    renderChannels(btn.dataset.region);
+                    const region = btn.dataset.region;
+                    playRegion(region);
                 });
             });
+            
+            // 初始加载江苏频道
+            playRegion('js');
+        }
+        
+        // 播放指定地区的频道
+        function playRegion(region) {
+            // 更新当前地区
+            currentRegion = region;
+            
+            // 更新地区按钮状态
+            regionBtns.forEach(btn => {
+                if (btn.dataset.region === region) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            
+            // 渲染频道列表
+            renderChannels(region);
+            
+            // 播放该地区的第一个频道
+            if (channels[region].length > 0) {
+                setTimeout(() => {
+                    const firstChannel = channels[region][0];
+                    playChannel(firstChannel);
+                }, 500);
+            }
         }
         
         // 渲染频道列表
         function renderChannels(region) {
             channelsList.innerHTML = '';
+            const regionChannels = channels[region];
             
-            const filteredChannels = region === 'all' 
-                ? channels 
-                : channels.filter(ch => ch.region === region);
-            
-            filteredChannels.forEach(channel => {
+            regionChannels.forEach(channel => {
                 const channelItem = document.createElement('div');
                 channelItem.className = 'channel-item';
                 channelItem.dataset.id = channel.id;
@@ -927,14 +1020,8 @@
                 channelsList.appendChild(channelItem);
             });
             
-            // 默认播放第一个频道
-            if (filteredChannels.length > 0) {
-                setTimeout(() => {
-                    const firstChannel = filteredChannels[0];
-                    playChannel(firstChannel);
-                    channelsList.querySelector(`[data-id="${firstChannel.id}"]`).classList.add('active');
-                }, 500);
-            }
+            // 更新频道计数
+            channelCount.textContent = `${regionChannels.length}个频道`;
         }
         
         // 播放频道
