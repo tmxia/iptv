@@ -101,9 +101,11 @@ jobs:
                     message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n"
                     message += f"🆔 提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\n\n"
                     
-                    # 添加文件列表（纯文本文件名）
+                    # 添加文件列表（确保文件名是纯文本）
                     for file in files:
-                        message += f"📄 {file['name']}\n"
+                        # 移除文件名中的URL前缀
+                        clean_name = file['name'].replace("http://", "").replace("https://", "")
+                        message += f"📄 {clean_name}\n"
                         message += f"  - 版本: `{file['version']}`\n"
                         message += f"  - 更新: `{file['date']}`\n"
                         message += f"  - [下载文件]({file['url']})\n\n"
@@ -148,10 +150,12 @@ jobs:
                 """
                 
                 for file in files:
+                    # 移除文件名中的URL前缀
+                    clean_name = file['name'].replace("http://", "").replace("https://", "")
                     proxy_urls = generate_proxy_urls(file['url'])
                     html_content += f"""
                     <li>
-                        <p><strong>{file['name']}</strong></p>
+                        <p><strong>{clean_name}</strong></p>
                         <ul>
                             <li><strong>版本:</strong> {file['version']}</li>
                             <li><strong>更新:</strong> {file['date']}</li>
@@ -179,14 +183,18 @@ jobs:
                 msg.attach(MIMEText(html_content, 'html'))
                 
                 # 连接SMTP服务器并发送
-                with smtplib.SMTP(smtp_server, smtp_port) as server:
-                    server.starttls()
-                    server.login(smtp_user, smtp_password)
-                    server.sendmail(smtp_user, receiver_email, msg.as_string())
+                server = smtplib.SMTP(smtp_server, smtp_port)
+                server.starttls()
+                server.login(smtp_user, smtp_password)
+                server.sendmail(smtp_user, receiver_email, msg.as_string())
+                server.quit()
                 
                 print(f"✅ 邮件已发送至: {receiver_email}")
                 return True
             except Exception as e:
+                # 打印详细的错误信息
+                import traceback
+                traceback.print_exc()
                 print(f"❌ 邮件发送失败: {str(e)}")
                 return False
         
