@@ -3,16 +3,19 @@ name: Real-time APK Directory Monitor
 on:
   push:
     paths:
-      - 'apk/**'  # 监控 apk 目录下的所有文件变化
+      - 'apk/**'  # 监控apk目录及其子目录的所有变化
+    branches: [ main ]  # 指定监控的分支
 
 jobs:
   detect-and-notify:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # 获取完整历史记录
+        ref: ${{ github.ref }}
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -23,53 +26,132 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake libgit2-dev
-        pip install telethon pygit2
+        pip install pygit2 httpx python-dotenv
 
     - name: Run detection script
       env:
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-        TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
-        TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_SHA: ${{ github.sha }}
       run: |
-        cat << 'EOF' > detect_file_changes.py
+        cat << 'EOF' > apk_monitor.py
         import os
         import re
         import pygit2
-        import asyncio
+        import json
+        import httpx
         from datetime import datetime
-        from telethon import TelegramClient
-        from telethon.sessions import StringSession
+        from dotenv import load_dotenv
+        
+        # 加载环境变量
+        load_dotenv()
         
         def extract_version(filename):
-            """从文件名中提取版本号（支持多种格式）"""
+            """改进版版本号提取，支持更多格式"""
             patterns = [
-                r'_v?(\d+\.\d+\.\d+)',  # 匹配 v1.2.3 或 _1.2.3
-                r'_v?(\d+\.\d+)',        # 匹配 v1.2 或 _1.2
-                r'_v?(\d+)',             # 匹配 v123 或 _123
-                r'[^\d]*(\d+\.\d+\.\d+)' # 匹配任意位置的 1.2.3
+                r'[vV]?(\d+\.\d+\.\d+)(?:[-_](beta|alpha|rc)\d*)?',  # v1.2.3_beta
+                r'[vV]?(\d+\.\d+)(?:[-_](beta|alpha|rc)\d*)?',      # v1.2_beta
+                r'[vV]?(\d+)(?:[-_](beta|alpha|rc)\d*)?',           # v123_beta
+                r'(?<![a-zA-Z0-9])(\d+\.\d+\.\d+)(?![a-zA-Z0-9])',  # 1.2.3
+                r'(?<![a-zA-Z0-9])(\d+\.\d+)(?![a-zA-Z0-9])',       # 1.2
+                r'(?<![a-zA-Z0-9])(\d+)(?![a-zA-Z0-9])'             # 123
             ]
+            
             for pattern in patterns:
                 match = re.search(pattern, filename)
                 if match:
-                    return match.group(1)
+                    version = match.group(1)
+                    suffix = f"-{match.group(2)}" if match.groups() > 1 else ""
+                    return version + suffix
             return "unknown"
         
+        def get_file_metadata(repo, file_path, commit_id):
+            """获取文件元数据（大小、提交时间）"""
+            try:
+                commit = repo.revparse_single(commit_id)
+                entry = commit.tree[file_path]
+                blob = repo[entry.id]
+                size = len(blob.data)
+                
+                # 转换为MB/KB
+                if size > 1024 * 1024:
+                    size_str = f"{size/(1024*1024):.2f} MB"
+                elif size > 1024:
+                    size_str = f"{size/1024:.2f} KB"
+                else:
+                    size_str = f"{size} bytes"
+                
+                commit_time = datetime.utcfromtimestamp(commit.commit_time).strftime('%Y-%m-%d %H:%M UTC')
+                return size_str, commit_time
+            except:
+                return "N/A", "N/A"
+        
+        def send_telegram_message(files):
+            """通过Telegram Bot API发送消息"""
+            bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+            channel_id = os.getenv("TELEGRAM_CHANNEL_ID")
+            
+            if not bot_token or not channel_id:
+                print("Telegram凭据未配置!")
+                return False
+            
+            message = "📱 *APK目录更新通知*\n\n"
+            message += f"仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n"
+            message += f"提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\n\n"
+            message += f"检测到 {len(files)} 个文件更新:\n\n"
+            
+            for file in files:
+                message += f"📦 *{file['name']}*\n"
+                message += f"  - 类型: `{file['type']}`\n"
+                message += f"  - 版本: `{file['version']}`\n"
+                message += f"  - 大小: `{file['size']}`\n"
+                message += f"  - 更新时间: `{file['date']}`\n"
+                message += f"  - [下载文件]({file['url']})\n\n"
+            
+            message += f"🔔 [查看仓库](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/tree/main/apk)"
+            
+            api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            payload = {
+                "chat_id": channel_id,
+                "text": message,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            }
+            
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    response = client.post(api_url, json=payload)
+                    if response.status_code == 200:
+                        print("Telegram通知发送成功!")
+                        return True
+                    else:
+                        print(f"Telegram发送失败: {response.status_code} - {response.text}")
+            except Exception as e:
+                print(f"请求异常: {str(e)}")
+            
+            return False
+        
         def main():
-            repo = pygit2.Repository('.')
+            print("Starting APK directory monitoring...")
+            repo_path = os.getcwd()
+            repo = pygit2.Repository(repo_path)
             
             # 获取当前提交
             try:
                 new_commit = repo.revparse_single('HEAD')
+                print(f"Current commit: {new_commit.id}")
             except KeyError:
-                print("错误: 无法找到 HEAD 提交")
+                print("错误: 无法找到HEAD提交")
                 return
             
-            # 获取上一个提交
+            # 获取上一个提交 (使用分支引用而不是HEAD~1)
             try:
                 old_commit = repo.revparse_single('HEAD~1')
-            except KeyError:
+                print(f"Previous commit: {old_commit.id}")
+            except (KeyError, TypeError):
                 print("初始提交 - 无前一版本")
                 return
             
@@ -80,18 +162,17 @@ jobs:
             for delta in diff.deltas:
                 file_path = delta.new_file.path if delta.new_file.path else delta.old_file.path
                 
-                # 只处理 apk/ 目录下的文件（任何类型）
+                # 只处理apk/目录下的文件
                 if not file_path.startswith('apk/'):
                     continue
                 
                 # 检查文件状态
                 if delta.status in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):
-                    # 从文件名提取版本
                     filename = os.path.basename(file_path)
                     version = extract_version(filename)
                     
-                    # 获取文件提交时间
-                    commit_time = datetime.utcfromtimestamp(new_commit.commit_time).strftime('%Y-%m-%d %H:%M UTC')
+                    # 获取文件元数据
+                    size, commit_time = get_file_metadata(repo, file_path, new_commit.id)
                     
                     # 构建下载URL
                     raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{file_path}"
@@ -104,49 +185,27 @@ jobs:
                         "path": file_path,
                         "type": file_ext,
                         "version": version,
+                        "size": size,
                         "date": commit_time,
                         "url": raw_url
                     })
             
             if not changed_files:
-                print("未检测到文件变化。")
+                print("未检测到APK文件变化。")
                 return
             
-            # 构建Telegram消息
-            message = "📁 *目录更新通知*\n\n"
-            message += f"检测到 {len(changed_files)} 个文件更新：\n\n"
-            
+            print(f"检测到 {len(changed_files)} 个文件变化:")
             for file in changed_files:
-                message += f"📄 [{file['name']}]({file['url']})\n"
-                message += f"   • 类型: `{file['type']}`\n"
-                message += f"   • 版本: `{file['version']}`\n"
-                message += f"   • 更新时间: `{file['date']}`\n\n"
-            
-            # 添加仓库链接
-            message += f"[查看仓库](https://github.com/{os.getenv('GITHUB_REPOSITORY')})"
+                print(f"- {file['name']} (v{file['version']})")
             
             # 发送到Telegram
-            async def send_to_telegram():
-                try:
-                    async with TelegramClient(
-                        StringSession(os.getenv("TELEGRAM_SESSION")),
-                        int(os.getenv("TELEGRAM_API_ID")),
-                        os.getenv("TELEGRAM_API_HASH")
-                    ) as client:
-                        await client.send_message(
-                            entity=os.getenv("TELEGRAM_CHANNEL"),
-                            message=message,
-                            parse_mode='markdown',
-                            link_preview=False
-                        )
-                    print("Telegram通知发送成功！")
-                except Exception as e:
-                    print(f"发送Telegram通知失败: {str(e)}")
-            
-            asyncio.run(send_to_telegram())
+            if send_telegram_message(changed_files):
+                print("通知流程完成!")
+            else:
+                print("通知发送失败，请检查配置")
         
         if __name__ == "__main__":
             main()
         EOF
         
-        python detect_file_changes.py
+        python apk_monitor.py
