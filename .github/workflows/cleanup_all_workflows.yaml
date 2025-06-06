@@ -1,0 +1,37 @@
+name: Cleanup All Workflow Runs
+
+on:
+  workflow_dispatch:  # 仅手动触发
+    inputs:
+      confirmation:
+        description: "输入 'YES' 确认删除所有工作流记录"
+        required: true
+        default: "NO"
+
+permissions:
+  actions: write  # 需要删除工作流运行的权限
+  contents: read   # 需要读取仓库信息的权限
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    
+    # 仅在确认输入为 "YES" 时运行
+    if: ${{ github.event.inputs.confirmation == 'YES' }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Delete all workflow runs
+        uses: actions/delete-workflow-runs@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # 删除所有工作流的所有运行记录
+          workflow_id: 'all'
+          # 不保留任何记录
+          keep_minimum_runs: 0
+          # 保留0天内的记录（即全部删除）
+          retain_days: 0
+          # 包含所有分支的记录
+          branch: 'all'
