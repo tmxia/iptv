@@ -44,7 +44,7 @@ jobs:
       - name: Prepare README
         id: prepare-readme
         run: |
-          # 修复heredoc语法问题
+          # 创建README（如果不存在）
           if [ ! -f README.md ]; then
             echo "Creating new README.md"
             echo "# Project Versions" > README.md
@@ -100,10 +100,15 @@ jobs:
           # 生成完整的表格
           FULL_TABLE="| 文件名称 | 版本号 | 更新日期 |\n|----------|--------|----------|\n$TABLE_CONTENT"
           
-          # 更新README.md - 使用更可靠的sed方法
-          sed -i -ne '/<!-- VERSION_TABLE_START -->/ {p; r /dev/stdin' -e ':a; n; /<!-- VERSION_TABLE_END -->/ {p; b}; ba}; p' README.md <<EOF
-$FULL_TABLE
-EOF
+          # 更新README.md - 使用简单的替换方法
+          START_MARKER="<!-- VERSION_TABLE_START -->"
+          END_MARKER="<!-- VERSION_TABLE_END -->"
+          
+          # 删除旧表格内容
+          sed -i "/$START_MARKER/,/$END_MARKER/{//!d;}" README.md
+          
+          # 插入新表格内容
+          sed -i "/$START_MARKER/a $TABLE_CONTENT" README.md
           
           echo "README updated successfully"
 
