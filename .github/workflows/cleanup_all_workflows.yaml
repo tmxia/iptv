@@ -1,12 +1,7 @@
 name: Cleanup All Workflow Runs
 
 on:
-  workflow_dispatch:  # 手动触发
-    inputs:
-      confirmation:
-        description: "输入 'YES DELETE ALL' 确认删除所有工作流记录"
-        required: true
-        default: "CANCEL"
+  workflow_dispatch:
 
 permissions:
   actions: write
