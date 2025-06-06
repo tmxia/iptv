@@ -26,7 +26,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake libgit2-dev
-        pip install telethon pygit2 requests
+        pip install telethon pygit2
 
     - name: Run enhanced detection script
       env:
@@ -34,7 +34,11 @@ jobs:
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
         TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
-        EMAIL_RECEIVER: "259732@qq.com"
+        EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
+        SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+        SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        SMTP_USER: ${{ secrets.SMTP_USER }}
+        SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_SHA: ${{ github.sha }}
       run: |
@@ -43,9 +47,9 @@ jobs:
         import re
         import pygit2
         import asyncio
-        import requests
         import smtplib
         from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
         from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
@@ -97,7 +101,7 @@ jobs:
                     message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n"
                     message += f"🆔 提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\n\n"
                     
-                    # 添加文件列表（无超链接）
+                    # 添加文件列表（纯文本文件名）
                     for file in files:
                         message += f"📄 {file['name']}\n"
                         message += f"  - 版本: `{file['version']}`\n"
@@ -117,68 +121,73 @@ jobs:
         
         def send_email(files, receiver_email):
             """发送邮件通知"""
-            if not receiver_email:
-                print("❌ 未配置接收邮箱")
-                return False
-            
-            # 构建邮件主题和内容
-            subject = f"APK目录更新通知 - {os.getenv('GITHUB_REPOSITORY')}"
-            
-            # HTML格式的邮件内容
-            html_content = f"""
-            <html>
-            <body>
-                <h2>📱 APK目录更新通知</h2>
-                <p><strong>🔖 仓库:</strong> {os.getenv('GITHUB_REPOSITORY')}</p>
-                <p><strong>🆔 提交:</strong> <a href="https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')}">{os.getenv('GITHUB_SHA')[:7]}</a></p>
-                <p><strong>📦 检测到 {len(files)} 个文件更新:</strong></p>
-                <ul>
-            """
-            
-            for file in files:
-                proxy_urls = generate_proxy_urls(file['url'])
-                html_content += f"""
-                <li>
-                    <p><strong>{file['name']}</strong></p>
+            try:
+                # 从环境变量获取SMTP配置
+                smtp_server = os.getenv("SMTP_SERVER")
+                smtp_port = int(os.getenv("SMTP_PORT", 587))
+                smtp_user = os.getenv("SMTP_USER")
+                smtp_password = os.getenv("SMTP_PASSWORD")
+                
+                # 验证配置完整性
+                if not all([smtp_server, smtp_user, smtp_password]):
+                    print("❌ SMTP配置不完整")
+                    return False
+                
+                # 构建邮件主题和内容
+                subject = f"APK目录更新通知 - {os.getenv('GITHUB_REPOSITORY')}"
+                
+                # HTML格式的邮件内容
+                html_content = f"""
+                <html>
+                <body>
+                    <h2>📱 APK目录更新通知</h2>
+                    <p><strong>🔖 仓库:</strong> {os.getenv('GITHUB_REPOSITORY')}</p>
+                    <p><strong>🆔 提交:</strong> <a href="https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')}">{os.getenv('GITHUB_SHA')[:7]}</a></p>
+                    <p><strong>📦 检测到 {len(files)} 个文件更新:</strong></p>
                     <ul>
-                        <li><strong>版本:</strong> {file['version']}</li>
-                        <li><strong>更新:</strong> {file['date']}</li>
-                        <li><strong>下载地址:</strong> 
-                            <a href="{file['url']}">原始地址</a> | 
-                            <a href="{proxy_urls['gh-proxy']}">gh-proxy</a> | 
-                            <a href="{proxy_urls['github-speedup']}">github-speedup</a>
-                        </li>
-                    </ul>
-                </li>
                 """
-            
-            html_content += """
-                </ul>
-                <p>此邮件由 GitHub Actions 自动发送</p>
-            </body>
-            </html>
-            """
-            
-            # 使用GitHub的邮件服务（无需SMTP配置）
-            response = requests.post(
-                "https://api.github.com/repos/actions/send-email",
-                json={
-                    "to": [receiver_email],
-                    "subject": subject,
-                    "body": html_content,
-                    "content_type": "text/html"
-                },
-                headers={
-                    "Authorization": f"token {os.getenv('GITHUB_TOKEN')}",
-                    "Accept": "application/vnd.github.v3+json"
-                }
-            )
-            
-            if response.status_code == 200:
+                
+                for file in files:
+                    proxy_urls = generate_proxy_urls(file['url'])
+                    html_content += f"""
+                    <li>
+                        <p><strong>{file['name']}</strong></p>
+                        <ul>
+                            <li><strong>版本:</strong> {file['version']}</li>
+                            <li><strong>更新:</strong> {file['date']}</li>
+                            <li><strong>下载地址:</strong> 
+                                <a href="{file['url']}">原始地址</a> | 
+                                <a href="{proxy_urls['gh-proxy']}">gh-proxy</a> | 
+                                <a href="{proxy_urls['github-speedup']}">github-speedup</a>
+                            </li>
+                        </ul>
+                    </li>
+                    """
+                
+                html_content += """
+                    </ul>
+                    <p>此邮件由 GitHub Actions 自动发送</p>
+                </body>
+                </html>
+                """
+                
+                # 创建邮件
+                msg = MIMEMultipart()
+                msg['From'] = smtp_user
+                msg['To'] = receiver_email
+                msg['Subject'] = subject
+                msg.attach(MIMEText(html_content, 'html'))
+                
+                # 连接SMTP服务器并发送
+                with smtplib.SMTP(smtp_server, smtp_port) as server:
+                    server.starttls()
+                    server.login(smtp_user, smtp_password)
+                    server.sendmail(smtp_user, receiver_email, msg.as_string())
+                
                 print(f"✅ 邮件已发送至: {receiver_email}")
                 return True
-            else:
-                print(f"❌ 邮件发送失败: {response.status_code} - {response.text}")
+            except Exception as e:
+                print(f"❌ 邮件发送失败: {str(e)}")
                 return False
         
         def main():
@@ -246,7 +255,11 @@ jobs:
             
             # 发送到邮箱
             email_receiver = os.getenv("EMAIL_RECEIVER")
-            email_success = send_email(changed_files, email_receiver)
+            if email_receiver:
+                email_success = send_email(changed_files, email_receiver)
+            else:
+                print("⚠️ 未配置EMAIL_RECEIVER，跳过邮件通知")
+                email_success = False
             
             if telegram_success:
                 print("✅ Telegram通知发送成功!")
@@ -261,8 +274,5 @@ jobs:
         if __name__ == "__main__":
             main()
         EOF
-        
-        # 添加GitHub Token环境变量
-        export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
         
         python apk_monitor.py
