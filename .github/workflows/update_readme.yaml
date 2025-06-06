@@ -1,4 +1,4 @@
-name: README Updater
+name: Real-time README Updater
 
 on:
   push:
@@ -55,10 +55,15 @@ jobs:
       - name: Generate and update table
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 生成最新表格内容
-          table_content=$(jq -r '
+          # 设置基础URL
+          REPO="${{ github.repository }}"
+          BRANCH="${{ github.ref_name }}"
+          BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
+          
+          # 生成带链接的表格内容
+          table_content=$(jq -r --arg base_url "$BASE_URL" '
             to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
-            "| \(.key) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
+            "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
           ' version.txt)
           
           # 创建完整表格
@@ -113,5 +118,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 5
           retain_days: 1
-          delete_workflow_pattern: "README Updater"
+          delete_workflow_pattern: "Real-time README Updater"
           repository: ${{ github.repository }}
