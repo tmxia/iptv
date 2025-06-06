@@ -1,0 +1,66 @@
+name: Cleanup All Workflow Runs
+
+on:
+  workflow_dispatch:  # 手动触发
+    inputs:
+      confirmation:
+        description: "输入 'YES DELETE ALL' 确认删除所有工作流记录"
+        required: true
+        default: "CANCEL"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirmation == 'YES DELETE ALL' }}
+    
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl jq
+          
+      - name: Delete all workflow runs (using API)
+        env:
+          TOKEN: ${{ secrets.TRIGGER_ALL_PAT }}
+        run: |
+          # 设置 API 端点
+          API="https://api.github.com/repos/${{ github.repository }}"
+          
+          # 获取所有工作流运行记录（分页处理）
+          page=1
+          while true; do
+            # 获取一页工作流运行记录
+            response=$(curl -s -H "Authorization: token $TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "$API/actions/runs?per_page=100&page=$page")
+            
+            # 检查是否还有数据
+            run_count=$(echo "$response" | jq '.workflow_runs | length')
+            if [ "$run_count" -eq 0 ]; then
+              echo "没有更多工作流运行记录"
+              break
+            fi
+            
+            echo "处理第 $page 页，共 $run_count 条记录"
+            
+            # 提取并删除运行记录
+            echo "$response" | jq -r '.workflow_runs[].id' | while read run_id; do
+              echo "删除运行记录 $run_id"
+              
+              # 直接使用 API 删除
+              curl -s -X DELETE \
+                -H "Authorization: token $TOKEN" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "$API/actions/runs/$run_id"
+              
+              sleep 0.3  # 避免触发速率限制
+            done
+            
+            ((page++))
+          done
+          
+          echo "✅ 所有工作流运行记录已成功删除"
