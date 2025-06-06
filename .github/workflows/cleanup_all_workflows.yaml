@@ -2,6 +2,11 @@ name: Cleanup All Workflow Runs
 
 on:
   workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type "YES DELETE ALL" to confirm deletion'
+        required: true
+        default: 'YES DELETE ALL'
 
 permissions:
   actions: write
@@ -18,44 +23,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl jq
           
-      - name: Delete all workflow runs (using API)
+      - name: Delete all workflow runs
         env:
-          TOKEN: ${{ secrets.TRIGGER_ALL_PAT }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用内置令牌
         run: |
-          # 设置 API 端点
           API="https://api.github.com/repos/${{ github.repository }}"
           
-          # 获取所有工作流运行记录（分页处理）
+          # 获取所有工作流运行记录
           page=1
           while true; do
-            # 获取一页工作流运行记录
-            response=$(curl -s -H "Authorization: token $TOKEN" \
+            response=$(curl -s -H "Authorization: Bearer $TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
               "$API/actions/runs?per_page=100&page=$page")
             
-            # 检查是否还有数据
             run_count=$(echo "$response" | jq '.workflow_runs | length')
             if [ "$run_count" -eq 0 ]; then
-              echo "没有更多工作流运行记录"
+              echo "No more workflow runs"
               break
             fi
             
-            echo "处理第 $page 页，共 $run_count 条记录"
+            echo "Processing page $page with $run_count runs"
             
             # 提取并删除运行记录
             echo "$response" | jq -r '.workflow_runs[].id' | while read run_id; do
-              echo "删除运行记录 $run_id"
+              echo "Deleting run $run_id"
               
-              # 直接使用 API 删除
               curl -s -X DELETE \
-                -H "Authorization: token $TOKEN" \
+                -H "Authorization: Bearer $TOKEN" \
                 -H "Accept: application/vnd.github.v3+json" \
                 "$API/actions/runs/$run_id"
               
-              sleep 0.3  # 避免触发速率限制
+              sleep 0.5  # 避免速率限制
             done
             
             ((page++))
           done
           
-          echo "✅ 所有工作流运行记录已成功删除"
+          echo "✅ All workflow runs deleted successfully"
