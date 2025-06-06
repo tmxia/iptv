@@ -1,12 +1,13 @@
-name: Update README
+name: README Updater
 
 on:
   push:
     paths:
       - 'version.txt'
-  schedule:
-    - cron: '0 * * * *'  # 每小时自动检查一次
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   update-readme:
@@ -16,127 +17,84 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.ref }}
 
       - name: Validate version.txt
         id: validate-version
         run: |
+          # 验证文件存在和格式
           if [ ! -f version.txt ]; then
-            echo "::warning::version.txt not found"
-            echo "skip_update=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          # 检查文件是否为有效JSON
-          if ! jq empty version.txt 2>/dev/null; then
-            echo "::error::version.txt contains invalid JSON"
+            echo "::error::version.txt not found"
             exit 1
           fi
           
-          # 检查是否有有效数据
-          if [ $(jq -e 'length > 0' version.txt) != "true" ]; then
-            echo "::warning::version.txt is empty"
+          if ! jq empty version.txt 2>/dev/null; then
+            echo "::error::Invalid JSON in version.txt"
+            exit 1
+          fi
+          
+          if [ $(jq -e 'length == 0' version.txt) = "true" ]; then
+            echo "::warning::Empty version.txt"
             echo "skip_update=true" >> $GITHUB_OUTPUT
           else
             echo "skip_update=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Prepare README
-        id: prepare-readme
+        if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 创建README（如果不存在）
+          # 创建或修复README结构
           if [ ! -f README.md ]; then
-            echo "Creating new README.md"
-            echo "# Project Versions" > README.md
-            echo "<!-- VERSION_TABLE_START -->" >> README.md
-            echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
-            echo "|----------|--------|----------|" >> README.md
-            echo "<!-- VERSION_TABLE_END -->" >> README.md
-            echo "readme_created=true" >> $GITHUB_OUTPUT
-          else
-            echo "readme_created=false" >> $GITHUB_OUTPUT
+            echo "# 应用版本列表" > README.md
+            echo "<!-- VERSION_TABLE -->" >> README.md
           fi
           
-          # 确保标记存在
-          if ! grep -q "<!-- VERSION_TABLE_START -->" README.md || ! grep -q "<!-- VERSION_TABLE_END -->" README.md; then
-            echo "::warning::Adding missing markers to README.md"
-            # 直接在文件末尾添加缺失的标记
-            echo "" >> README.md
-            echo "<!-- VERSION_TABLE_START -->" >> README.md
-            echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
-            echo "|----------|--------|----------|" >> README.md
-            echo "<!-- VERSION_TABLE_END -->" >> README.md
-            echo "markers_added=true" >> $GITHUB_OUTPUT
-          else
-            echo "markers_added=false" >> $GITHUB_OUTPUT
+          if ! grep -q "<!-- VERSION_TABLE -->" README.md; then
+            sed -i '1i <!-- VERSION_TABLE -->' README.md
           fi
 
-      - name: Install dependencies
+      - name: Generate and update table
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-
-      - name: Update README
-        if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
-        run: |
-          # 获取仓库信息
-          REPO_NAME="${{ github.repository }}"
-          BASE_URL="https://github.com/${REPO_NAME}/raw/main/apk/"
+          # 生成最新表格内容
+          table_content=$(jq -r '
+            to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
+            "| \(.key) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
+          ' version.txt)
           
-          # 生成新表格内容
-          jq -r --arg base_url "$BASE_URL" '
-            to_entries | 
-            map({
-              key: .key, 
-              version: (.value | split(",")[0]), 
-              date: (.value | split(",")[1]),
-              url: ("\($base_url)" + (.key | @uri))
-            }) | 
-            sort_by(.date) | reverse[] | 
-            "| [\(.key)](\(.url)) | \(.version) | \(.date) |"
-          ' version.txt > table_content.txt
+          # 创建完整表格
+          full_table="| 文件名称 | 版本号 | 更新日期 |\n|----------|--------|----------|\n$table_content"
           
-          # 更新README.md - 使用更可靠的方法
-          START_MARKER="<!-- VERSION_TABLE_START -->"
-          END_MARKER="<!-- VERSION_TABLE_END -->"
-          
-          # 删除旧表格内容
-          awk -v start="$START_MARKER" -v end="$END_MARKER" '
-            $0 ~ start { in_block=1; print; next }
-            $0 ~ end { in_block=0; print; next }
-            in_block { next }
-            { print }
-          ' README.md > README.tmp
-          
-          # 插入新表格内容
-          awk -v start="$START_MARKER" '
-            $0 ~ start {
-              print $0
-              print "| 文件名称 | 版本号 | 更新日期 |"
-              print "|----------|--------|----------|"
-              system("cat table_content.txt")
+          # 替换或插入表格
+          awk -v table="$full_table" '
+            /<!-- VERSION_TABLE -->/ {
+              print table
+              found=1
               next
             }
             { print }
-          ' README.tmp > README.md
+            END {
+              if (!found) {
+                print "<!-- VERSION_TABLE -->"
+                print table
+              }
+            }
+          ' README.md > README.tmp
           
-          # 清理临时文件
-          rm table_content.txt README.tmp
-          
-          echo "README updated successfully"
+          mv README.tmp README.md
+          echo "Updated README.md"
 
       - name: Commit changes
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add README.md
+          
           # 检查是否有实际变更
-          if git diff --exit-code --quiet README.md; then
+          if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git config user.name "github-actions"
-            git config user.email "actions@users.noreply.github.com"
-            git add README.md
-            git commit -m "📚 Update version table [skip ci]"
+            git commit -m "📚 自动更新版本表格 [skip ci]"
             git push
           fi
 
@@ -153,7 +111,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0
-          retain_days: 0
+          keep_minimum_runs: 5
+          retain_days: 1
           delete_workflow_pattern: "Update README"
           repository: ${{ github.repository }}
