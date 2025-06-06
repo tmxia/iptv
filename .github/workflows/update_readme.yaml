@@ -85,7 +85,7 @@ jobs:
           BASE_URL="https://github.com/${REPO_NAME}/raw/main/apk/"
           
           # 生成新表格内容
-          TABLE_CONTENT=$(jq -r --arg base_url "$BASE_URL" '
+          jq -r --arg base_url "$BASE_URL" '
             to_entries | 
             map({
               key: .key, 
@@ -95,20 +95,34 @@ jobs:
             }) | 
             sort_by(.date) | reverse[] | 
             "| [\(.key)](\(.url)) | \(.version) | \(.date) |"
-          ' version.txt)
+          ' version.txt > table_content.txt
           
-          # 生成完整的表格
-          FULL_TABLE="| 文件名称 | 版本号 | 更新日期 |\n|----------|--------|----------|\n$TABLE_CONTENT"
-          
-          # 更新README.md - 使用简单的替换方法
+          # 更新README.md - 使用更可靠的方法
           START_MARKER="<!-- VERSION_TABLE_START -->"
           END_MARKER="<!-- VERSION_TABLE_END -->"
           
           # 删除旧表格内容
-          sed -i "/$START_MARKER/,/$END_MARKER/{//!d;}" README.md
+          awk -v start="$START_MARKER" -v end="$END_MARKER" '
+            $0 ~ start { in_block=1; print; next }
+            $0 ~ end { in_block=0; print; next }
+            in_block { next }
+            { print }
+          ' README.md > README.tmp
           
           # 插入新表格内容
-          sed -i "/$START_MARKER/a $TABLE_CONTENT" README.md
+          awk -v start="$START_MARKER" '
+            $0 ~ start {
+              print $0
+              print "| 文件名称 | 版本号 | 更新日期 |"
+              print "|----------|--------|----------|"
+              system("cat table_content.txt")
+              next
+            }
+            { print }
+          ' README.tmp > README.md
+          
+          # 清理临时文件
+          rm table_content.txt README.tmp
           
           echo "README updated successfully"
 
