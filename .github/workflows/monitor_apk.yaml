@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - 'apk/**'
-  workflow_dispatch:
 
 jobs:
   detect-and-notify:
