@@ -101,11 +101,10 @@ jobs:
                     message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n"
                     message += f"🆔 提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\n\n"
                     
-                    # 添加文件列表（确保文件名是纯文本）
+                    # 添加文件列表
                     for file in files:
-                        # 移除文件名中的URL前缀
-                        clean_name = file['name'].replace("http://", "").replace("https://", "")
-                        message += f"📄 {clean_name}\n"
+                        # 使用反引号包裹文件名，避免被解析为链接
+                        message += f"📄 `{file['name']}`\n"
                         message += f"  - 版本: `{file['version']}`\n"
                         message += f"  - 更新: `{file['date']}`\n"
                         message += f"  - [下载文件]({file['url']})\n\n"
@@ -150,12 +149,10 @@ jobs:
                 """
                 
                 for file in files:
-                    # 移除文件名中的URL前缀
-                    clean_name = file['name'].replace("http://", "").replace("https://", "")
                     proxy_urls = generate_proxy_urls(file['url'])
                     html_content += f"""
                     <li>
-                        <p><strong>{clean_name}</strong></p>
+                        <p><strong>{file['name']}</strong></p>
                         <ul>
                             <li><strong>版本:</strong> {file['version']}</li>
                             <li><strong>更新:</strong> {file['date']}</li>
@@ -182,9 +179,8 @@ jobs:
                 msg['Subject'] = subject
                 msg.attach(MIMEText(html_content, 'html'))
                 
-                # 连接SMTP服务器并发送
-                server = smtplib.SMTP(smtp_server, smtp_port)
-                server.starttls()
+                # 使用SSL连接SMTP服务器
+                server = smtplib.SMTP_SSL(smtp_server, smtp_port)
                 server.login(smtp_user, smtp_password)
                 server.sendmail(smtp_user, receiver_email, msg.as_string())
                 server.quit()
