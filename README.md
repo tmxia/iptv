@@ -14,5 +14,7 @@
 | [mytv-tv.apk](https://github.com/tmxia/iptv/raw/main/apk/mytv-tv.apk) | V1.1.1.135 | 2025-05-27 |
 | [simple_live-tv.apk](https://github.com/tmxia/iptv/raw/main/apk/simple_live-tv.apk) | v1.3.5 | 2025-05-27 |
 | [simple_live.apk](https://github.com/tmxia/iptv/raw/main/apk/simple_live.apk) | v1.8.6 | 2025-05-27 |
+| [proxypin-win.zip](https://github.com/tmxia/iptv/raw/main/apk/proxypin-win.zip) | v1.1.9 | 2025-05-17 |
+| [proxypin.apk](https://github.com/tmxia/iptv/raw/main/apk/proxypin.apk) | v1.1.9 | 2025-05-17 |
 | [bv.apk](https://github.com/tmxia/iptv/raw/main/apk/bv.apk) | v0.2.9 | 2024-12-06 |
 <!-- VERSION_TABLE_END -->
