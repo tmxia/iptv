@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IPTV直播播放器 | 江苏、山西、重庆频道</title>
+    <title>IPTV直播播放器 | 动态解析M3U文件</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.1.4/dist/hls.min.js"></script>
@@ -357,6 +357,18 @@
             box-shadow: 0 0 5px #4CAF50;
         }
         
+        .empty-list {
+            text-align: center;
+            padding: 40px 20px;
+            color: #81d4fa;
+        }
+        
+        .empty-list i {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            color: rgba(255, 255, 255, 0.3);
+        }
+        
         @media (max-width: 768px) {
             header h1 {
                 font-size: 1.8rem;
@@ -381,18 +393,18 @@
                 <i class="fas fa-tv logo-icon"></i>
                 <h1>IPTV直播播放器</h1>
             </div>
-            <p>江苏、山西、重庆地区电视频道</p>
+            <p>点击地区按钮加载频道，选择频道开始播放</p>
         </header>
         
         <!-- 地区选择器 -->
         <div class="region-selector-container">
-            <button class="region-btn js active" data-region="js">
+            <button class="region-btn js" data-region="js" data-m3u="https://vip.123pan.cn/1814643527/tv/jd-js.m3u">
                 <i class="fas fa-water"></i> 江苏频道
             </button>
-            <button class="region-btn sx" data-region="sx">
+            <button class="region-btn sx" data-region="sx" data-m3u="https://vip.123pan.cn/1814643527/tv/jd-sx.m3u">
                 <i class="fas fa-mountain"></i> 山西频道
             </button>
-            <button class="region-btn cq" data-region="cq">
+            <button class="region-btn cq" data-region="cq" data-m3u="https://vip.123pan.cn/1814643527/tv/jd-cq.m3u">
                 <i class="fas fa-mountain-city"></i> 重庆频道
             </button>
         </div>
@@ -403,7 +415,7 @@
                 <video id="video-player" controls></video>
                 <div class="loading-overlay" id="loading-overlay">
                     <div class="spinner"></div>
-                    <p>正在加载频道，请稍候...</p>
+                    <p id="loading-text">正在加载频道，请稍候...</p>
                 </div>
                 <div class="player-controls">
                     <button class="control-btn" id="play-pause-btn">
@@ -416,8 +428,8 @@
                         <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="1">
                     </div>
                     <div class="channel-info">
-                        <div class="channel-title" id="current-channel">江苏卫视</div>
-                        <div class="channel-status" id="player-status">准备播放</div>
+                        <div class="channel-title" id="current-channel">请选择地区加载频道</div>
+                        <div class="channel-status" id="player-status">准备就绪</div>
                     </div>
                     <button class="control-btn fullscreen-btn" id="fullscreen-btn">
                         <i class="fas fa-expand"></i>
@@ -431,42 +443,21 @@
                     <h2><i class="fas fa-list"></i> 频道列表</h2>
                     <div class="channel-info">
                         <span class="status-indicator status-live"></span>
-                        <span id="channel-count">5个频道</span>
+                        <span id="channel-count">未加载</span>
                     </div>
                 </div>
                 <div class="channels-list" id="channels-list">
-                    <!-- 频道将通过JS动态加载 -->
+                    <div class="empty-list">
+                        <i class="fas fa-satellite-dish"></i>
+                        <h3>尚未加载频道</h3>
+                        <p>请点击上方地区按钮加载频道列表</p>
+                    </div>
                 </div>
             </div>
         </section>
     </div>
     
     <script>
-        // 频道数据 - 直接使用M3U文件
-        const channels = {
-            js: [
-                { id: 'js1', name: '江苏卫视', category: '卫视频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u' },
-                { id: 'js2', name: '南京新闻综合', category: '地方频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u' },
-                { id: 'js3', name: '苏州社会经济', category: '地方频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u' },
-                { id: 'js4', name: '无锡都市资讯', category: '地方频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u' },
-                { id: 'js5', name: '江苏公共新闻', category: '新闻频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-js.m3u' }
-            ],
-            sx: [
-                { id: 'sx1', name: '山西卫视', category: '卫视频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u' },
-                { id: 'sx2', name: '太原新闻', category: '新闻频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u' },
-                { id: 'sx3', name: '晋中文化', category: '文化频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u' },
-                { id: 'sx4', name: '大同生活', category: '生活频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u' },
-                { id: 'sx5', name: '山西经济资讯', category: '经济频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-sx.m3u' }
-            ],
-            cq: [
-                { id: 'cq1', name: '重庆卫视', category: '卫视频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u' },
-                { id: 'cq2', name: '重庆新闻', category: '新闻频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u' },
-                { id: 'cq3', name: '重庆影视', category: '影视娱乐', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u' },
-                { id: 'cq4', name: '渝北综合', category: '地方频道', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u' },
-                { id: 'cq5', name: '万州文化旅游', category: '文化旅游', url: 'https://vip.123pan.cn/1814643527/tv/jd-cq.m3u' }
-            ]
-        };
-
         // DOM元素
         const videoPlayer = document.getElementById('video-player');
         const playPauseBtn = document.getElementById('play-pause-btn');
@@ -479,16 +470,15 @@
         const regionBtns = document.querySelectorAll('.region-btn');
         const loadingOverlay = document.getElementById('loading-overlay');
         const channelCount = document.getElementById('channel-count');
+        const loadingText = document.getElementById('loading-text');
         
         // HLS播放器实例
         let hls = new Hls();
-        let currentRegion = 'js';
-        
+        let currentRegion = null;
+        let channels = [];
+
         // 初始化播放器
         function initPlayer() {
-            // 绑定HLS播放器
-            hls.attachMedia(videoPlayer);
-            
             // 播放/暂停按钮事件
             playPauseBtn.addEventListener('click', togglePlayPause);
             
@@ -509,16 +499,14 @@
             regionBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
                     const region = btn.dataset.region;
-                    playRegion(region);
+                    const m3uUrl = btn.dataset.m3u;
+                    loadM3UFile(region, m3uUrl);
                 });
             });
-            
-            // 初始加载江苏频道
-            playRegion('js');
         }
         
-        // 播放指定地区的频道
-        function playRegion(region) {
+        // 加载并解析M3U文件
+        function loadM3UFile(region, m3uUrl) {
             // 更新当前地区
             currentRegion = region;
             
@@ -531,30 +519,128 @@
                 }
             });
             
-            // 渲染频道列表
-            renderChannels(region);
+            // 显示加载状态
+            loadingOverlay.style.display = 'flex';
+            loadingText.textContent = `正在加载${getRegionName(region)}频道列表...`;
+            playerStatus.textContent = '正在获取频道数据';
             
-            // 播放该地区的第一个频道
-            if (channels[region].length > 0) {
-                setTimeout(() => {
-                    const firstChannel = channels[region][0];
-                    playChannel(firstChannel);
-                }, 100);
+            // 重置频道列表
+            channels = [];
+            renderChannels();
+            
+            // 获取M3U文件内容
+            fetch(m3uUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('网络响应异常');
+                    }
+                    return response.text();
+                })
+                .then(m3uContent => {
+                    // 解析M3U文件
+                    channels = parseM3U(m3uContent);
+                    
+                    if (channels.length === 0) {
+                        throw new Error('未找到有效频道');
+                    }
+                    
+                    // 更新频道列表
+                    renderChannels();
+                    
+                    // 播放第一个频道
+                    if (channels.length > 0) {
+                        setTimeout(() => {
+                            playChannel(channels[0]);
+                        }, 500);
+                    }
+                    
+                    // 隐藏加载状态
+                    loadingOverlay.style.display = 'none';
+                    playerStatus.textContent = '加载完成';
+                })
+                .catch(error => {
+                    console.error('加载M3U文件失败:', error);
+                    playerStatus.textContent = `加载失败: ${error.message}`;
+                    loadingText.textContent = `加载失败: ${error.message}`;
+                    
+                    // 5秒后隐藏加载状态
+                    setTimeout(() => {
+                        loadingOverlay.style.display = 'none';
+                    }, 5000);
+                });
+        }
+        
+        // 解析M3U文件内容
+        function parseM3U(content) {
+            const lines = content.split('\n');
+            const channels = [];
+            let currentChannel = null;
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                
+                if (line.startsWith('#EXTINF')) {
+                    // 解析频道信息行
+                    const params = line.split(',');
+                    const name = params.length > 1 ? params[params.length - 1] : '未知频道';
+                    const tvgIdMatch = line.match(/tvg-id="([^"]+)"/);
+                    const tvgNameMatch = line.match(/tvg-name="([^"]+)"/);
+                    const tvgLogoMatch = line.match(/tvg-logo="([^"]+)"/);
+                    const groupTitleMatch = line.match(/group-title="([^"]+)"/);
+                    
+                    currentChannel = {
+                        id: `channel_${channels.length + 1}`,
+                        name: tvgNameMatch ? tvgNameMatch[1] : name,
+                        category: groupTitleMatch ? groupTitleMatch[1] : '通用频道',
+                        logo: tvgLogoMatch ? tvgLogoMatch[1] : null,
+                        url: null
+                    };
+                } else if (line.startsWith('http') && currentChannel) {
+                    // 解析URL行
+                    currentChannel.url = line;
+                    channels.push(currentChannel);
+                    currentChannel = null;
+                }
+            }
+            
+            return channels;
+        }
+        
+        // 获取地区名称
+        function getRegionName(region) {
+            switch(region) {
+                case 'js': return '江苏';
+                case 'sx': return '山西';
+                case 'cq': return '重庆';
+                default: return '';
             }
         }
         
         // 渲染频道列表
-        function renderChannels(region) {
+        function renderChannels() {
             channelsList.innerHTML = '';
-            const regionChannels = channels[region];
             
-            regionChannels.forEach(channel => {
+            if (channels.length === 0) {
+                channelsList.innerHTML = `
+                    <div class="empty-list">
+                        <i class="fas fa-satellite-dish"></i>
+                        <h3>尚未加载频道</h3>
+                        <p>请点击上方地区按钮加载频道列表</p>
+                    </div>
+                `;
+                channelCount.textContent = '未加载';
+                return;
+            }
+            
+            channels.forEach(channel => {
                 const channelItem = document.createElement('div');
                 channelItem.className = 'channel-item';
                 channelItem.dataset.id = channel.id;
                 channelItem.innerHTML = `
                     <div class="channel-logo">
-                        <i class="fas fa-tv"></i>
+                        ${channel.logo ? 
+                            `<img src="${channel.logo}" alt="${channel.name}" style="width:100%;height:100%;border-radius:50%;">` : 
+                            `<i class="fas fa-tv"></i>`}
                     </div>
                     <div class="channel-details">
                         <div class="channel-name">${channel.name}</div>
@@ -567,14 +653,15 @@
             });
             
             // 更新频道计数
-            channelCount.textContent = `${regionChannels.length}个频道`;
+            channelCount.textContent = `${channels.length}个频道`;
         }
         
         // 播放频道
         function playChannel(channel) {
             // 显示加载状态
             loadingOverlay.style.display = 'flex';
-            playerStatus.textContent = '正在加载频道...';
+            loadingText.textContent = `正在加载: ${channel.name}`;
+            playerStatus.textContent = '正在连接...';
             currentChannel.textContent = channel.name;
             
             // 移除所有频道的active状态
@@ -594,7 +681,7 @@
             hls = new Hls();
             hls.attachMedia(videoPlayer);
             
-            // 加载媒体 - 直接使用M3U文件
+            // 加载媒体流
             hls.loadSource(channel.url);
             
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
