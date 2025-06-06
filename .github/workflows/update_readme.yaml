@@ -18,69 +18,128 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.ref }}
 
-      - name: Check for README.md
-        id: check-readme
+      - name: Validate version.txt
+        id: validate-version
         run: |
+          if [ ! -f version.txt ]; then
+            echo "::warning::version.txt not found"
+            echo "skip_update=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # 检查文件是否为有效JSON
+          if ! jq empty version.txt 2>/dev/null; then
+            echo "::error::version.txt contains invalid JSON"
+            exit 1
+          fi
+          
+          # 检查是否有有效数据
+          if [ $(jq -e 'length > 0' version.txt) != "true" ]; then
+            echo "::warning::version.txt is empty"
+            echo "skip_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_update=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare README
+        id: prepare-readme
+        run: |
+          # 创建README（如果不存在）
           if [ ! -f README.md ]; then
-            echo "README.md not found, creating one"
-            echo "# Project Versions" > README.md
-            echo "<!-- VERSION_TABLE_START -->" >> README.md
-            echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
-            echo "|----------|--------|----------|" >> README.md
-            echo "<!-- VERSION_TABLE_END -->" >> README.md
+            echo "Creating new README.md"
+            cat <<EOF > README.md
+            # Project Versions
+            <!-- VERSION_TABLE_START -->
+            <!-- VERSION_TABLE_END -->
+            EOF
             echo "readme_created=true" >> $GITHUB_OUTPUT
           else
             echo "readme_created=false" >> $GITHUB_OUTPUT
           fi
+          
+          # 确保标记存在
+          if ! grep -q "<!-- VERSION_TABLE_START -->" README.md || ! grep -q "<!-- VERSION_TABLE_END -->" README.md; then
+            echo "::warning::Adding missing markers to README.md"
+            awk -i inplace '
+              BEGIN { added=0 }
+              { print }
+              /<!-- VERSION_TABLE_START -->/ { 
+                print "| 文件名称 | 版本号 | 更新日期 |"
+                print "|----------|--------|----------|"
+                added=1 
+              }
+              END { 
+                if (!added) {
+                  print "\n<!-- VERSION_TABLE_START -->"
+                  print "| 文件名称 | 版本号 | 更新日期 |"
+                  print "|----------|--------|----------|"
+                  print "<!-- VERSION_TABLE_END -->"
+                }
+              }
+            ' README.md
+            echo "markers_added=true" >> $GITHUB_OUTPUT
+          else
+            echo "markers_added=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Update README
+        if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          if ! command -v jq &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y jq
-          fi
+          # 安装必要工具
+          sudo apt-get update
+          sudo apt-get install -y jq
           
           # 获取仓库信息
           REPO_NAME="${{ github.repository }}"
           BASE_URL="https://github.com/${REPO_NAME}/raw/main/apk/"
           
-          # 生成包含三列的新表格，按日期倒序排列
-          echo "## 应用版本信息" > table.md
-          echo "| 文件名称 | 版本号 | 更新日期 |" >> table.md
-          echo "|----------|--------|----------|" >> table.md
-          
-          # 解析version.txt，按日期倒序排序，并为文件名添加超链接
-          jq -r --arg base_url "$BASE_URL" '
+          # 生成新表格内容
+          TABLE_CONTENT=$(jq -r --arg base_url "$BASE_URL" '
             to_entries | 
             map({
               key: .key, 
               version: (.value | split(",")[0]), 
               date: (.value | split(",")[1]),
-              url: ("\($base_url)" + (.key | @uri))  # 对文件名进行URL编码
+              url: ("\($base_url)" + (.key | @uri))
             }) | 
             sort_by(.date) | reverse[] | 
             "| [\(.key)](\(.url)) | \(.version) | \(.date) |"
-          ' version.txt >> table.md
-
+          ' version.txt)
+          
+          # 生成完整的表格
+          FULL_TABLE="| 文件名称 | 版本号 | 更新日期 |\n|----------|--------|----------|\n$TABLE_CONTENT"
+          
           # 更新README.md
-          awk -v new="$(cat table.md)" '
-            /<!-- VERSION_TABLE_START -->/ {print; print new; skip=1}
-            /<!-- VERSION_TABLE_END -->/ {skip=0}
-            skip {next} {print}
-          ' README.md > tmp && mv tmp README.md
-
-          rm table.md
+          awk -i inplace -v table="$FULL_TABLE" '
+            BEGIN { replaced=0 }
+            /<!-- VERSION_TABLE_START -->/ {
+              print
+              print table
+              replaced=1
+              next
+            }
+            /<!-- VERSION_TABLE_END -->/ {
+              # 跳过原始表格内容直到结束标记
+              while (getline && !/<!-- VERSION_TABLE_END -->/) {}
+              print "<!-- VERSION_TABLE_END -->"
+              next
+            }
+            replaced != 1 { print }
+          ' README.md
+          
+          echo "README updated successfully"
 
       - name: Commit changes
+        if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@users.noreply.github.com"
-          
-          if git diff --quiet && git diff --cached --quiet; then
+          # 检查是否有实际变更
+          if git diff --exit-code --quiet README.md; then
             echo "No changes to commit"
           else
-            git add -A
-            git commit -m "Update version table with download links [skip ci]"
+            git config user.name "github-actions"
+            git config user.email "actions@users.noreply.github.com"
+            git add README.md
+            git commit -m "📚 Update version table [skip ci]"
             git push
           fi
 
@@ -97,7 +156,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0
+          keep_minimum_runs: 0  # 保留最近5次运行记录
           retain_days: 0
           delete_workflow_pattern: "Update README"
           repository: ${{ github.repository }}
