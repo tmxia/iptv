@@ -1,4 +1,4 @@
-name: APK Directory Monitor
+name: Real-time APK Directory Monitor (Telethon)
 
 on:
   push:
@@ -47,13 +47,6 @@ jobs:
         from telethon.sessions import StringSession
         from urllib.parse import quote
         
-        # 调试：检查环境变量
-        print("环境变量状态:")
-        print(f"  TELEGRAM_API_ID: {'已设置' if os.getenv('TELEGRAM_API_ID') else '未设置'}")
-        print(f"  TELEGRAM_API_HASH: {'已设置' if os.getenv('TELEGRAM_API_HASH') else '未设置'}")
-        print(f"  TELEGRAM_SESSION: {'已设置' if os.getenv('TELEGRAM_SESSION') else '未设置'}")
-        print(f"  TELEGRAM_CHANNEL: {'已设置' if os.getenv('TELEGRAM_CHANNEL') else '未设置'}")
-        
         # 增强版版本号提取
         def extract_version(filename):
             patterns = [
@@ -70,14 +63,6 @@ jobs:
                 if match:
                     return match.group(1)
             return "unknown"
-        
-        # 文件大小格式化
-        def format_size(size):
-            if size > 1024 * 1024:
-                return f"{size/(1024*1024):.1f} MB"
-            if size > 1024:
-                return f"{size/1024:.1f} KB"
-            return f"{size} bytes"
         
         async def send_telegram_message(files):
             """使用Telethon发送消息"""
@@ -96,20 +81,19 @@ jobs:
                     api_id, 
                     api_hash
                 ) as client:
-                    # 构建消息
+                    # 构建简化消息
                     message = "📱 **APK目录更新通知**\n\n"
-                    message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n"
-                    message += f"🆔 提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\n\n"
-                    message += f"📦 检测到 {len(files)} 个文件更新:\n\n"
+                    message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n\n"
                     
+                    # 添加文件列表
                     for file in files:
-                        message += f"📄 **{file['name']}**\n"
-                        message += f"  - 类型: `{file['type']}`\n"
-                        message += f"  - 版本: `{file['version']}`\n"
-                        message += f"  - 大小: `{file['size']}`\n"
-                        message += f"  - [下载文件]({file['url']})\n\n"
+                        message += f"📄 [{file['name']}]({file['url']})"
+                        if file['version'] != "unknown":
+                            message += f" (v{file['version']})"
+                        message += "\n\n"
                     
-                    message += f"🔗 [查看仓库目录](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/tree/main/apk)"
+                    # 添加提交链接
+                    message += f"🆔 [查看提交详情](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})"
                     
                     await client.send_message(
                         entity=channel,
@@ -155,17 +139,6 @@ jobs:
                 # 获取文件名
                 filename = os.path.basename(file_path)
                 
-                # 尝试获取文件大小
-                try:
-                    entry = head_commit.tree[file_path]
-                    blob = repo[entry.id]
-                    file_size = format_size(blob.size)
-                except:
-                    file_size = "未知大小"
-                
-                # 获取文件扩展名
-                file_ext = os.path.splitext(filename)[1][1:].upper() if '.' in filename else "文件"
-                
                 # 构建下载URL
                 encoded_path = quote(file_path)
                 raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{encoded_path}"
@@ -173,8 +146,6 @@ jobs:
                 changed_files.append({
                     "name": filename,
                     "version": extract_version(filename),
-                    "size": file_size,
-                    "type": file_ext,
                     "url": raw_url
                 })
             
