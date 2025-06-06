@@ -113,5 +113,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 5
           retain_days: 1
-          delete_workflow_pattern: "Update README"
+          delete_workflow_pattern: "README Updater"
           repository: ${{ github.repository }}
