@@ -1,9 +1,9 @@
-name: APK Update Monitor
+name: Real-time APK Update Monitor
 
 on:
   push:
     paths:
-      - 'apk/**'
+      - 'apk/**'  # 监控 apk 目录下的所有变化
 
 jobs:
   detect-and-notify:
@@ -12,7 +12,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 2  # 关键修复：获取最近2个提交用于差异比较
+        fetch-depth: 0  # 获取完整历史记录
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -37,17 +37,20 @@ jobs:
         import os
         import re
         import pygit2
+        import asyncio
         from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         
         def extract_version(filename):
-            """直接从APK文件名中提取版本号（更可靠）"""
+            """从APK文件名中提取版本号（支持多种格式）"""
             patterns = [
-                r'(\d+\.\d+\.\d+)',  # v1.2.3
-                r'(\d+\.\d+)',       # v1.2
-                r'[^\d]*(\d+)'       # v123
+                r'_v?(\d+\.\d+\.\d+)',  # 匹配 v1.2.3 或 _1.2.3
+                r'_v?(\d+\.\d+)',        # 匹配 v1.2 或 _1.2
+                r'_v?(\d+)',             # 匹配 v123 或 _123
+                r'[^\d]*(\d+\.\d+\.\d+)' # 匹配任意位置的 1.2.3
             ]
+            filename = os.path.splitext(filename)[0]  # 移除文件扩展名
             for pattern in patterns:
                 match = re.search(pattern, filename)
                 if match:
@@ -56,14 +59,20 @@ jobs:
         
         def main():
             repo = pygit2.Repository('.')
-            head = repo.head
-            if len(head.peel().parents) < 1:
-                print("Initial commit - no previous version")
+            
+            # 获取当前提交
+            try:
+                new_commit = repo.revparse_single('HEAD')
+            except KeyError:
+                print("Error: Could not find HEAD commit")
                 return
             
-            # 获取当前和上一个提交
-            new_commit = head.peel()
-            old_commit = new_commit.parents[0]
+            # 获取上一个提交
+            try:
+                old_commit = repo.revparse_single('HEAD~1')
+            except KeyError:
+                print("Initial commit - no previous version")
+                return
             
             # 计算差异
             diff = repo.diff(old_commit, new_commit)
@@ -72,22 +81,24 @@ jobs:
             for delta in diff.deltas:
                 file_path = delta.new_file.path if delta.new_file.path else delta.old_file.path
                 
-                # 修正路径检测：兼容GitHub工作空间结构
-                if not re.match(r'^(apk/|.*/apk/)', file_path):
+                # 只处理 apk/ 目录下的 .apk 文件
+                if not file_path.startswith('apk/') or not file_path.lower().endswith('.apk'):
                     continue
-                    
+                
+                # 检查文件状态
                 if delta.status in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):
-                    # 直接从文件名提取版本
-                    version = extract_version(os.path.basename(file_path))
+                    # 从文件名提取版本
+                    filename = os.path.basename(file_path)
+                    version = extract_version(filename)
                     
-                    # 获取文件提交时间（使用当前提交时间）
-                    commit_time = datetime.fromtimestamp(new_commit.commit_time).strftime('%Y-%m-%d')
+                    # 获取文件提交时间
+                    commit_time = datetime.utcfromtimestamp(new_commit.commit_time).strftime('%Y-%m-%d %H:%M UTC')
                     
                     # 构建下载URL
-                    raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/{new_commit.id}/{file_path}"
+                    raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{file_path}"
                     
                     changed_apks.append({
-                        "name": os.path.basename(file_path),
+                        "name": filename,
                         "version": version,
                         "date": commit_time,
                         "url": raw_url
@@ -98,29 +109,36 @@ jobs:
                 return
             
             # 构建Telegram消息
-            message = "📱 *APK 更新通知*\n\n"
+            message = "🚀 *实时 APK 更新通知*\n\n"
+            message += f"检测到 {len(changed_apks)} 个APK文件更新：\n\n"
+            
             for apk in changed_apks:
-                message += f"🔹 [{apk['name']}]({apk['url']})\n"
-                message += f"   版本: `{apk['version']}` | 日期: `{apk['date']}`\n\n"
+                message += f"📦 [{apk['name']}]({apk['url']})\n"
+                message += f"   • 版本: `{apk['version']}`\n"
+                message += f"   • 更新时间: `{apk['date']}`\n\n"
+            
+            # 添加仓库链接
+            message += f"[查看仓库](https://github.com/{os.getenv('GITHUB_REPOSITORY')})"
             
             # 发送到Telegram
-            client = TelegramClient(
-                StringSession(os.getenv("TELEGRAM_SESSION")),
-                int(os.getenv("TELEGRAM_API_ID")),
-                os.getenv("TELEGRAM_API_HASH")
-            )
+            async def send_to_telegram():
+                try:
+                    async with TelegramClient(
+                        StringSession(os.getenv("TELEGRAM_SESSION")),
+                        int(os.getenv("TELEGRAM_API_ID")),
+                        os.getenv("TELEGRAM_API_HASH")
+                    ) as client:
+                        await client.send_message(
+                            entity=os.getenv("TELEGRAM_CHANNEL"),
+                            message=message,
+                            parse_mode='markdown',
+                            link_preview=False
+                        )
+                    print("Telegram通知发送成功！")
+                except Exception as e:
+                    print(f"发送Telegram通知失败: {str(e)}")
             
-            async def send_message():
-                await client.send_message(
-                    entity=os.getenv("TELEGRAM_CHANNEL"),
-                    message=message,
-                    parse_mode='markdown',
-                    link_preview=False
-                )
-            
-            with client:
-                client.loop.run_until_complete(send_message())
-            print("Telegram notification sent successfully.")
+            asyncio.run(send_to_telegram())
         
         if __name__ == "__main__":
             main()
