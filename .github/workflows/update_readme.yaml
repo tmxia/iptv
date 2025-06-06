@@ -134,7 +134,7 @@ EOF
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 5  # 保留最近5次运行记录
-          retain_days: 1
+          keep_minimum_runs: 0  # 保留最近5次运行记录
+          retain_days: 0
           delete_workflow_pattern: "Update README"
           repository: ${{ github.repository }}
