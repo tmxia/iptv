@@ -44,14 +44,14 @@ jobs:
       - name: Prepare README
         id: prepare-readme
         run: |
-          # 创建README（如果不存在）
+          # 修复heredoc语法问题
           if [ ! -f README.md ]; then
             echo "Creating new README.md"
-            cat <<EOF > README.md
-            # Project Versions
-            <!-- VERSION_TABLE_START -->
-            <!-- VERSION_TABLE_END -->
-            EOF
+            echo "# Project Versions" > README.md
+            echo "<!-- VERSION_TABLE_START -->" >> README.md
+            echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
+            echo "|----------|--------|----------|" >> README.md
+            echo "<!-- VERSION_TABLE_END -->" >> README.md
             echo "readme_created=true" >> $GITHUB_OUTPUT
           else
             echo "readme_created=false" >> $GITHUB_OUTPUT
@@ -60,35 +60,26 @@ jobs:
           # 确保标记存在
           if ! grep -q "<!-- VERSION_TABLE_START -->" README.md || ! grep -q "<!-- VERSION_TABLE_END -->" README.md; then
             echo "::warning::Adding missing markers to README.md"
-            awk -i inplace '
-              BEGIN { added=0 }
-              { print }
-              /<!-- VERSION_TABLE_START -->/ { 
-                print "| 文件名称 | 版本号 | 更新日期 |"
-                print "|----------|--------|----------|"
-                added=1 
-              }
-              END { 
-                if (!added) {
-                  print "\n<!-- VERSION_TABLE_START -->"
-                  print "| 文件名称 | 版本号 | 更新日期 |"
-                  print "|----------|--------|----------|"
-                  print "<!-- VERSION_TABLE_END -->"
-                }
-              }
-            ' README.md
+            # 直接在文件末尾添加缺失的标记
+            echo "" >> README.md
+            echo "<!-- VERSION_TABLE_START -->" >> README.md
+            echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
+            echo "|----------|--------|----------|" >> README.md
+            echo "<!-- VERSION_TABLE_END -->" >> README.md
             echo "markers_added=true" >> $GITHUB_OUTPUT
           else
             echo "markers_added=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Install dependencies
+        if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
       - name: Update README
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 安装必要工具
-          sudo apt-get update
-          sudo apt-get install -y jq
-          
           # 获取仓库信息
           REPO_NAME="${{ github.repository }}"
           BASE_URL="https://github.com/${REPO_NAME}/raw/main/apk/"
@@ -109,23 +100,10 @@ jobs:
           # 生成完整的表格
           FULL_TABLE="| 文件名称 | 版本号 | 更新日期 |\n|----------|--------|----------|\n$TABLE_CONTENT"
           
-          # 更新README.md
-          awk -i inplace -v table="$FULL_TABLE" '
-            BEGIN { replaced=0 }
-            /<!-- VERSION_TABLE_START -->/ {
-              print
-              print table
-              replaced=1
-              next
-            }
-            /<!-- VERSION_TABLE_END -->/ {
-              # 跳过原始表格内容直到结束标记
-              while (getline && !/<!-- VERSION_TABLE_END -->/) {}
-              print "<!-- VERSION_TABLE_END -->"
-              next
-            }
-            replaced != 1 { print }
-          ' README.md
+          # 更新README.md - 使用更可靠的sed方法
+          sed -i -ne '/<!-- VERSION_TABLE_START -->/ {p; r /dev/stdin' -e ':a; n; /<!-- VERSION_TABLE_END -->/ {p; b}; ba}; p' README.md <<EOF
+$FULL_TABLE
+EOF
           
           echo "README updated successfully"
 
@@ -156,7 +134,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0  # 保留最近5次运行记录
-          retain_days: 0
+          keep_minimum_runs: 5  # 保留最近5次运行记录
+          retain_days: 1
           delete_workflow_pattern: "Update README"
           repository: ${{ github.repository }}
