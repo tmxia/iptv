@@ -81,18 +81,18 @@ jobs:
                     api_id, 
                     api_hash
                 ) as client:
-                    # 构建简化消息
+                    # 构建消息 - 包含版本和日期
                     message = "📱 **APK目录更新通知**\n\n"
-                    message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n\n"
                     
                     # 添加文件列表
                     for file in files:
-                        message += f"📄 [{file['name']}]({file['url']})"
-                        if file['version'] != "unknown":
-                            message += f" (v{file['version']})"
-                        message += "\n\n"
+                        message += f"📄 **{file['name']}**\n"
+                        message += f"  - 版本: `{file['version']}`\n"
+                        message += f"  - 更新: `{file['date']}`\n"
+                        message += f"  - [下载文件]({file['url']})\n\n"
                     
-                    # 添加提交链接
+                    # 添加仓库和提交信息
+                    message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n"
                     message += f"🆔 [查看提交详情](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})"
                     
                     await client.send_message(
@@ -129,6 +129,10 @@ jobs:
             
             # 解析差异
             for delta in diff.deltas:
+                # 只处理新增和修改的文件，忽略删除的文件
+                if delta.status not in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):
+                    continue
+                
                 file_path = delta.new_file.path or delta.old_file.path
                 print(f"检测到变更: {file_path} [状态: {delta.status}]")
                 
@@ -139,6 +143,9 @@ jobs:
                 # 获取文件名
                 filename = os.path.basename(file_path)
                 
+                # 获取更新时间 (转换为UTC时间)
+                commit_time = datetime.utcfromtimestamp(head_commit.commit_time).strftime('%Y-%m-%d %H:%M UTC')
+                
                 # 构建下载URL
                 encoded_path = quote(file_path)
                 raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{encoded_path}"
@@ -146,6 +153,7 @@ jobs:
                 changed_files.append({
                     "name": filename,
                     "version": extract_version(filename),
+                    "date": commit_time,
                     "url": raw_url
                 })
             
@@ -155,7 +163,7 @@ jobs:
             
             print(f"📦 检测到 {len(changed_files)} 个文件变更:")
             for file in changed_files:
-                print(f"  - {file['name']} (v{file['version']})")
+                print(f"  - {file['name']} (v{file['version']}, {file['date']})")
             
             # 发送到Telegram
             loop = asyncio.get_event_loop()
