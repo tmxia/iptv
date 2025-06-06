@@ -116,7 +116,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 5
-          retain_days: 1
+          keep_minimum_runs: 1
+          retain_days: 0
           delete_workflow_pattern: "Real-time README Updater"
           repository: ${{ github.repository }}
