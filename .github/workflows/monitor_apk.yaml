@@ -1,4 +1,4 @@
-name: Real-time APK Directory Monitor (Telethon)
+name: Real-time APK Directory Monitor
 
 on:
   push:
