@@ -13,7 +13,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # 获取完整提交历史
+        fetch-depth: 2  # 关键修复：获取最近2个提交用于差异比较
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -24,7 +24,6 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake libgit2-dev
-        python -m pip install --upgrade pip
         pip install telethon pygit2
 
     - name: Run detection script
@@ -35,8 +34,7 @@ jobs:
         TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-        mkdir -p .github/scripts
-        cat > .github/scripts/detect_apk_changes.py << 'EOF'
+        cat << 'EOF' > detect_apk_changes.py
         import os
         import re
         import pygit2
@@ -44,105 +42,65 @@ jobs:
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         
-        def get_file_latest_commit(repo, file_path):
-            """获取文件的最新提交信息"""
-            try:
-                # 查找文件的最新提交
-                walker = repo.walk(repo.head.target, pygit2.GIT_SORT_TIME)
-                for commit in walker:
-                    try:
-                        if file_path in commit.tree:
-                            return commit
-                    except KeyError:
-                        continue
-                return None
-            except Exception as e:
-                print(f"Error getting commit for {file_path}: {str(e)}")
-                return None
-        
-        def extract_version_from_commit(commit):
-            """从提交消息中提取版本号"""
-            if not commit:
-                return "unknown"
-            
-            # 尝试从提交消息中提取版本号
-            version_match = re.search(r'v?(\d+\.\d+\.\d+)', commit.message)
-            if version_match:
-                return version_match.group(1)
-            
-            version_match = re.search(r'v?(\d+\.\d+)', commit.message)
-            if version_match:
-                return version_match.group(1)
-            
-            # 使用短提交ID作为版本标识
-            return str(commit.id)[:7]
+        def extract_version(filename):
+            """直接从APK文件名中提取版本号（更可靠）"""
+            patterns = [
+                r'(\d+\.\d+\.\d+)',  # v1.2.3
+                r'(\d+\.\d+)',       # v1.2
+                r'[^\d]*(\d+)'       # v123
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, filename)
+                if match:
+                    return match.group(1)
+            return "unknown"
         
         def main():
-            # 初始化Git仓库
-            repo_path = pygit2.discover_repository(os.getcwd())
-            if not repo_path:
-                print("Not a git repository!")
+            repo = pygit2.Repository('.')
+            head = repo.head
+            if len(head.peel().parents) < 1:
+                print("Initial commit - no previous version")
                 return
-            repo = pygit2.Repository(repo_path)
-            current_commit = repo[repo.head.target]
             
-            # 获取上一个提交
-            try:
-                last_commit = current_commit.parents[0]
-            except IndexError:
-                last_commit = None
+            # 获取当前和上一个提交
+            new_commit = head.peel()
+            old_commit = new_commit.parents[0]
             
-            # 检测变更的APK文件
+            # 计算差异
+            diff = repo.diff(old_commit, new_commit)
             changed_apks = []
-            apk_dir = "apk"
             
-            # 比较差异
-            if last_commit:
-                diff = repo.diff(last_commit, current_commit)
-            else:
-                # 初始提交的情况
-                empty_tree = repo.TreeBuilder().write()
-                diff = repo.diff(empty_tree, current_commit.tree)
-            
-            # 分析差异
             for delta in diff.deltas:
                 file_path = delta.new_file.path if delta.new_file.path else delta.old_file.path
                 
-                # 只处理apk目录下的文件
-                if not file_path.startswith(apk_dir):
+                # 修正路径检测：兼容GitHub工作空间结构
+                if not re.match(r'^(apk/|.*/apk/)', file_path):
                     continue
                     
-                # 注意：使用pygit2的常量
-                if delta.status not in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):
-                    continue
-                
-                # 获取文件最新提交信息
-                file_commit = get_file_latest_commit(repo, file_path)
-                
-                # 提取版本信息
-                version = extract_version_from_commit(file_commit)
-                
-                # 获取更新日期
-                update_date = datetime.fromtimestamp(file_commit.commit_time).strftime('%Y-%m-%d') if file_commit else "unknown"
-                
-                # 构建下载URL
-                raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/{current_commit.id}/{file_path}"
-                
-                changed_apks.append({
-                    "name": os.path.basename(file_path),
-                    "version": version,
-                    "date": update_date,
-                    "url": raw_url
-                })
+                if delta.status in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):
+                    # 直接从文件名提取版本
+                    version = extract_version(os.path.basename(file_path))
+                    
+                    # 获取文件提交时间（使用当前提交时间）
+                    commit_time = datetime.fromtimestamp(new_commit.commit_time).strftime('%Y-%m-%d')
+                    
+                    # 构建下载URL
+                    raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/{new_commit.id}/{file_path}"
+                    
+                    changed_apks.append({
+                        "name": os.path.basename(file_path),
+                        "version": version,
+                        "date": commit_time,
+                        "url": raw_url
+                    })
             
             if not changed_apks:
                 print("No APK changes detected.")
                 return
             
-            # 准备Telegram消息 - 简洁格式
+            # 构建Telegram消息
             message = "📱 *APK 更新通知*\n\n"
             for apk in changed_apks:
-                # 将文件名作为下载链接
                 message += f"🔹 [{apk['name']}]({apk['url']})\n"
                 message += f"   版本: `{apk['version']}` | 日期: `{apk['date']}`\n\n"
             
@@ -163,9 +121,10 @@ jobs:
             
             with client:
                 client.loop.run_until_complete(send_message())
-            print("Update notification sent to Telegram.")
+            print("Telegram notification sent successfully.")
         
         if __name__ == "__main__":
             main()
         EOF
-        python .github/scripts/detect_apk_changes.py
+        
+        python detect_apk_changes.py
