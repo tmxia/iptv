@@ -6,7 +6,7 @@ on:
       confirmation:
         description: "输入 'YES DELETE ALL' 确认删除所有工作流记录"
         required: true
-        default: "CANCEL"
+        default: "YES DELETE ALL"
 
 permissions:
   actions: write
