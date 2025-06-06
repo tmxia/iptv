@@ -46,26 +46,26 @@ jobs:
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 获取所有预发布版
-        echo "获取预发布版本信息..."
+        # 获取所有发布版（只取稳定版）
+        echo "获取稳定版本信息..."
         RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
         if [ $? -ne 0 ]; then
           echo "错误: 无法获取发布信息"
           exit 1
         fi
 
-        # 提取最新预发布版
-        LATEST_PRE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]')
-        if [ -z "$LATEST_PRE_RELEASE" ] || [ "$LATEST_PRE_RELEASE" = "null" ]; then
-          echo "错误: 未找到预发布版本"
+        # 提取最新稳定版（过滤掉预发布版）
+        LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]')
+        if [ -z "$LATEST_STABLE_RELEASE" ] || [ "$LATEST_STABLE_RELEASE" = "null" ]; then
+          echo "错误: 未找到稳定版本"
           exit 1
         fi
         
-        PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
         # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
-        PRE_RELEASE_PUBLISHED_AT=$(echo "$LATEST_PRE_RELEASE" | jq -r '.published_at')
-        RELEASE_DATE=$(TZ=UTC date -d "$PRE_RELEASE_PUBLISHED_AT" +'%Y-%m-%d')
-        echo "源仓库最新预发布版: $PRE_RELEASE_VERSION (发布于: $RELEASE_DATE)"
+        STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
+        RELEASE_DATE=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
+        echo "源仓库最新稳定版: $STABLE_VERSION (发布于: $RELEASE_DATE)"
 
         # 检查本地版本文件
         if [ ! -f "version.txt" ]; then
@@ -101,13 +101,13 @@ jobs:
         need_update=false
         
         # 检查Android版本和文件
-        if [ "$PRE_RELEASE_VERSION" != "$CURRENT_ANDROID_VERSION" ] || [ ! -f "$ANDROID_TARGET_PATH" ]; then
+        if [ "$STABLE_VERSION" != "$CURRENT_ANDROID_VERSION" ] || [ ! -f "$ANDROID_TARGET_PATH" ]; then
           echo "Android需要更新: 版本不匹配或文件不存在"
           need_update=true
         fi
         
         # 检查Windows版本和文件
-        if [ "$PRE_RELEASE_VERSION" != "$CURRENT_WINDOWS_VERSION" ] || [ ! -f "$WINDOWS_TARGET_PATH" ]; then
+        if [ "$STABLE_VERSION" != "$CURRENT_WINDOWS_VERSION" ] || [ ! -f "$WINDOWS_TARGET_PATH" ]; then
           echo "Windows需要更新: 版本不匹配或文件不存在"
           need_update=true
         fi
@@ -121,14 +121,14 @@ jobs:
         echo "下载新版本文件..."
         
         # 查找Android APK文件
-        apk_download_url=$(echo "$LATEST_PRE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
+        apk_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
         if [ -z "$apk_download_url" ]; then
           echo "错误: 未找到匹配的Android APK文件"
           exit 1
         fi
         
         # 查找Windows ZIP文件
-        win_download_url=$(echo "$LATEST_PRE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$WIN_PATTERN'")) | .browser_download_url' | head -1)
+        win_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$WIN_PATTERN'")) | .browser_download_url' | head -1)
         if [ -z "$win_download_url" ]; then
           echo "错误: 未找到匹配的Windows ZIP文件"
           exit 1
@@ -163,9 +163,9 @@ jobs:
         # 更新版本文件（保留其他键值，添加日期）
         UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
           --arg android_key "$ANDROID_TARGET_NAME" \
-          --arg android_value "$PRE_RELEASE_VERSION,$RELEASE_DATE" \
+          --arg android_value "$STABLE_VERSION,$RELEASE_DATE" \
           --arg win_key "$WINDOWS_TARGET_NAME" \
-          --arg win_value "$PRE_RELEASE_VERSION,$RELEASE_DATE" \
+          --arg win_value "$STABLE_VERSION,$RELEASE_DATE" \
           '.[$android_key] = $android_value | .[$win_key] = $win_value')
           
         echo "$UPDATED_VERSION_JSON" > version.txt
@@ -180,7 +180,7 @@ jobs:
         fi
 
         # 提交更改
-        git commit -m "更新预发布版本: $PRE_RELEASE_VERSION (日期: $RELEASE_DATE)"
+        git commit -m "更新稳定版本: $STABLE_VERSION (日期: $RELEASE_DATE)"
         
         # 推送到远程仓库
         echo "推送到远程仓库..."
@@ -195,8 +195,8 @@ jobs:
         fi
 
         echo "同步完成! 状态: 成功"
-        echo "Android文件: $ANDROID_TARGET_PATH ($PRE_RELEASE_VERSION, $RELEASE_DATE)"
-        echo "Windows文件: $WINDOWS_TARGET_PATH ($PRE_RELEASE_VERSION, $RELEASE_DATE)"
+        echo "Android文件: $ANDROID_TARGET_PATH ($STABLE_VERSION, $RELEASE_DATE)"
+        echo "Windows文件: $WINDOWS_TARGET_PATH ($STABLE_VERSION, $RELEASE_DATE)"
         exit 0
 
   cleanup_self:
