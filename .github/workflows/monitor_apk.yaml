@@ -1,9 +1,9 @@
-name: Real-time APK Update Monitor
+name: Real-time APK Directory Monitor
 
 on:
   push:
     paths:
-      - 'apk/**'  # 监控 apk 目录下的所有变化
+      - 'apk/**'  # 监控 apk 目录下的所有文件变化
 
 jobs:
   detect-and-notify:
@@ -33,7 +33,7 @@ jobs:
         TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-        cat << 'EOF' > detect_apk_changes.py
+        cat << 'EOF' > detect_file_changes.py
         import os
         import re
         import pygit2
@@ -43,14 +43,13 @@ jobs:
         from telethon.sessions import StringSession
         
         def extract_version(filename):
-            """从APK文件名中提取版本号（支持多种格式）"""
+            """从文件名中提取版本号（支持多种格式）"""
             patterns = [
                 r'_v?(\d+\.\d+\.\d+)',  # 匹配 v1.2.3 或 _1.2.3
                 r'_v?(\d+\.\d+)',        # 匹配 v1.2 或 _1.2
                 r'_v?(\d+)',             # 匹配 v123 或 _123
                 r'[^\d]*(\d+\.\d+\.\d+)' # 匹配任意位置的 1.2.3
             ]
-            filename = os.path.splitext(filename)[0]  # 移除文件扩展名
             for pattern in patterns:
                 match = re.search(pattern, filename)
                 if match:
@@ -64,25 +63,25 @@ jobs:
             try:
                 new_commit = repo.revparse_single('HEAD')
             except KeyError:
-                print("Error: Could not find HEAD commit")
+                print("错误: 无法找到 HEAD 提交")
                 return
             
             # 获取上一个提交
             try:
                 old_commit = repo.revparse_single('HEAD~1')
             except KeyError:
-                print("Initial commit - no previous version")
+                print("初始提交 - 无前一版本")
                 return
             
             # 计算差异
             diff = repo.diff(old_commit, new_commit)
-            changed_apks = []
+            changed_files = []
             
             for delta in diff.deltas:
                 file_path = delta.new_file.path if delta.new_file.path else delta.old_file.path
                 
-                # 只处理 apk/ 目录下的 .apk 文件
-                if not file_path.startswith('apk/') or not file_path.lower().endswith('.apk'):
+                # 只处理 apk/ 目录下的文件（任何类型）
+                if not file_path.startswith('apk/'):
                     continue
                 
                 # 检查文件状态
@@ -97,25 +96,31 @@ jobs:
                     # 构建下载URL
                     raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{file_path}"
                     
-                    changed_apks.append({
+                    # 获取文件扩展名
+                    file_ext = os.path.splitext(filename)[1][1:].upper() if '.' in filename else "文件"
+                    
+                    changed_files.append({
                         "name": filename,
+                        "path": file_path,
+                        "type": file_ext,
                         "version": version,
                         "date": commit_time,
                         "url": raw_url
                     })
             
-            if not changed_apks:
-                print("No APK changes detected.")
+            if not changed_files:
+                print("未检测到文件变化。")
                 return
             
             # 构建Telegram消息
-            message = "🚀 *实时 APK 更新通知*\n\n"
-            message += f"检测到 {len(changed_apks)} 个APK文件更新：\n\n"
+            message = "📁 *目录更新通知*\n\n"
+            message += f"检测到 {len(changed_files)} 个文件更新：\n\n"
             
-            for apk in changed_apks:
-                message += f"📦 [{apk['name']}]({apk['url']})\n"
-                message += f"   • 版本: `{apk['version']}`\n"
-                message += f"   • 更新时间: `{apk['date']}`\n\n"
+            for file in changed_files:
+                message += f"📄 [{file['name']}]({file['url']})\n"
+                message += f"   • 类型: `{file['type']}`\n"
+                message += f"   • 版本: `{file['version']}`\n"
+                message += f"   • 更新时间: `{file['date']}`\n\n"
             
             # 添加仓库链接
             message += f"[查看仓库](https://github.com/{os.getenv('GITHUB_REPOSITORY')})"
@@ -144,4 +149,4 @@ jobs:
             main()
         EOF
         
-        python detect_apk_changes.py
+        python detect_file_changes.py
