@@ -397,8 +397,12 @@ jobs:
                 # 更新版本文件
                 update_versions(current_versions)
                 
-                # 提交更改
-                commit_msg = f"更新OpenWrt内核: {', '.join([f'{group}@{data["version"]}' for group, data in new_kernels.items()])}"
+                # 修复提交信息语法错误
+                group_versions = []
+                for group, data in new_kernels.items():
+                    group_versions.append(f"{group}@{data['version']}")
+                
+                commit_msg = f"更新OpenWrt内核: {', '.join(group_versions)}"
                 if commit_and_push(commit_msg):
                     log.info(f"同步成功! 更新了 {len(new_kernels)} 个内核组")
                 else:
@@ -435,13 +439,30 @@ jobs:
       uses: actions/github-script@v6
       with:
         script: |
-          const message = `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: message
-          });
+          try {
+            const issue_number = context.issue.number;
+            if (issue_number) {
+              const message = `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+              await github.rest.issues.createComment({
+                issue_number: issue_number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: message
+              });
+            } else {
+              // 当没有issue上下文时，创建新issue
+              const issue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `工作流失败通知 - ${{ github.workflow }} #${{ github.run_number }}`,
+                body: `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+              });
+              console.log(`创建了新issue: ${issue.data.html_url}`);
+            }
+          } catch (error) {
+            console.error('通知失败:', error);
+            core.error(`🚨 OpenWrt内核同步失败！详情请查看运行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`);
+          }
 
   cleanup_self:
     name: Cleanup Self Workflow History
