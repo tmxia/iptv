@@ -75,8 +75,12 @@ jobs:
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
           # 检查内容是否有效
-          if [ $(grep -c '^\| \[' README_NEW.md) -ne $(jq 'length' version.txt) ]; then
-            echo "::error::生成的内容行数不匹配"
+          expected_lines=$(jq 'length' version.txt)
+          actual_lines=$(grep -c '^\| \[' README_NEW.md)
+          
+          if [ "$expected_lines" -ne "$actual_lines" ]; then
+            echo "::error::生成的内容行数不匹配 (预期: $expected_lines, 实际: $actual_lines)"
+            echo "==== DEBUG ===="
             cat README_NEW.md
             exit 1
           fi
@@ -104,7 +108,23 @@ jobs:
               echo "::warning::version.txt changed during update, regenerating README"
               
               # 重新生成README
-              "$GITHUB_WORKSPACE/${{ github.workflow }}/generate_readme.sh"
+              REPO="${{ github.repository }}"
+              BRANCH="${{ github.ref_name }}"
+              BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
+              
+              {
+                echo "# 应用版本列表"
+                echo ""
+                echo "最后更新: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+                echo ""
+                echo "| 文件名称 | 版本号 | 更新日期 |"
+                echo "|----------|--------|----------|"
+                
+                jq -r --arg base_url "$BASE_URL" '
+                  to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
+                  "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
+                ' version.txt
+              } > README.md
             fi
             
             # 添加并提交
@@ -130,10 +150,13 @@ jobs:
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
           # 简单验证README是否包含关键内容
-          if grep -q "应用版本列表" README.md; then
+          if grep -q "应用版本列表" README.md && \
+             grep -q "最后更新" README.md && \
+             grep -q "| 文件名称 | 版本号 | 更新日期 |" README.md; then
             echo "✅ README更新验证通过"
           else
             echo "::error::README更新失败"
+            cat README.md
             exit 1
           fi
 
@@ -154,24 +177,3 @@ jobs:
           retain_days: 1
           delete_workflow_pattern: "Real-time README Updater"
           repository: ${{ github.repository }}
-
-  # 生成README的辅助脚本
-  generate_readme.sh: |
-    #!/bin/bash
-    REPO="${{ github.repository }}"
-    BRANCH="${{ github.ref_name }}"
-    BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
-    
-    {
-      echo "# 应用版本列表"
-      echo ""
-      echo "最后更新: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-      echo ""
-      echo "| 文件名称 | 版本号 | 更新日期 |"
-      echo "|----------|--------|----------|"
-      
-      jq -r --arg base_url "$BASE_URL" '
-        to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
-        "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
-      ' version.txt
-    } > README.md
