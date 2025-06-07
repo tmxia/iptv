@@ -3,7 +3,7 @@ name: Real-time README Updater
 on:
   push:
     paths:
-      - 'version.txt'
+      - "version.txt"
   workflow_dispatch:
 
 permissions:
@@ -37,90 +37,88 @@ jobs:
           fi
           
           if [ $(jq -e 'length == 0' version.txt) = "true" ]; then
-            echo "::warning::Empty version.txt"
+            echo "::warning::Empty version.txt, skipping update"
             echo "skip_update=true" >> $GITHUB_OUTPUT
           else
             echo "skip_update=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Prepare README
+      - name: Prepare README structure
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 创建或修复README结构
+          # 创建或修复README基础结构（确保表头和标记存在）
           if [ ! -f README.md ]; then
             echo "# 应用版本列表" > README.md
             echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
             echo "|----------|--------|----------|" >> README.md
-            echo "<!-- VERSION_TABLE -->" >> README.md
-          fi
-          
-          # 确保表格结构存在
-          if ! grep -q "| 文件名称 | 版本号 | 更新日期 |" README.md; then
-            sed -i '1i <!-- VERSION_TABLE -->' README.md
-            sed -i '1i |----------|--------|----------|' README.md
-            sed -i '1i | 文件名称 | 版本号 | 更新日期 |' README.md
-          fi
-          
-          # 确保标记存在
-          if ! grep -q "<!-- VERSION_TABLE -->" README.md; then
-            echo "<!-- VERSION_TABLE -->" >> README.md
+            echo "<!-- VERSION_TABLE_START -->" >> README.md
+            echo "<!-- VERSION_TABLE_END -->" >> README.md
+          else
+            # 确保表头和标记存在（避免多次插入）
+            if ! grep -q "| 文件名称 | 版本号 | 更新日期 |" README.md; then
+              echo -e "\n| 文件名称 | 版本号 | 更新日期 |" >> README.md
+              echo "|----------|--------|----------|" >> README.md
+            fi
+            if ! grep -q "<!-- VERSION_TABLE_START -->" README.md; then
+              echo "<!-- VERSION_TABLE_START -->" >> README.md
+            fi
+            if ! grep -q "<!-- VERSION_TABLE_END -->" README.md; then
+              echo "<!-- VERSION_TABLE_END -->" >> README.md
+            fi
           fi
 
-      - name: Generate and update table
+      - name: Generate and update version table
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 设置基础URL
+          # 设置仓库基础URL（用于文件链接）
           REPO="${{ github.repository }}"
           BRANCH="${{ github.ref_name }}"
           BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
           
-          # 仅生成数据行（不包括表头）
+          # 从version.txt生成表格内容（按更新日期倒序排列）
           table_content=$(jq -r --arg base_url "$BASE_URL" '
-            to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
+            to_entries | 
+            sort_by(.value | split(",")[1] | strptime("%Y-%m-%d") | mktime) | reverse | 
+            .[] | 
             "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
           ' version.txt)
           
-          # 替换标记之间的内容
-          sed -i '/<!-- VERSION_TABLE -->/{
-            n   # 移动到标记的下一行
-            :a
-            n   # 读取下一行
-            /<!-- VERSION_TABLE -->/!ba   # 如果不是结束标记则循环
-            d   # 删除结束标记前的所有行
+          # 清除旧表格内容（保留首尾标记）
+          sed -i '/<!-- VERSION_TABLE_START -->/,/<!-- VERSION_TABLE_END -->/{
+            /<!-- VERSION_TABLE_START -->/!d; /<!-- VERSION_TABLE_END -->/d
           }' README.md
           
-          # 插入新内容和结束标记
-          sed -i '/<!-- VERSION_TABLE -->/a \\n'"$table_content" README.md
-          sed -i '/<!-- VERSION_TABLE -->/a <!-- VERSION_TABLE -->' README.md
-          
-          echo "Updated README.md"
+          # 插入新表格内容（注意转义特殊字符，避免sed报错）
+          escaped_table_content=$(echo "$table_content" | sed 's/[&/\]/\\&/g')
+          sed -i '/<!-- VERSION_TABLE_START -->/a '"$escaped_table_content"'' README.md
 
-      - name: 提交更改
+      - name: Commit and push changes
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
-          git pull origin ${{ github.ref_name }}
-          git add README.md
+          git pull origin ${{ github.ref_name }} --rebase  # 拉取最新代码避免冲突
           
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
+          # 仅当README有变化时提交
+          if git diff --quiet README.md; then
+            echo "No changes to README.md"
           else
+            git add README.md
             git commit -m "📚 自动更新版本表格 [skip ci]"
             git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
           fi
 
-      - name: Verify update
+      - name: Verify table update
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 验证表格行数是否匹配
+          # 验证表格行数与version.txt条目数一致
           expected_lines=$(jq 'length' version.txt)
           actual_lines=$(grep -c '| \[.*\]' README.md)
           
           if [ "$expected_lines" -eq "$actual_lines" ]; then
-            echo "README更新成功! 表格行数: $actual_lines"
+            echo "✅ README更新成功！表格行数匹配：$actual_lines"
           else
-            echo "::error::表格行数不匹配 (预期: $expected_lines, 实际: $actual_lines)"
+            echo "::error::表格行数不匹配（预期：$expected_lines，实际：$actual_lines）"
             exit 1
           fi
 
@@ -137,7 +135,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 2
-          retain_days: 1
+          keep_minimum_runs: 2  # 保留至少2次成功运行
+          retain_days: 7        # 保留7天内的记录（可选，与keep_minimum_runs取交集）
           delete_workflow_pattern: "Real-time README Updater"
           repository: ${{ github.repository }}
