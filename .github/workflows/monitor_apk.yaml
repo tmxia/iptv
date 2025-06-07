@@ -5,6 +5,7 @@ on:
     paths:
       - 'apk/**'       # 监控apk目录下的所有文件
       - 'kernels/**'   # 监控kernels目录下的所有文件
+      - 'version.txt'  # 新增版本文件监控
     branches: [ main ]
 
 jobs:
@@ -86,6 +87,8 @@ jobs:
                 return "App File"
             elif path.startswith('kernels/'):
                 return "Kernel File"
+            elif path == 'version.txt':
+                return "Version File"
             return "File"
         
         def get_file_icon(path):
@@ -94,12 +97,8 @@ jobs:
                 return "📱"
             elif path.endswith('.zip'):
                 return "📦"
-            elif path.endswith('.tar.gz'):
-                return "🗜️"
-            elif path.endswith('.exe'):
-                return "💻"
-            elif path.endswith('.dmg'):
-                return "🍎"
+            elif path.endswith('.txt'):
+                return "📝"
             return "📄"
         
         async def send_telegram_message(files):
@@ -230,12 +229,13 @@ jobs:
             print(f"当前提交: {head_commit.id}")
             
             # 获取父提交
-            parent_commit = head_commit.parents[0] if head_commit.parents else None
-            
-            if not parent_commit:
+            parent_commits = head_commit.parents
+            if not parent_commits:
                 print("⚠️ 初始提交 - 无前一版本")
                 return
             
+            # 使用第一个父提交进行比较
+            parent_commit = parent_commits[0]
             print(f"父提交: {parent_commit.id}")
             
             # 计算差异
@@ -251,27 +251,29 @@ jobs:
                 file_path = delta.new_file.path or delta.old_file.path
                 print(f"检测到变更: {file_path} [状态: {delta.status}]")
                 
-                # 只处理apk和kernels目录下的文件
-                if not (file_path.startswith('apk/') or file_path.startswith('kernels/')):
-                    continue
-                
-                # 获取文件名
-                filename = os.path.basename(file_path)
-                
-                # 获取更新时间 (转换为UTC时间)
-                commit_time = datetime.utcfromtimestamp(head_commit.commit_time).strftime('%Y-%m-%d %H:%M UTC')
-                
-                # 构建原始下载URL
-                encoded_path = quote(file_path)
-                raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{encoded_path}"
-                
-                changed_files.append({
-                    "path": file_path,
-                    "name": filename,
-                    "version": extract_version(filename),
-                    "date": commit_time,
-                    "url": raw_url
-                })
+                # 处理所有监控目录和文件
+                if (
+                    file_path.startswith('apk/') or 
+                    file_path.startswith('kernels/') or 
+                    file_path == 'version.txt'
+                ):
+                    # 获取文件名
+                    filename = os.path.basename(file_path)
+                    
+                    # 获取更新时间 (转换为UTC时间)
+                    commit_time = datetime.utcfromtimestamp(head_commit.commit_time).strftime('%Y-%m-%d %H:%M UTC')
+                    
+                    # 构建原始下载URL
+                    encoded_path = quote(file_path)
+                    raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{encoded_path}"
+                    
+                    changed_files.append({
+                        "path": file_path,
+                        "name": filename,
+                        "version": extract_version(filename),
+                        "date": commit_time,
+                        "url": raw_url
+                    })
             
             if not changed_files:
                 print("✅ 未检测到文件变更")
