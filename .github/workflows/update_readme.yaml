@@ -46,25 +46,21 @@ jobs:
       - name: Prepare README structure
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 统一使用双引号，确保标记名称正确（与 sed 正则完全一致）
+          # 定义固定标记（确保与 sed 正则完全一致）
           START_MARKER="<!-- VERSION_TABLE_START -->"
           END_MARKER="<!-- VERSION_TABLE_END -->"
           
-          if [ ! -f README.md ]; then
-            echo "# 应用版本列表" > README.md
-            echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
-            echo "|----------|--------|----------|" >> README.md
-            echo "$START_MARKER" >> README.md
-            echo "$END_MARKER" >> README.md
-          else
-            # 检查并补充缺失的标记（避免标记拼写错误）
-            if ! grep -q "$START_MARKER" README.md; then
-              echo "$START_MARKER" >> README.md
-            fi
-            if ! grep -q "$END_MARKER" README.md; then
-              echo "$END_MARKER" >> README.md
-            fi
-          fi
+          # 强制生成 README 基础结构和标记（无论是否存在，确保标记写入）
+          touch README.md  # 确保文件存在
+          echo "# 应用版本列表" >> README.md
+          echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
+          echo "|----------|--------|----------|" >> README.md
+          
+          # 清除旧标记（避免重复），重新写入新标记
+          sed -i "/$START_MARKER/d" README.md
+          sed -i "/$END_MARKER/d" README.md
+          echo "$START_MARKER" >> README.md
+          echo "$END_MARKER" >> README.md
 
       - name: Generate and update version table
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
@@ -73,7 +69,7 @@ jobs:
           BRANCH="${{ github.ref_name }}"
           BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
           
-          # 修正 jq 表达式：正确引用 $base_url 变量（核心修复：\($base_url + ...)）
+          # 生成表格内容（jq 表达式正确引用 $base_url 变量）
           table_content=$(jq -r --arg base_url "$BASE_URL" '
             to_entries | 
             sort_by(.value | split(",")[1] | strptime("%Y-%m-%d") | mktime) | reverse | 
@@ -81,16 +77,16 @@ jobs:
             "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
           ' version.txt)
           
-          # 转义 sed 敏感字符（|、&、/、换行符，双引号内单引号无需转义）
+          # 转义 sed 敏感字符（|、&、/、换行符）
           escaped_table_content=$(echo "$table_content" | sed 's/[&/|\n]/\\&/g')
           
-          # 清除旧表格内容（双引号包裹正则，避免单引号解析错误）
+          # 清除标记间旧内容（确保标记存在，正则地址非空）
           sed -i "/$START_MARKER/,/$END_MARKER/{
             /$START_MARKER/!d;
             /$END_MARKER/!d
           }" README.md
           
-          # 插入转义后的内容（双引号确保变量正确解析，无引号嵌套问题）
+          # 插入转义后的表格内容
           sed -i "/$START_MARKER/a $escaped_table_content" README.md
           
           echo "✅ 表格更新完成，共生成 $(echo "$table_content" | wc -l) 行"
@@ -100,7 +96,7 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
-          git pull origin ${{ github.ref_name }} --rebase  # 拉取最新代码避免冲突
+          git pull origin ${{ github.ref_name }} --rebase  # 避免分支冲突
           
           if git diff --quiet README.md; then
             echo "No changes to README.md"
@@ -137,6 +133,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 2  # 保留至少2次成功运行
-          retain_days: 7        # 保留7天内的记录（可选）
+          retain_days: 7        # 保留7天内的记录
           delete_workflow_pattern: "Real-time README Updater"
           repository: ${{ github.repository }}
