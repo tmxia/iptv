@@ -132,15 +132,31 @@ jobs:
       - name: Verify update
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 最终修复：只统计数据行
-          expected_lines=$(jq 'length' version.txt)
-          # 使用更精确的匹配规则：包含链接格式的行
-          actual_lines=$(grep -c '^\| \[.*\](' README.md)
+          # 直接检查每个条目是否存在于README中
+          missing_entries=0
+          total_entries=0
           
-          if [ "$expected_lines" -eq "$actual_lines" ]; then
-            echo "README更新成功! 表格行数: $actual_lines"
+          # 生成预期的条目内容
+          jq -r '
+            to_entries[] | 
+            "| [\(.key)]"
+          ' version.txt > expected_entries.txt
+          
+          # 检查README中是否包含每个条目
+          while IFS= read -r entry_pattern; do
+            ((total_entries++))
+            if ! grep -qF "$entry_pattern" README.md; then
+              echo "::error::找不到条目: $entry_pattern"
+              ((missing_entries++))
+            fi
+          done < expected_entries.txt
+          
+          rm expected_entries.txt
+          
+          if [ "$missing_entries" -eq 0 ]; then
+            echo "验证成功! 所有 $total_entries 个条目已正确显示"
           else
-            echo "::error::表格行数不匹配 (预期: $expected_lines, 实际: $actual_lines)"
+            echo "::error::$missing_entries/$total_entries 个条目缺失或格式不正确"
             exit 1
           fi
 
