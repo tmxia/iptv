@@ -21,12 +21,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}  # 添加token确保推送权限
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate version.txt
         id: validate-version
         run: |
-          # 验证文件存在和格式
           if [ ! -f version.txt ]; then
             echo "::error::version.txt not found"
             exit 1
@@ -50,11 +49,21 @@ jobs:
           # 创建或修复README结构
           if [ ! -f README.md ]; then
             echo "# 应用版本列表" > README.md
+            echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
+            echo "|----------|--------|----------|" >> README.md
             echo "<!-- VERSION_TABLE -->" >> README.md
           fi
           
-          if ! grep -q "<!-- VERSION_TABLE -->" README.md; then
+          # 确保表格结构存在
+          if ! grep -q "| 文件名称 | 版本号 | 更新日期 |" README.md; then
             sed -i '1i <!-- VERSION_TABLE -->' README.md
+            sed -i '1i |----------|--------|----------|' README.md
+            sed -i '1i | 文件名称 | 版本号 | 更新日期 |' README.md
+          fi
+          
+          # 确保标记存在
+          if ! grep -q "<!-- VERSION_TABLE -->" README.md; then
+            echo "<!-- VERSION_TABLE -->" >> README.md
           fi
 
       - name: Generate and update table
@@ -65,68 +74,53 @@ jobs:
           BRANCH="${{ github.ref_name }}"
           BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
           
-          # 生成带链接的表格内容
+          # 仅生成数据行（不包括表头）
           table_content=$(jq -r --arg base_url "$BASE_URL" '
             to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
             "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
           ' version.txt)
           
-          # 创建完整表格
-          full_table="| 文件名称 | 版本号 | 更新日期 |\n|----------|--------|----------|\n$table_content"
+          # 替换标记之间的内容
+          sed -i '/<!-- VERSION_TABLE -->/{
+            n   # 移动到标记的下一行
+            :a
+            n   # 读取下一行
+            /<!-- VERSION_TABLE -->/!ba   # 如果不是结束标记则循环
+            d   # 删除结束标记前的所有行
+          }' README.md
           
-          # 替换或插入表格
-          awk -v table="$full_table" '
-            BEGIN { found=0 }
-            /<!-- VERSION_TABLE -->/ {
-              if (!found) {
-                print table
-                found=1
-              }
-              next
-            }
-            { print }
-            END {
-              if (!found) {
-                print "<!-- VERSION_TABLE -->"
-                print table
-              }
-            }
-          ' README.md > README.tmp
+          # 插入新内容和结束标记
+          sed -i '/<!-- VERSION_TABLE -->/a \\n'"$table_content" README.md
+          sed -i '/<!-- VERSION_TABLE -->/a <!-- VERSION_TABLE -->' README.md
           
-          mv README.tmp README.md
           echo "Updated README.md"
 
       - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 配置Git用户
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
-          
-          # 拉取最新更改避免冲突
           git pull origin ${{ github.ref_name }}
-          
-          # 添加并提交更改
           git add README.md
           
-          # 检查是否有实际变更
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
             git commit -m "📚 自动更新版本表格 [skip ci]"
-            
-            # 使用token推送更改
             git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
           fi
 
       - name: Verify update
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 验证表格是否已更新
-          if grep -q "<!-- VERSION_TABLE -->" README.md; then
-            echo "README更新成功!"
+          # 验证表格行数是否匹配
+          expected_lines=$(jq 'length' version.txt)
+          actual_lines=$(grep -c '| \[.*\]' README.md)
+          
+          if [ "$expected_lines" -eq "$actual_lines" ]; then
+            echo "README更新成功! 表格行数: $actual_lines"
           else
-            echo "::error::README更新失败"
+            echo "::error::表格行数不匹配 (预期: $expected_lines, 实际: $actual_lines)"
             exit 1
           fi
 
