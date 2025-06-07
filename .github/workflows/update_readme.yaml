@@ -46,7 +46,7 @@ jobs:
       - name: Prepare README structure
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 统一用双引号包裹内容，避免单引号嵌套
+          # 创建或修复README基础结构（统一使用双引号，避免引号冲突）
           if [ ! -f README.md ]; then
             echo "# 应用版本列表" > README.md
             echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
@@ -54,8 +54,9 @@ jobs:
             echo "<!-- VERSION_TABLE_START -->" >> README.md
             echo "<!-- VERSION_TABLE_END -->" >> README.md
           else
+            # 确保表头和标记存在（避免多次插入）
             if ! grep -q "| 文件名称 | 版本号 | 更新日期 |" README.md; then
-              echo -e "\n| 文件名称 | 版本号 | 更新日期 |" >> README.md  # 双引号内安全使用单引号
+              echo -e "\n| 文件名称 | 版本号 | 更新日期 |" >> README.md
               echo "|----------|--------|----------|" >> README.md
             fi
             if ! grep -q "<!-- VERSION_TABLE_START -->" README.md; then
@@ -69,33 +70,28 @@ jobs:
       - name: Generate and update version table
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 调试：打印脚本内容，定位第 20 行
-          echo "-------------------------"
-          echo "当前脚本第 20 行附近内容："
-          sed -n '18,22p' "$0"  # 打印第 18-22 行（根据实际报错行调整）
-          echo "-------------------------"
-
           REPO="${{ github.repository }}"
           BRANCH="${{ github.ref_name }}"
           BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
           
-          # 用双引号包裹 jq 表达式，避免单引号冲突
-          table_content=$(jq -r --arg base_url "$BASE_URL" "
+          # 生成表格内容（jq 表达式用单引号包裹，正确拼接 URL）
+          table_content=$(jq -r --arg base_url "$BASE_URL" '
             to_entries | 
-            sort_by(.value | split(\",\")[1] | strptime(\"%Y-%m-%d\") | mktime) | reverse | 
+            sort_by(.value | split(",")[1] | strptime("%Y-%m-%d") | mktime) | reverse | 
             .[] | 
-            \"| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(\",\")[0]) | \(.value | split(\",\")[1]) |\"
-          " version.txt)
+            "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
+          ' version.txt)
           
-          # 转义 |、&、/、换行符（双引号内单引号无需转义）
+          # 转义 sed 敏感字符（|、&、/、换行符，双引号内单引号无需转义）
           escaped_table_content=$(echo "$table_content" | sed 's/[&/|\n]/\\&/g')
           
-          # sed 命令统一用双引号，避免单引号解析错误
+          # 清除旧表格内容（双引号包裹正则，避免单引号解析错误）
           sed -i "/<!-- VERSION_TABLE_START -->/,/<!-- VERSION_TABLE_END -->/{
             /<!-- VERSION_TABLE_START -->/!d;
             /<!-- VERSION_TABLE_END -->/!d
           }" README.md
           
+          # 插入转义后的内容（双引号确保变量正确解析）
           sed -i "/<!-- VERSION_TABLE_START -->/a $escaped_table_content" README.md
           
           echo "✅ 表格更新完成，共生成 $(echo "$table_content" | wc -l) 行"
@@ -105,7 +101,7 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
-          git pull origin ${{ github.ref_name }} --rebase
+          git pull origin ${{ github.ref_name }} --rebase  # 拉取最新代码避免冲突
           
           if git diff --quiet README.md; then
             echo "No changes to README.md"
@@ -141,7 +137,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 2
-          retain_days: 7
+          keep_minimum_runs: 2  # 保留至少2次成功运行
+          retain_days: 7        # 保留7天内的记录（可选）
           delete_workflow_pattern: "Real-time README Updater"
           repository: ${{ github.repository }}
