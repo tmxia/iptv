@@ -71,20 +71,20 @@ jobs:
         # 配置参数
         KERNEL_GROUPS = {
             "openwrt_flippy6.1": [
-                "dtb-rockchip-6.1.*-flippy.*.tar.gz",
-                "dtb-amlogic-6.1.*-flippy.*.tar.gz",
-                "boot-6.1.*-flippy.*.tar.gz",
-                "modules-6.1.*-flippy.*.tar.gz",
-                "header-6.1.*-flippy.*.tar.gz",
-                "dtb-allwinner-6.1.*-flippy.*.tar.gz"
+                "dtb-rockchip-6.1.*-flippy-93+*.tar.gz",
+                "dtb-amlogic-6.1.*-flippy-93+*.tar.gz",
+                "boot-6.1.*-flippy-93+*.tar.gz",
+                "modules-6.1.*-flippy-93+*.tar.gz",
+                "header-6.1.*-flippy-93+*.tar.gz",
+                "dtb-allwinner-6.1.*-flippy-93+*.tar.gz"
             ],
             "openwrt_flippy6.12": [
-                "dtb-amlogic-6.12.*-flippy.*.tar.gz",
-                "dtb-rockchip-6.12.*-flippy.*.tar.gz",
-                "boot-6.12.*-flippy.*.tar.gz",
-                "dtb-allwinner-6.12.*-flippy.*.tar.gz",
-                "header-6.12.*-flippy.*.tar.gz",
-                "modules-6.12.*-flippy.*.tar.gz"
+                "dtb-amlogic-6.12.*-flippy-93+*.tar.gz",
+                "dtb-rockchip-6.12.*-flippy-93+*.tar.gz",
+                "boot-6.12.*-flippy-93+*.tar.gz",
+                "dtb-allwinner-6.12.*-flippy-93+*.tar.gz",
+                "header-6.12.*-flippy-93+*.tar.gz",
+                "modules-6.12.*-flippy-93+*.tar.gz"
             ]
         }
         KERNEL_DIR = "kernels"
@@ -208,11 +208,10 @@ jobs:
             return None
         
         def extract_version_from_filename(filename):
-            """从文件名中提取版本号"""
-            match = re.search(r'(\d+\.\d+\.\d+)', filename)
-            if match:
-                return match.group(1)
-            return None
+            """从文件名中提取完整版本标识"""
+            # 提取完整的版本字符串 (e.g. 6.1.141-flippy-93+o)
+            match = re.search(r'(\d+\.\d+\.\d+-flippy-\d+\+[a-z]*)', filename)
+            return match.group(1) if match else None
         
         async def download_file(client, message, filename, download_path):
             total_size = message.document.size
@@ -283,17 +282,21 @@ jobs:
             # 存储找到的文件 {group: {version: {filename: message}}}
             found_groups = {group: {} for group in KERNEL_GROUPS.keys()}
             
-            # 获取频道中最新的100条消息
-            async for msg in client.iter_messages(entity, limit=100):
+            # 获取频道中最新的200条消息
+            async for msg in client.iter_messages(entity, limit=200):
                 if msg.media and hasattr(msg.media, "document"):
                     for attr in msg.media.document.attributes:
                         if isinstance(attr, DocumentAttributeFilename):
                             filename = attr.file_name
+                            log.info(f"检查文件: {filename}")
                             group = find_matching_group(filename)
                             if group:
                                 version = extract_version_from_filename(filename)
                                 if not version:
+                                    log.warning(f"无法从文件名提取版本: {filename}")
                                     continue
+                                
+                                log.info(f"匹配文件: {filename} -> 分组: {group} | 版本: {version}")
                                 
                                 if version not in found_groups[group]:
                                     found_groups[group][version] = {}
@@ -332,7 +335,18 @@ jobs:
                         date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
                         
                         # 检查是否需要更新：版本不同或日期更新
-                        if not current_version or version > current_version or date_utc8 > current_date:
+                        version_updated = False
+                        if not current_version:
+                            version_updated = True
+                            log.info(f"新内核组: {group} (首次添加)")
+                        elif version != current_version:
+                            version_updated = True
+                            log.info(f"发现新版本: {version} (当前: {current_version})")
+                        elif date_utc8 > current_date:
+                            version_updated = True
+                            log.info(f"相同版本但更新日期: {date_utc8} > {current_date}")
+                        
+                        if version_updated:
                             # 准备下载文件
                             files_to_download = [(f, msg) for f, msg in files.items()]
                             group_dir = os.path.join(WORK_DIR, f"group_{group}_{version}")
