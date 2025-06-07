@@ -1,10 +1,10 @@
-name: Real-time APK & Kernel Directory Monitor
+name: Real-time Directory Monitor
 
 on:
   push:
     paths:
-      - 'apk/**'
-      - 'kernels/**'  # 新增kernels目录监控
+      - 'apk/**'       # 监控apk目录下的所有文件
+      - 'kernels/**'   # 监控kernels目录下的所有文件
     branches: [ main ]
 
 jobs:
@@ -43,7 +43,7 @@ jobs:
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_SHA: ${{ github.sha }}
       run: |
-        cat << 'EOF' > apk_monitor.py
+        cat << 'EOF' > directory_monitor.py
         import os
         import re
         import pygit2
@@ -56,7 +56,7 @@ jobs:
         from telethon.sessions import StringSession
         from urllib.parse import quote
         
-        # 增强版版本号提取
+        # 增强版版本号提取 - 适用于所有文件类型
         def extract_version(filename):
             patterns = [
                 r'[vV]?(\d+\.\d+(?:\.\d+)?)(?:[-_](beta|alpha|rc|preview)\d*)?',  # v1.2.3
@@ -83,10 +83,10 @@ jobs:
         def get_file_type(path):
             """根据路径确定文件类型"""
             if path.startswith('apk/'):
-                return "📱 APK"
+                return "App File"
             elif path.startswith('kernels/'):
-                return "⚙️ Kernel"
-            return "📄 File"
+                return "Kernel File"
+            return "File"
         
         def get_file_icon(path):
             """获取文件类型图标"""
@@ -96,6 +96,10 @@ jobs:
                 return "📦"
             elif path.endswith('.tar.gz'):
                 return "🗜️"
+            elif path.endswith('.exe'):
+                return "💻"
+            elif path.endswith('.dmg'):
+                return "🍎"
             return "📄"
         
         async def send_telegram_message(files):
@@ -218,7 +222,7 @@ jobs:
                 return False
         
         def main():
-            print("🚀 开始实时监控文件变更...")
+            print("🚀 开始实时监控目录变更...")
             repo = pygit2.Repository('.')
             
             # 获取当前提交
@@ -303,4 +307,4 @@ jobs:
             main()
         EOF
         
-        python apk_monitor.py
+        python directory_monitor.py
