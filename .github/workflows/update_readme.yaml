@@ -17,122 +17,74 @@ jobs:
   update-readme:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout with lock
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-          # 使用文件锁确保独占访问
-          lock-timeout: 300
-
-      - name: Setup file locking
-        run: |
-          # 安装flock工具
-          sudo apt-get update
-          sudo apt-get install -y util-linux
-          
-          # 创建锁文件
-          touch .version-lock
 
       - name: Validate version.txt
         id: validate-version
         run: |
-          # 使用文件锁访问version.txt
-          flock .version-lock bash -c '
-            if [ ! -f version.txt ]; then
-              echo "::error::version.txt not found"
-              exit 1
-            fi
-            
-            if ! jq empty version.txt 2>/dev/null; then
-              echo "::error::Invalid JSON in version.txt"
-              exit 1
-            fi
-            
-            if [ $(jq -e "length == 0" version.txt) = "true" ]; then
-              echo "::warning::Empty version.txt"
-              echo "skip_update=true" >> $GITHUB_OUTPUT
-            else
-              echo "skip_update=false" >> $GITHUB_OUTPUT
-            fi
-          '
+          if [ ! -f version.txt ]; then
+            echo "::error::version.txt not found"
+            exit 1
+          fi
+          
+          if ! jq empty version.txt 2>/dev/null; then
+            echo "::error::Invalid JSON in version.txt"
+            exit 1
+          fi
+          
+          if [ $(jq -e 'length == 0' version.txt) = "true" ]; then
+            echo "::warning::Empty version.txt"
+            echo "skip_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_update=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Generate new README
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 使用文件锁访问version.txt
-          flock .version-lock bash -c '
-            REPO="${{ github.repository }}"
-            BRANCH="${{ github.ref_name }}"
-            BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
+          # 设置基础URL
+          REPO="${{ github.repository }}"
+          BRANCH="${{ github.ref_name }}"
+          BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
+          
+          # 生成全新的README内容
+          {
+            echo "# 应用版本列表"
+            echo ""
+            echo "最后更新: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo ""
+            echo "| 文件名称 | 版本号 | 更新日期 |"
+            echo "|----------|--------|----------|"
             
-            # 生成新的README内容
-            {
-              echo "# 应用版本列表"
-              echo ""
-              echo "最后更新: $(date -u \'+%Y-%m-%d %H:%M:%S UTC\')"
-              echo ""
-              echo "| 文件名称 | 版本号 | 更新日期 |"
-              echo "|----------|--------|----------|"
-              
-              jq -r --arg base_url "$BASE_URL" \'
-                to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
-                "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
-              \' version.txt
-            } > README.md
-            
-            echo "Generated new README.md"
-          '
+            # 按更新日期降序排列
+            jq -r --arg base_url "$BASE_URL" '
+              to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
+              "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
+            ' version.txt
+          } > README.md
+          
+          echo "Generated new README.md"
 
-      - name: Transactional commit
+      - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 使用文件锁确保事务性提交
-          flock .version-lock bash -c '
-            git config user.name "github-actions"
-            git config user.email "actions@users.noreply.github.com"
-            
-            # 拉取最新更改
-            git pull origin ${{ github.ref_name }} --rebase
-            
-            # 检查version.txt是否变化
-            if git diff --name-only origin/${{ github.ref_name }} | grep -q version.txt; then
-              echo "::warning::version.txt changed during update, regenerating README"
-              
-              # 重新生成README
-              REPO="${{ github.repository }}"
-              BRANCH="${{ github.ref_name }}"
-              BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
-              
-              {
-                echo "# 应用版本列表"
-                echo ""
-                echo "最后更新: $(date -u \'+%Y-%m-%d %H:%M:%S UTC\')"
-                echo ""
-                echo "| 文件名称 | 版本号 | 更新日期 |"
-                echo "|----------|--------|----------|"
-                
-                jq -r --arg base_url "$BASE_URL" \'
-                  to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
-                  "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
-                \' version.txt
-              } > README.md
-            fi
-            
-            # 添加并提交
-            git add README.md
-            
-            if git diff --cached --quiet; then
-              echo "No changes to commit"
-            else
-              git commit -m "📚 自动更新版本表格 [skip ci]"
-              
-              # 使用强制推送确保提交成功
-              git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }} --force-with-lease
-            fi
-          '
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git pull origin ${{ github.ref_name }}
+          git add README.md
+          
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "📚 自动更新版本表格 [skip ci]"
+            git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
+          fi
 
-      - name: Verify update
+      - name: Simple verification
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
           # 简单验证README是否包含关键内容
@@ -141,6 +93,7 @@ jobs:
             echo "✅ README更新成功"
           else
             echo "::error::README更新失败"
+            cat README.md
             exit 1
           fi
 
