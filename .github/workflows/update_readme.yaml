@@ -74,7 +74,7 @@ jobs:
           BRANCH="${{ github.ref_name }}"
           BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
           
-          # 生成表格内容（按更新日期倒序排列，带文件链接）
+          # 生成表格内容（按日期倒序，带链接）
           table_content=$(jq -r --arg base_url "$BASE_URL" '
             to_entries | 
             sort_by(.value | split(",")[1] | strptime("%Y-%m-%d") | mktime) | reverse | 
@@ -82,26 +82,35 @@ jobs:
             "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
           ' version.txt)
           
-          # **关键修复：转义 sed 敏感字符（|、&、/）**
-          escaped_table_content=$(echo "$table_content" | sed 's/[&/|]/\\&/g')  # 转义 |、&、/
+          # 深度转义所有危险字符（|、&、/、"、'、\n）
+          escaped_table_content=$(echo "$table_content" | sed 's/[&/|"\'\'\n]/\\&/g')
           
-          # 清除旧表格内容（保留首尾标记，使用区间匹配更安全）
+          # 调试：打印转义后的内容和 sed 命令
+          echo "-------------------------"
+          echo "原始表格内容（行数）：$(echo "$table_content" | wc -l)"
+          echo "转义后表格内容："
+          echo "$escaped_table_content"
+          echo "执行的 sed 命令："
+          echo "sed -i '/<!-- VERSION_TABLE_START -->/a $escaped_table_content' README.md"
+          echo "-------------------------"
+          
+          # 清除旧表格内容（严格匹配标记）
           sed -i '/<!-- VERSION_TABLE_START -->/,/<!-- VERSION_TABLE_END -->/{
-            /<!-- VERSION_TABLE_START -->/!d;  # 不删除开始标记
-            /<!-- VERSION_TABLE_END -->/!d    # 不删除结束标记
+            /<!-- VERSION_TABLE_START -->/!d;
+            /<!-- VERSION_TABLE_END -->/!d
           }' README.md
           
-          # 插入转义后的表格内容（注意换行符处理）
+          # 插入转义后的内容（确保命令结构完整）
           sed -i '/<!-- VERSION_TABLE_START -->/a '"$escaped_table_content"'' README.md
           
-          echo "✅ 生成表格内容：$(echo "$table_content" | wc -l) 行"
+          echo "✅ 表格更新完成，共生成 $(echo "$table_content" | wc -l) 行"
 
       - name: Commit and push changes
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
-          git pull origin ${{ github.ref_name }} --rebase  # 拉取最新代码避免冲突
+          git pull origin ${{ github.ref_name }} --rebase  # 避免冲突
           
           if git diff --quiet README.md; then
             echo "No changes to README.md"
@@ -137,7 +146,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 2  # 保留至少2次成功运行
-          retain_days: 7        # 保留7天内的记录（可选）
+          keep_minimum_runs: 2
+          retain_days: 7
           delete_workflow_pattern: "Real-time README Updater"
           repository: ${{ github.repository }}
