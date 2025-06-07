@@ -70,12 +70,11 @@ jobs:
       - name: Generate and update version table
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 设置仓库基础URL（用于文件链接）
           REPO="${{ github.repository }}"
           BRANCH="${{ github.ref_name }}"
           BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
           
-          # 从version.txt生成表格内容（按更新日期倒序排列）
+          # 生成表格内容（按更新日期倒序排列，带文件链接）
           table_content=$(jq -r --arg base_url "$BASE_URL" '
             to_entries | 
             sort_by(.value | split(",")[1] | strptime("%Y-%m-%d") | mktime) | reverse | 
@@ -83,14 +82,19 @@ jobs:
             "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
           ' version.txt)
           
-          # 清除旧表格内容（保留首尾标记）
+          # **关键修复：转义 sed 敏感字符（|、&、/）**
+          escaped_table_content=$(echo "$table_content" | sed 's/[&/|]/\\&/g')  # 转义 |、&、/
+          
+          # 清除旧表格内容（保留首尾标记，使用区间匹配更安全）
           sed -i '/<!-- VERSION_TABLE_START -->/,/<!-- VERSION_TABLE_END -->/{
-            /<!-- VERSION_TABLE_START -->/!d; /<!-- VERSION_TABLE_END -->/d
+            /<!-- VERSION_TABLE_START -->/!d;  # 不删除开始标记
+            /<!-- VERSION_TABLE_END -->/!d    # 不删除结束标记
           }' README.md
           
-          # 插入新表格内容（注意转义特殊字符，避免sed报错）
-          escaped_table_content=$(echo "$table_content" | sed 's/[&/\]/\\&/g')
+          # 插入转义后的表格内容（注意换行符处理）
           sed -i '/<!-- VERSION_TABLE_START -->/a '"$escaped_table_content"'' README.md
+          
+          echo "✅ 生成表格内容：$(echo "$table_content" | wc -l) 行"
 
       - name: Commit and push changes
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
@@ -99,7 +103,6 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git pull origin ${{ github.ref_name }} --rebase  # 拉取最新代码避免冲突
           
-          # 仅当README有变化时提交
           if git diff --quiet README.md; then
             echo "No changes to README.md"
           else
@@ -111,7 +114,6 @@ jobs:
       - name: Verify table update
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 验证表格行数与version.txt条目数一致
           expected_lines=$(jq 'length' version.txt)
           actual_lines=$(grep -c '| \[.*\]' README.md)
           
@@ -136,6 +138,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 2  # 保留至少2次成功运行
-          retain_days: 7        # 保留7天内的记录（可选，与keep_minimum_runs取交集）
+          retain_days: 7        # 保留7天内的记录（可选）
           delete_workflow_pattern: "Real-time README Updater"
           repository: ${{ github.repository }}
