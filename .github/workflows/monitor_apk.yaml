@@ -5,7 +5,6 @@ on:
     paths:
       - 'apk/**'       # 监控apk目录下的所有文件
       - 'kernels/**'   # 监控kernels目录下的所有文件
-      - 'version.txt'  # 新增版本文件监控
     branches: [ main ]
 
 jobs:
@@ -56,6 +55,7 @@ jobs:
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         from urllib.parse import quote
+        import json
         
         # 增强版版本号提取 - 适用于所有文件类型
         def extract_version(filename):
@@ -87,8 +87,6 @@ jobs:
                 return "App File"
             elif path.startswith('kernels/'):
                 return "Kernel File"
-            elif path == 'version.txt':
-                return "Version File"
             return "File"
         
         def get_file_icon(path):
@@ -97,9 +95,20 @@ jobs:
                 return "📱"
             elif path.endswith('.zip'):
                 return "📦"
-            elif path.endswith('.txt'):
-                return "📝"
+            elif path.endswith('.tar.gz'):
+                return "🗜️"
             return "📄"
+        
+        def get_current_versions():
+            """从version.txt获取当前版本信息（仅用于增强监控）"""
+            version_path = "version.txt"
+            if os.path.exists(version_path):
+                try:
+                    with open(version_path, "r") as f:
+                        return json.load(f)
+                except:
+                    return {}
+            return {}
         
         async def send_telegram_message(files):
             """使用Telethon发送消息"""
@@ -242,6 +251,10 @@ jobs:
             diff = repo.diff(parent_commit, head_commit)
             changed_files = []
             
+            # 获取当前版本信息（用于增强监控）
+            current_versions = get_current_versions()
+            print(f"当前版本信息: {json.dumps(current_versions, indent=2)}")
+            
             # 解析差异
             for delta in diff.deltas:
                 # 只处理新增和修改的文件，忽略删除的文件
@@ -251,29 +264,33 @@ jobs:
                 file_path = delta.new_file.path or delta.old_file.path
                 print(f"检测到变更: {file_path} [状态: {delta.status}]")
                 
-                # 处理所有监控目录和文件
-                if (
-                    file_path.startswith('apk/') or 
-                    file_path.startswith('kernels/') or 
-                    file_path == 'version.txt'
-                ):
-                    # 获取文件名
-                    filename = os.path.basename(file_path)
-                    
-                    # 获取更新时间 (转换为UTC时间)
-                    commit_time = datetime.utcfromtimestamp(head_commit.commit_time).strftime('%Y-%m-%d %H:%M UTC')
-                    
-                    # 构建原始下载URL
-                    encoded_path = quote(file_path)
-                    raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{encoded_path}"
-                    
-                    changed_files.append({
-                        "path": file_path,
-                        "name": filename,
-                        "version": extract_version(filename),
-                        "date": commit_time,
-                        "url": raw_url
-                    })
+                # 只处理apk和kernels目录下的文件
+                if not (file_path.startswith('apk/') or file_path.startswith('kernels/')):
+                    continue
+                
+                # 获取文件名
+                filename = os.path.basename(file_path)
+                
+                # 获取更新时间 (转换为UTC时间)
+                commit_time = datetime.utcfromtimestamp(head_commit.commit_time).strftime('%Y-%m-%d %H:%M UTC')
+                
+                # 构建原始下载URL
+                encoded_path = quote(file_path)
+                raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{encoded_path}"
+                
+                # 检查版本信息（增强监控）
+                version_info = ""
+                if filename in current_versions:
+                    version_info = f" (版本文件: {current_versions[filename]})"
+                
+                changed_files.append({
+                    "path": file_path,
+                    "name": filename,
+                    "version": extract_version(filename),
+                    "date": commit_time,
+                    "url": raw_url,
+                    "version_info": version_info
+                })
             
             if not changed_files:
                 print("✅ 未检测到文件变更")
@@ -281,7 +298,7 @@ jobs:
             
             print(f"📦 检测到 {len(changed_files)} 个文件变更:")
             for file in changed_files:
-                print(f"  - {file['path']} (v{file['version']}, {file['date']})")
+                print(f"  - {file['path']} (v{file['version']}, {file['date']}){file['version_info']}")
             
             # 发送到Telegram
             loop = asyncio.get_event_loop()
