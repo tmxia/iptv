@@ -354,7 +354,7 @@ jobs:
             
             # 验证环境变量
             required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GITHUB_TOKEN']
-            missing = [var for var in required if not os.environ.get(var)]
+            missing = [var for var in required if not os.environ.get(var)}
             if missing:
                 log.error(f"错误: 缺少环境变量: {', '.join(missing)}")
                 return 1
@@ -398,7 +398,7 @@ jobs:
                 update_versions(current_versions)
                 
                 # 提交更改
-                commit_msg = f"更新OpenWrt内核: {', '.join([f'{group}@{data["version"]}' for group, data in new_kernels.items()])}"
+                commit_msg = f"更新OpenWrt内核: {', '.join([f'{group}@{data['version']}' for group, data in new_kernels.items()])}"
                 if commit_and_push(commit_msg):
                     log.info(f"同步成功! 更新了 {len(new_kernels)} 个内核组")
                 else:
@@ -435,13 +435,45 @@ jobs:
       uses: actions/github-script@v6
       with:
         script: |
-          const message = `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: message
-          })
+          try {
+            // 尝试获取仓库的 open issues
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+            
+            // 查找标题为"工作流通知"的 issue
+            const notificationIssue = issues.data.find(issue => 
+              issue.title.includes('工作流通知')
+            );
+            
+            let issueNumber;
+            if (notificationIssue) {
+              issueNumber = notificationIssue.number;
+            } else {
+              // 如果没有找到，创建新的 issue
+              const newIssue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '工作流通知',
+                body: '此 issue 用于接收工作流失败通知'
+              });
+              issueNumber = newIssue.data.number;
+            }
+            
+            const message = `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+            await github.rest.issues.createComment({
+              issue_number: issueNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+          } catch (error) {
+            console.error('通知失败:', error);
+            // 回退到简单的日志输出
+            core.error(`🚨 OpenWrt内核同步失败！详情请查看运行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`);
+          }
 
   cleanup_self:
     name: Cleanup Self Workflow History
