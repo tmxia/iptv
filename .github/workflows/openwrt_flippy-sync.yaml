@@ -215,15 +215,7 @@ jobs:
         
         async def download_file(client, message, filename, download_path):
             total_size = message.document.size
-            
-            log.info(f"开始下载: {filename} ({format_size(total_size)})")
-            start_time = time.time()
-            
             await client.download_media(message, file=download_path)
-            
-            elapsed = time.time() - start_time
-            avg_speed = total_size / elapsed if elapsed > 0 else 0
-            log.info(f"下载完成: {filename} - 耗时: {elapsed:.1f}秒, 平均速度: {format_size(avg_speed)}/s")
             return True
         
         def get_latest_date(messages):
@@ -244,7 +236,7 @@ jobs:
             utc8 = pytz.timezone('Asia/Shanghai')
             date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
             
-            log.info(f"发现完整的内核组: {group_name} 版本 {version} 发布日期 {date_utc8}")
+            log.info(f"开始下载内核组: {group_name} 版本 {version} (共 {len(files_to_download)} 个文件)")
             os.makedirs(group_dir, exist_ok=True)
             
             # 下载组内所有文件
@@ -252,19 +244,35 @@ jobs:
                 download_path = os.path.join(group_dir, filename)
                 await download_file(client, msg, filename, download_path)
             
+            log.info(f"下载完成: {group_name} 版本 {version}")
+            
             # 创建ZIP文件
             zip_filename = f"{group_name}_{version}.zip"
             zip_path = os.path.join(WORK_DIR, zip_filename)
+            log.info(f"创建ZIP文件: {zip_filename}")
             with zipfile.ZipFile(zip_path, 'w') as zipf:
                 for root, _, files in os.walk(group_dir):
                     for file in files:
                         file_path = os.path.join(root, file)
                         zipf.write(file_path, os.path.basename(file_path))
             
-            log.info(f"创建ZIP文件: {zip_filename}")
+            log.info(f"ZIP文件创建完成: {zip_filename}")
             return zip_path, date_utc8
         
-        async def find_new_kernels(client):
+        def check_local_kernel_files(current_versions):
+            """检查本地内核文件是否存在"""
+            for group, version_data in current_versions.items():
+                if ',' in version_data:
+                    version = version_data.split(',')[0]
+                    zip_file = f"{group}_{version}.zip"
+                    zip_path = os.path.join(GIT_DIR, KERNEL_DIR, zip_file)
+                    
+                    if not os.path.exists(zip_path):
+                        log.warning(f"本地内核文件缺失: {zip_file}")
+                        return False
+            return True
+        
+        async def find_new_kernels(client, current_versions):
             log.info("连接Telegram...")
             await client.connect()
             if not await client.is_user_authorized():
@@ -272,31 +280,25 @@ jobs:
                 return None
             
             channel = os.environ.get('TELEGRAM_CHANNEL', 'openwrt_flippy')
-            log.info(f"扫描频道: {channel}")
+            log.info(f"扫描频道: {channel} (最近50条消息)")
             entity = await client.get_entity(channel)
             
-            # 获取当前版本信息
-            current_versions, version_file_exists = get_current_versions()
             updates = {}
             
             # 存储找到的文件 {group: {version: {filename: message}}}
             found_groups = {group: {} for group in KERNEL_GROUPS.keys()}
             
-            # 获取频道中最新的200条消息
-            async for msg in client.iter_messages(entity, limit=200):
+            # 获取频道中最新的50条消息
+            async for msg in client.iter_messages(entity, limit=50):
                 if msg.media and hasattr(msg.media, "document"):
                     for attr in msg.media.document.attributes:
                         if isinstance(attr, DocumentAttributeFilename):
                             filename = attr.file_name
-                            log.info(f"检查文件: {filename}")
                             group = find_matching_group(filename)
                             if group:
                                 version = extract_version_from_filename(filename)
                                 if not version:
-                                    log.warning(f"无法从文件名提取版本: {filename}")
                                     continue
-                                
-                                log.info(f"匹配文件: {filename} -> 分组: {group} | 版本: {version}")
                                 
                                 if version not in found_groups[group]:
                                     found_groups[group][version] = {}
@@ -305,7 +307,13 @@ jobs:
             
             # 检查每个组的完整性
             for group, versions in found_groups.items():
-                for version, files in versions.items():
+                # 按版本号排序（从新到旧）
+                if not versions:
+                    continue
+                    
+                sorted_versions = sorted(versions.keys(), reverse=True)
+                for version in sorted_versions:
+                    files = versions[version]
                     # 检查是否包含所有必需的文件
                     required_files = set(KERNEL_GROUPS[group])
                     existing_files = set(files.keys())
@@ -315,11 +323,10 @@ jobs:
                     for pattern in required_files:
                         if not any(pattern_match(f, pattern) for f in existing_files):
                             group_complete = False
-                            log.info(f"组 {group} 版本 {version} 缺少匹配模式 {pattern} 的文件")
                             break
                     
                     if group_complete:
-                        log.info(f"组 {group} 版本 {version} 完整")
+                        log.info(f"发现完整内核组: {group} 版本 {version}")
                         
                         # 检查当前版本信息
                         current_value = current_versions.get(group, "")
@@ -334,7 +341,7 @@ jobs:
                         utc8 = pytz.timezone('Asia/Shanghai')
                         date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
                         
-                        # 检查是否需要更新：版本不同或日期更新
+                        # 检查是否需要更新
                         version_updated = False
                         if not current_version:
                             version_updated = True
@@ -350,7 +357,6 @@ jobs:
                             # 准备下载文件
                             files_to_download = [(f, msg) for f, msg in files.items()]
                             group_dir = os.path.join(WORK_DIR, f"group_{group}_{version}")
-                            os.makedirs(group_dir, exist_ok=True)
                             
                             zip_path, zip_date = await process_group(client, group, version, files_to_download, group_dir)
                             updates[group] = {
@@ -358,6 +364,9 @@ jobs:
                                 "date_iso": zip_date,
                                 "zip_path": zip_path
                             }
+                        
+                        # 只处理最新版本，跳过旧版本
+                        break
             
             return updates if updates else None
         
@@ -376,6 +385,17 @@ jobs:
             if not setup_git():
                 return 2
             
+            # 1. 获取当前版本信息
+            current_versions, version_file_exists = get_current_versions()
+            log.info(f"当前版本信息: {json.dumps(current_versions, indent=2)}")
+            
+            # 2. 检查本地内核文件是否存在
+            if version_file_exists and current_versions:
+                local_files_ok = check_local_kernel_files(current_versions)
+                if not local_files_ok:
+                    log.error("错误: 本地内核文件缺失，请手动修复")
+                    return 5
+            
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
                 int(os.environ['TELEGRAM_API_ID']),
@@ -384,17 +404,17 @@ jobs:
             
             try:
                 with client:
-                    new_kernels = client.loop.run_until_complete(find_new_kernels(client))
+                    # 3. 连接Telegram查找新内核
+                    new_kernels = client.loop.run_until_complete(
+                        find_new_kernels(client, current_versions)
             except Exception as e:
                 log.error(f"Telegram错误: {str(e)}")
                 return 3
             
-            # 获取当前版本信息
-            current_versions, _ = get_current_versions()
             updated = False
             
             if new_kernels:
-                # 处理新内核
+                # 4. 处理新内核
                 target_dir = os.path.join(GIT_DIR, KERNEL_DIR)
                 os.makedirs(target_dir, exist_ok=True)
                 
@@ -411,7 +431,7 @@ jobs:
                 # 更新版本文件
                 update_versions(current_versions)
                 
-                # 修复提交信息语法错误
+                # 生成提交信息
                 group_versions = []
                 for group, data in new_kernels.items():
                     group_versions.append(f"{group}@{data['version']}")
