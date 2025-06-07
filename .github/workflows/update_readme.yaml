@@ -132,32 +132,58 @@ jobs:
       - name: Verify update
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 直接检查每个条目是否存在于README中
-          missing_entries=0
-          total_entries=0
+          # 增强验证：详细调试输出
+          echo "===== 开始验证 README 更新 ====="
           
-          # 生成预期的条目内容
-          jq -r '
-            to_entries[] | 
-            "| [\(.key)]"
-          ' version.txt > expected_entries.txt
+          # 1. 获取版本文件中的条目
+          jq -r 'keys[]' version.txt > version_keys.txt
+          echo "版本文件中的APK文件:"
+          cat version_keys.txt
           
-          # 检查README中是否包含每个条目
-          while IFS= read -r entry_pattern; do
-            ((total_entries++))
-            if ! grep -qF "$entry_pattern" README.md; then
-              echo "::error::找不到条目: $entry_pattern"
-              ((missing_entries++))
+          # 2. 提取README中的文件名
+          grep -oP '(?<=\[)[^\]]+(?=\]\()' README.md > readme_files.txt
+          echo "README中找到的文件名:"
+          cat readme_files.txt
+          
+          # 3. 检查每个版本条目是否在README中
+          missing_count=0
+          total_count=0
+          
+          while IFS= read -r apk_file; do
+            ((total_count++))
+            if grep -qFx "$apk_file" readme_files.txt; then
+              echo "✅ $apk_file 存在于README中"
+            else
+              echo "::error::❌ $apk_file 在README中缺失"
+              ((missing_count++))
             fi
-          done < expected_entries.txt
+          done < version_keys.txt
           
-          rm expected_entries.txt
+          # 4. 检查README中是否有额外条目
+          extra_count=0
+          while IFS= read -r readme_file; do
+            if ! grep -qFx "$readme_file" version_keys.txt; then
+              echo "::warning::⚠️ $readme_file 在README中存在但不在version.txt中"
+              ((extra_count++))
+            fi
+          done < readme_files.txt
           
-          if [ "$missing_entries" -eq 0 ]; then
-            echo "验证成功! 所有 $total_entries 个条目已正确显示"
-          else
-            echo "::error::$missing_entries/$total_entries 个条目缺失或格式不正确"
+          # 5. 清理临时文件
+          rm version_keys.txt readme_files.txt
+          
+          # 6. 报告结果
+          echo "===== 验证结果 ====="
+          echo "总条目数: $total_count"
+          echo "缺失条目: $missing_count"
+          echo "额外条目: $extra_count"
+          
+          if [ "$missing_count" -gt 0 ]; then
+            echo "::error::验证失败: $missing_count 个条目缺失"
             exit 1
+          elif [ "$extra_count" -gt 0 ]; then
+            echo "::warning::警告: $extra_count 个额外条目存在"
+          else
+            echo "✅ 验证成功! 所有 $total_count 个条目匹配"
           fi
 
   cleanup_self:
