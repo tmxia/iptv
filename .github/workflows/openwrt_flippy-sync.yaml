@@ -6,7 +6,8 @@ concurrency:
 
 on:
   schedule:
-    - cron: '0 */3 * * *'  # 每3小时运行一次
+    - cron: '0 18 * * 1' # 周一凌晨2点（北京时间）  
+    - cron: '0 11 * * 1' # 周一下午7点（北京时间）
   workflow_dispatch:
 
 permissions:
