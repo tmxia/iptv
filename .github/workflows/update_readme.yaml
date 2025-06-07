@@ -46,7 +46,6 @@ jobs:
       - name: Prepare README
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 创建或修复README结构
           if [ ! -f README.md ]; then
             echo "# 应用版本列表" > README.md
             echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
@@ -54,7 +53,6 @@ jobs:
             echo "<!-- VERSION_TABLE -->" >> README.md
           fi
           
-          # 确保标记存在
           if ! grep -q "<!-- VERSION_TABLE -->" README.md; then
             echo "<!-- VERSION_TABLE -->" >> README.md
           fi
@@ -62,34 +60,28 @@ jobs:
       - name: Generate and update table
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 设置基础URL
           REPO="${{ github.repository }}"
           BRANCH="${{ github.ref_name }}"
           BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
           
-          # 生成带链接的表格内容
           jq -r --arg base_url "$BASE_URL" '
             to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
             "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
           ' version.txt > table_content.txt
           
-          # 创建临时README
           awk '
             BEGIN { found = 0; printed = 0 }
             /<!-- VERSION_TABLE -->/ {
               if (!found) {
                 found = 1
                 print
-                # 打印表头
                 print "| 文件名称 | 版本号 | 更新日期 |"
                 print "|----------|--------|----------|"
-                # 插入表格内容
                 while (getline line < "table_content.txt") {
                   print line
                 }
                 close("table_content.txt")
                 printed = 1
-                # 跳过直到结束标记
                 while (getline) {
                   if (/<!-- VERSION_TABLE -->/) {
                     print
@@ -104,7 +96,6 @@ jobs:
             { print }
             END {
               if (!found) {
-                # 如果没找到标记，添加到文件末尾
                 print "<!-- VERSION_TABLE -->"
                 print "| 文件名称 | 版本号 | 更新日期 |"
                 print "|----------|--------|----------|"
@@ -114,7 +105,6 @@ jobs:
                 close("table_content.txt")
                 print "<!-- VERSION_TABLE -->"
               } else if (!printed) {
-                # 如果找到开始标记但没结束标记
                 print "<!-- VERSION_TABLE -->"
               }
             }
@@ -142,9 +132,9 @@ jobs:
       - name: Verify update
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 验证表格行数是否匹配
+          # 修复：统计时排除表头行
           expected_lines=$(jq 'length' version.txt)
-          actual_lines=$(awk '/<!-- VERSION_TABLE -->/{flag=1;next} flag && /<!-- VERSION_TABLE -->/{flag=0} flag && /^|/' README.md | wc -l)
+          actual_lines=$(awk '/<!-- VERSION_TABLE -->/{flag=1;next} flag && /<!-- VERSION_TABLE -->/{flag=0} flag && /^\| /' README.md | wc -l)
           
           if [ "$expected_lines" -eq "$actual_lines" ]; then
             echo "README更新成功! 表格行数: $actual_lines"
