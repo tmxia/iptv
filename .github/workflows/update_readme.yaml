@@ -46,21 +46,29 @@ jobs:
       - name: Prepare README structure
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 定义固定标记（确保与 sed 正则完全一致）
+          # 定义固定标记（确保与 sed 正则完全一致，无拼写错误）
           START_MARKER="<!-- VERSION_TABLE_START -->"
           END_MARKER="<!-- VERSION_TABLE_END -->"
           
+          # 打印标记变量（调试用，确认非空）
+          echo "-------------------------"
+          echo "START_MARKER: $START_MARKER"
+          echo "END_MARKER: $END_MARKER"
+          echo "-------------------------"
+          
           # 强制生成 README 基础结构和标记（无论是否存在，确保标记写入）
           touch README.md  # 确保文件存在
-          echo "# 应用版本列表" >> README.md
+          echo "# 应用版本列表" > README.md  # 覆盖写入，避免旧内容干扰
           echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
           echo "|----------|--------|----------|" >> README.md
+          echo "$START_MARKER" >> README.md  # 强制写入标记
+          echo "$END_MARKER" >> README.md    # 强制写入标记
           
-          # 清除旧标记（避免重复），重新写入新标记
-          sed -i "/$START_MARKER/d" README.md
-          sed -i "/$END_MARKER/d" README.md
-          echo "$START_MARKER" >> README.md
-          echo "$END_MARKER" >> README.md
+          # 验证标记是否写入（调试用，打印 README 内容）
+          echo "-------------------------"
+          echo "README 初始内容："
+          cat README.md
+          echo "-------------------------"
 
       - name: Generate and update version table
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
@@ -79,6 +87,12 @@ jobs:
           
           # 转义 sed 敏感字符（|、&、/、换行符）
           escaped_table_content=$(echo "$table_content" | sed 's/[&/|\n]/\\&/g')
+          
+          # 打印 sed 命令（关键调试点，确认正则地址非空）
+          echo "-------------------------"
+          echo "执行的 sed 命令："
+          echo "sed -i \"/$START_MARKER/,/$END_MARKER/{ /$START_MARKER/!d; /$END_MARKER/!d }\" README.md"
+          echo "-------------------------"
           
           # 清除标记间旧内容（确保标记存在，正则地址非空）
           sed -i "/$START_MARKER/,/$END_MARKER/{
