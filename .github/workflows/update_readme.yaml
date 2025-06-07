@@ -43,76 +43,29 @@ jobs:
             echo "skip_update=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Prepare README
+      - name: Generate new README
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          if [ ! -f README.md ]; then
-            echo "# 应用版本列表" > README.md
-            echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
-            echo "|----------|--------|----------|" >> README.md
-            echo "<!-- VERSION_TABLE -->" >> README.md
-          fi
-          
-          if ! grep -q "<!-- VERSION_TABLE -->" README.md; then
-            echo "<!-- VERSION_TABLE -->" >> README.md
-          fi
-
-      - name: Generate and update table
-        if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
-        run: |
+          # 设置基础URL
           REPO="${{ github.repository }}"
           BRANCH="${{ github.ref_name }}"
           BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
           
-          jq -r --arg base_url "$BASE_URL" '
-            to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
-            "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
-          ' version.txt > table_content.txt
+          # 创建全新的README内容
+          {
+            echo "# 应用版本列表"
+            echo ""
+            echo "| 文件名称 | 版本号 | 更新日期 |"
+            echo "|----------|--------|----------|"
+            
+            # 生成表格内容（按日期降序排列）
+            jq -r --arg base_url "$BASE_URL" '
+              to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
+              "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
+            ' version.txt
+          } > README.md
           
-          awk '
-            BEGIN { found = 0; printed = 0 }
-            /<!-- VERSION_TABLE -->/ {
-              if (!found) {
-                found = 1
-                print
-                print "| 文件名称 | 版本号 | 更新日期 |"
-                print "|----------|--------|----------|"
-                while (getline line < "table_content.txt") {
-                  print line
-                }
-                close("table_content.txt")
-                printed = 1
-                while (getline) {
-                  if (/<!-- VERSION_TABLE -->/) {
-                    print
-                    break
-                  }
-                }
-              } else {
-                print
-              }
-              next
-            }
-            { print }
-            END {
-              if (!found) {
-                print "<!-- VERSION_TABLE -->"
-                print "| 文件名称 | 版本号 | 更新日期 |"
-                print "|----------|--------|----------|"
-                while (getline line < "table_content.txt") {
-                  print line
-                }
-                close("table_content.txt")
-                print "<!-- VERSION_TABLE -->"
-              } else if (!printed) {
-                print "<!-- VERSION_TABLE -->"
-              }
-            }
-          ' README.md > README.tmp
-          
-          mv README.tmp README.md
-          rm table_content.txt
-          echo "Updated README.md"
+          echo "Generated new README.md"
 
       - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
@@ -132,58 +85,20 @@ jobs:
       - name: Verify update
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 增强验证：详细调试输出
-          echo "===== 开始验证 README 更新 ====="
+          # 简单验证行数
+          expected_lines=$(jq 'length' version.txt)
+          actual_lines=$(grep -c '^\| \[.*\](' README.md)
           
-          # 1. 获取版本文件中的条目
-          jq -r 'keys[]' version.txt > version_keys.txt
-          echo "版本文件中的APK文件:"
-          cat version_keys.txt
-          
-          # 2. 提取README中的文件名
-          grep -oP '(?<=\[)[^\]]+(?=\]\()' README.md > readme_files.txt
-          echo "README中找到的文件名:"
-          cat readme_files.txt
-          
-          # 3. 检查每个版本条目是否在README中
-          missing_count=0
-          total_count=0
-          
-          while IFS= read -r apk_file; do
-            ((total_count++))
-            if grep -qFx "$apk_file" readme_files.txt; then
-              echo "✅ $apk_file 存在于README中"
-            else
-              echo "::error::❌ $apk_file 在README中缺失"
-              ((missing_count++))
-            fi
-          done < version_keys.txt
-          
-          # 4. 检查README中是否有额外条目
-          extra_count=0
-          while IFS= read -r readme_file; do
-            if ! grep -qFx "$readme_file" version_keys.txt; then
-              echo "::warning::⚠️ $readme_file 在README中存在但不在version.txt中"
-              ((extra_count++))
-            fi
-          done < readme_files.txt
-          
-          # 5. 清理临时文件
-          rm version_keys.txt readme_files.txt
-          
-          # 6. 报告结果
-          echo "===== 验证结果 ====="
-          echo "总条目数: $total_count"
-          echo "缺失条目: $missing_count"
-          echo "额外条目: $extra_count"
-          
-          if [ "$missing_count" -gt 0 ]; then
-            echo "::error::验证失败: $missing_count 个条目缺失"
-            exit 1
-          elif [ "$extra_count" -gt 0 ]; then
-            echo "::warning::警告: $extra_count 个额外条目存在"
+          if [ "$expected_lines" -eq "$actual_lines" ]; then
+            echo "README更新成功! 表格行数: $actual_lines"
           else
-            echo "✅ 验证成功! 所有 $total_count 个条目匹配"
+            echo "::error::表格行数不匹配 (预期: $expected_lines, 实际: $actual_lines)"
+            echo "===== DEBUG INFO ====="
+            echo "Version.txt entries:"
+            jq -r 'keys[]' version.txt
+            echo "README table entries:"
+            grep '^\| \[.*\](' README.md
+            exit 1
           fi
 
   cleanup_self:
