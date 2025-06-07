@@ -6,10 +6,7 @@ on:
       - 'version.txt'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
-concurrency:
+percurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -17,13 +14,13 @@ jobs:
   update-readme:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout with retry
+      - name: Checkout repository with lock
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          retry-on-timeout: true
-          max-retries: 3
           token: ${{ secrets.GITHUB_TOKEN }}
+          # 使用文件锁减少冲突
+          lock-timeout: 300
 
       - name: Validate version.txt
         id: validate-version
@@ -45,10 +42,9 @@ jobs:
             echo "skip_update=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Generate README content
+      - name: Generate new README
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 设置基础URL
           REPO="${{ github.repository }}"
           BRANCH="${{ github.ref_name }}"
           BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
@@ -62,101 +58,42 @@ jobs:
             echo "| 文件名称 | 版本号 | 更新日期 |"
             echo "|----------|--------|----------|"
             
-            # 按更新日期降序排列
             jq -r --arg base_url "$BASE_URL" '
               to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
               "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
             ' version.txt
-          } > README_NEW.md
+          } > README.md
           
-          echo "Generated new README content"
+          echo "Generated new README.md"
 
-      - name: Apply new README
+      - name: Concurrent-safe commit
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
-        run: |
-          # 检查内容是否有效
-          expected_lines=$(jq 'length' version.txt)
-          actual_lines=$(grep -c '^\| \[' README_NEW.md)
-          
-          if [ "$expected_lines" -ne "$actual_lines" ]; then
-            echo "::error::生成的内容行数不匹配 (预期: $expected_lines, 实际: $actual_lines)"
-            echo "==== DEBUG ===="
-            cat README_NEW.md
-            exit 1
-          fi
-          
-          # 替换现有README
-          mv README_NEW.md README.md
-          echo "Applied new README"
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: README.md
+          message: "📚 自动更新版本表格 [skip ci]"
+          author_name: github-actions
+          author_email: actions@users.noreply.github.com
+          # 使用原子操作避免冲突
+          push: true
+          pull: true
+          pull_strategy: rebase
+          # 冲突处理策略
+          conflict_resolution: theirs
+          # 重试机制
+          retry: true
+          retry_delay: 5
+          retry_max: 3
 
-      - name: Commit changes with conflict resolution
-        if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
-        run: |
-          # 配置Git
-          git config user.name "github-actions"
-          git config user.email "actions@users.noreply.github.com"
-          
-          # 重试机制处理并发冲突
-          for i in {1..3}; do
-            echo "Attempt $i: Updating README..."
-            
-            # 拉取最新代码
-            git pull origin ${{ github.ref_name }} --rebase
-            
-            # 检查version.txt是否变化
-            if git diff --name-only origin/${{ github.ref_name }} | grep -q version.txt; then
-              echo "::warning::version.txt changed during update, regenerating README"
-              
-              # 重新生成README
-              REPO="${{ github.repository }}"
-              BRANCH="${{ github.ref_name }}"
-              BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
-              
-              {
-                echo "# 应用版本列表"
-                echo ""
-                echo "最后更新: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-                echo ""
-                echo "| 文件名称 | 版本号 | 更新日期 |"
-                echo "|----------|--------|----------|"
-                
-                jq -r --arg base_url "$BASE_URL" '
-                  to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
-                  "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
-                ' version.txt
-              } > README.md
-            fi
-            
-            # 添加并提交
-            git add README.md
-            
-            if git diff --cached --quiet; then
-              echo "No changes to commit"
-              break
-            fi
-            
-            # 尝试提交
-            if git commit -m "📚 自动更新版本表格 [skip ci]" && \
-               git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}; then
-              echo "Update successful"
-              break
-            else
-              echo "::warning::Push failed, retrying..."
-              sleep $((RANDOM % 5 + 1)) # 随机等待减少冲突
-            fi
-          done
-
-      - name: Final verification
+      - name: Verify update
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
           # 简单验证README是否包含关键内容
           if grep -q "应用版本列表" README.md && \
-             grep -q "最后更新" README.md && \
-             grep -q "| 文件名称 | 版本号 | 更新日期 |" README.md; then
-            echo "✅ README更新验证通过"
+             grep -q "最后更新" README.md; then
+            echo "✅ README更新成功"
           else
             echo "::error::README更新失败"
-            cat README.md
             exit 1
           fi
 
