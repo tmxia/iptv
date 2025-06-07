@@ -1,5 +1,5 @@
+# 应用版本列表
 
-<!-- VERSION_TABLE -->
 | 文件名称 | 版本号 | 更新日期 |
 |----------|--------|----------|
 | [karing-win.zip](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip) | v1.1.3.726 | 2025-06-07 |
