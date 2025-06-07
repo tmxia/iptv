@@ -132,9 +132,10 @@ jobs:
       - name: Verify update
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 修复：统计时排除表头行
+          # 最终修复：只统计数据行
           expected_lines=$(jq 'length' version.txt)
-          actual_lines=$(awk '/<!-- VERSION_TABLE -->/{flag=1;next} flag && /<!-- VERSION_TABLE -->/{flag=0} flag && /^\| /' README.md | wc -l)
+          # 使用更精确的匹配规则：包含链接格式的行
+          actual_lines=$(grep -c '^\| \[.*\](' README.md)
           
           if [ "$expected_lines" -eq "$actual_lines" ]; then
             echo "README更新成功! 表格行数: $actual_lines"
