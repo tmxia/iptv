@@ -41,7 +41,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y jq curl unzip zip
-        pip install telethon requests pytz
+        pip install telethon requests pytz tqdm  # 添加tqdm用于进度条
 
     - name: Run Kernel Sync
       env:
@@ -62,29 +62,31 @@ jobs:
         import re
         import logging
         import zipfile
+        import asyncio
         from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
-        from telethon.tl.types import DocumentAttributeFilename
+        from telethon.tl.types import DocumentAttributeFilename, Document
         import pytz
+        from tqdm import tqdm
         
         # 配置参数
         KERNEL_GROUPS = {
             "openwrt_flippy6.1": [
-                "dtb-rockchip-6.1.*-flippy.*.tar.gz",
-                "dtb-amlogic-6.1.*-flippy.*.tar.gz",
-                "boot-6.1.*-flippy.*.tar.gz",
-                "modules-6.1.*-flippy.*.tar.gz",
-                "header-6.1.*-flippy.*.tar.gz",
-                "dtb-allwinner-6.1.*-flippy.*.tar.gz"
+                "dtb-rockchip-.*\\.tar\\.gz",
+                "dtb-amlogic-.*\\.tar\\.gz",
+                "boot-.*\\.tar\\.gz",
+                "modules-.*\\.tar\\.gz",
+                "header-.*\\.tar\\.gz",
+                "dtb-allwinner-.*\\.tar\\.gz"
             ],
             "openwrt_flippy6.12": [
-                "dtb-amlogic-6.12.*-flippy.*.tar.gz",
-                "dtb-rockchip-6.12.*-flippy.*.tar.gz",
-                "boot-6.12.*-flippy.*.tar.gz",
-                "dtb-allwinner-6.12.*-flippy.*.tar.gz",
-                "header-6.12.*-flippy.*.tar.gz",
-                "modules-6.12.*-flippy.*.tar.gz"
+                "dtb-amlogic-.*\\.tar\\.gz",
+                "dtb-rockchip-.*\\.tar\\.gz",
+                "boot-.*\\.tar\\.gz",
+                "dtb-allwinner-.*\\.tar\\.gz",
+                "header-.*\\.tar\\.gz",
+                "modules-.*\\.tar\\.gz"
             ]
         }
         KERNEL_DIR = "kernels"
@@ -207,54 +209,91 @@ jobs:
                         return group
             return None
         
-        def extract_version_from_filename(filename):
-            """从文件名中提取版本号"""
-            match = re.search(r'(\d+\.\d+\.\d+)', filename)
+        def extract_kernel_info(filename):
+            """从文件名中提取内核版本和构建信息"""
+            pattern = r'^(.*?)-(\d+\.\d+\.\d+)-flippy-(\d+\+[a-z]?)\.tar\.gz$'
+            match = re.match(pattern, filename)
             if match:
-                return match.group(1)
+                prefix = match.group(1)
+                version = match.group(2)
+                build = match.group(3)
+                return {
+                    "prefix": prefix,
+                    "version": version,
+                    "build": build,
+                    "full_version": f"{version}-flippy-{build}"
+                }
             return None
         
-        async def download_file(client, message, filename, download_path):
-            total_size = message.document.size
+        async def download_file(client, document, download_path):
+            """下载文件并显示进度条"""
+            filename = None
+            for attr in document.attributes:
+                if isinstance(attr, DocumentAttributeFilename):
+                    filename = attr.file_name
+                    break
+            if not filename:
+                return False
             
+            total_size = document.size
             log.info(f"开始下载: {filename} ({format_size(total_size)})")
-            start_time = time.time()
             
-            await client.download_media(message, file=download_path)
+            # 创建进度条
+            progress_bar = tqdm(
+                total=total_size,
+                unit='B',
+                unit_scale=True,
+                desc=f"下载 {filename}",
+                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]'
+            )
             
-            elapsed = time.time() - start_time
-            avg_speed = total_size / elapsed if elapsed > 0 else 0
-            log.info(f"下载完成: {filename} - 耗时: {elapsed:.1f}秒, 平均速度: {format_size(avg_speed)}/s")
-            return True
+            last_downloaded = 0
+            
+            def progress_callback(current, total):
+                nonlocal last_downloaded
+                increment = current - last_downloaded
+                if increment > 0:
+                    progress_bar.update(increment)
+                    last_downloaded = current
+            
+            try:
+                await client.download_media(
+                    document,
+                    file=download_path,
+                    progress_callback=progress_callback
+                )
+                progress_bar.close()
+                log.info(f"下载完成: {filename}")
+                return True
+            except Exception as e:
+                progress_bar.close()
+                log.error(f"下载失败: {filename} - {str(e)}")
+                return False
         
-        def get_latest_date(messages):
-            """获取一组消息中的最新日期"""
-            latest_date = None
-            for msg in messages:
-                if latest_date is None or msg.date > latest_date:
-                    latest_date = msg.date
-            return latest_date
-        
-        async def process_group(client, group_name, version, files_to_download, group_dir):
+        async def process_group(client, group_name, files_to_download, group_dir):
             """处理完整的内核组"""
-            # 获取组内所有消息的最新日期
-            all_messages = [msg for _, msg in files_to_download]
-            latest_date = get_latest_date(all_messages)
-            
-            # 转换为UTC+8时区
-            utc8 = pytz.timezone('Asia/Shanghai')
-            date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
-            
-            log.info(f"发现完整的内核组: {group_name} 版本 {version} 发布日期 {date_utc8}")
             os.makedirs(group_dir, exist_ok=True)
+            download_results = {}
+            file_info = {}
             
             # 下载组内所有文件
             for filename, msg in files_to_download:
                 download_path = os.path.join(group_dir, filename)
-                await download_file(client, msg, filename, download_path)
+                success = await download_file(client, msg.media.document, download_path)
+                download_results[filename] = success
+                
+                # 提取文件信息
+                info = extract_kernel_info(filename)
+                if info:
+                    file_info = info
+            
+            # 检查下载结果
+            if not all(download_results.values()):
+                log.error(f"组 {group_name} 下载失败")
+                return None
             
             # 创建ZIP文件
-            zip_filename = f"{group_name}_{version}.zip"
+            zip_filename = f"{group_name}_{file_info['full_version']}.zip"
             zip_path = os.path.join(WORK_DIR, zip_filename)
             with zipfile.ZipFile(zip_path, 'w') as zipf:
                 for root, _, files in os.walk(group_dir):
@@ -263,7 +302,32 @@ jobs:
                         zipf.write(file_path, os.path.basename(file_path))
             
             log.info(f"创建ZIP文件: {zip_filename}")
-            return zip_path, date_utc8
+            
+            # 获取最新日期
+            dates = [msg.date for _, msg in files_to_download]
+            latest_date = max(dates)
+            utc8 = pytz.timezone('Asia/Shanghai')
+            date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
+            
+            return {
+                "zip_path": zip_path,
+                "version": file_info['full_version'],
+                "date_iso": date_utc8
+            }
+        
+        def parse_version(version_str):
+            """将版本字符串转换为可比较的元组"""
+            if not version_str:
+                return (0, 0, 0)
+            
+            parts = version_str.split('.')
+            if len(parts) != 3:
+                return (0, 0, 0)
+            
+            try:
+                return tuple(map(int, parts))
+            except ValueError:
+                return (0, 0, 0)
         
         async def find_new_kernels(client):
             log.info("连接Telegram...")
@@ -280,76 +344,74 @@ jobs:
             current_versions, version_file_exists = get_current_versions()
             updates = {}
             
-            # 存储找到的文件 {group: {version: {filename: message}}}
+            # 存储找到的文件 {group: {full_version: {filename: message}}}
             found_groups = {group: {} for group in KERNEL_GROUPS.keys()}
             
             # 获取频道中最新的100条消息
             async for msg in client.iter_messages(entity, limit=100):
-                if msg.media and hasattr(msg.media, "document"):
+                if msg.media and hasattr(msg.media, "document") and isinstance(msg.media.document, Document):
                     for attr in msg.media.document.attributes:
                         if isinstance(attr, DocumentAttributeFilename):
                             filename = attr.file_name
                             group = find_matching_group(filename)
-                            if group:
-                                version = extract_version_from_filename(filename)
-                                if not version:
-                                    continue
-                                
-                                if version not in found_groups[group]:
-                                    found_groups[group][version] = {}
-                                
-                                found_groups[group][version][filename] = msg
+                            if not group:
+                                continue
+                            
+                            # 提取内核信息
+                            kernel_info = extract_kernel_info(filename)
+                            if not kernel_info:
+                                continue
+                            
+                            full_version = kernel_info['full_version']
+                            
+                            # 只处理比当前版本高的内核
+                            current_version_str = current_versions.get(group, "").split(",")[0] if group in current_versions else ""
+                            current_version_tuple = parse_version(current_version_str.split('-')[0] if current_version_str else "")
+                            new_version_tuple = parse_version(kernel_info['version'])
+                            
+                            if current_version_tuple and new_version_tuple <= current_version_tuple:
+                                log.info(f"跳过旧版本: {filename} (当前: {current_version_str}, 新: {full_version})")
+                                continue
+                            
+                            if full_version not in found_groups[group]:
+                                found_groups[group][full_version] = {}
+                            
+                            found_groups[group][full_version][filename] = msg
             
             # 检查每个组的完整性
             for group, versions in found_groups.items():
-                for version, files in versions.items():
+                for full_version, files in versions.items():
                     # 检查是否包含所有必需的文件
-                    required_files = set(KERNEL_GROUPS[group])
+                    required_patterns = set(KERNEL_GROUPS[group])
                     existing_files = set(files.keys())
                     
                     # 检查每个必需文件模式是否至少有一个匹配的文件
                     group_complete = True
-                    for pattern in required_files:
+                    for pattern in required_patterns:
                         if not any(pattern_match(f, pattern) for f in existing_files):
                             group_complete = False
-                            log.info(f"组 {group} 版本 {version} 缺少匹配模式 {pattern} 的文件")
+                            log.info(f"组 {group} 版本 {full_version} 缺少匹配模式 {pattern} 的文件")
                             break
                     
                     if group_complete:
-                        log.info(f"组 {group} 版本 {version} 完整")
+                        log.info(f"组 {group} 版本 {full_version} 完整")
                         
-                        # 检查当前版本信息
-                        current_value = current_versions.get(group, "")
-                        current_version = current_value.split(",")[0] if current_value else ""
-                        current_date = current_value.split(",")[1] if "," in current_value else ""
+                        # 准备下载文件
+                        files_to_download = [(f, msg) for f, msg in files.items()]
+                        group_dir = os.path.join(WORK_DIR, f"group_{group}_{full_version.replace('.', '_').replace('+', '_')}")
                         
-                        # 获取组内所有消息的最新日期
-                        all_messages = list(files.values())
-                        latest_date = get_latest_date(all_messages)
-                        
-                        # 转换为日期字符串（YYYY-MM-DD）
-                        utc8 = pytz.timezone('Asia/Shanghai')
-                        date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
-                        
-                        # 检查是否需要更新：版本不同或日期更新
-                        if not current_version or version > current_version or date_utc8 > current_date:
-                            # 准备下载文件
-                            files_to_download = [(f, msg) for f, msg in files.items()]
-                            group_dir = os.path.join(WORK_DIR, f"group_{group}_{version}")
-                            os.makedirs(group_dir, exist_ok=True)
-                            
-                            zip_path, zip_date = await process_group(client, group, version, files_to_download, group_dir)
-                            updates[group] = {
-                                "version": version,
-                                "date_iso": zip_date,
-                                "zip_path": zip_path
-                            }
+                        # 处理组
+                        result = await process_group(client, group, files_to_download, group_dir)
+                        if result:
+                            updates[group] = result
+                        else:
+                            log.error(f"处理组 {group} 失败")
             
             return updates if updates else None
         
         def main():
             log.info("="*50)
-            log.info("OpenWrt 内核同步工具启动")
+            log.info("OpenWrt 内核同步工具启动 (增强版)")
             log.info("="*50)
             
             # 验证环境变量
@@ -397,7 +459,7 @@ jobs:
                 # 更新版本文件
                 update_versions(current_versions)
                 
-                # 修复提交信息语法错误
+                # 提交更改
                 group_versions = []
                 for group, data in new_kernels.items():
                     group_versions.append(f"{group}@{data['version']}")
@@ -440,27 +502,42 @@ jobs:
       with:
         script: |
           try {
-            const issue_number = context.issue.number;
-            if (issue_number) {
-              const message = `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
-              await github.rest.issues.createComment({
-                issue_number: issue_number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: message
-              });
+            // 尝试获取仓库的 open issues
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+            
+            // 查找标题为"工作流通知"的 issue
+            const notificationIssue = issues.data.find(issue => 
+              issue.title.includes('工作流通知')
+            );
+            
+            let issueNumber;
+            if (notificationIssue) {
+              issueNumber = notificationIssue.number;
             } else {
-              // 当没有issue上下文时，创建新issue
-              const issue = await github.rest.issues.create({
+              // 如果没有找到，创建新的 issue
+              const newIssue = await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                title: `工作流失败通知 - ${{ github.workflow }} #${{ github.run_number }}`,
-                body: `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+                title: '工作流通知',
+                body: '此 issue 用于接收工作流失败通知'
               });
-              console.log(`创建了新issue: ${issue.data.html_url}`);
+              issueNumber = newIssue.data.number;
             }
+            
+            const message = `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+            await github.rest.issues.createComment({
+              issue_number: issueNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
           } catch (error) {
             console.error('通知失败:', error);
+            // 回退到简单的日志输出
             core.error(`🚨 OpenWrt内核同步失败！详情请查看运行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`);
           }
 
