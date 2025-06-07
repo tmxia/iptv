@@ -1,9 +1,10 @@
-name: Real-time APK Directory Monitor
+name: Real-time APK & Kernel Directory Monitor
 
 on:
   push:
     paths:
       - 'apk/**'
+      - 'kernels/**'  # 新增kernels目录监控
     branches: [ main ]
 
 jobs:
@@ -79,6 +80,24 @@ jobs:
                 "github-speedup": f"https://github-speedup.com/{raw_url}"
             }
         
+        def get_file_type(path):
+            """根据路径确定文件类型"""
+            if path.startswith('apk/'):
+                return "📱 APK"
+            elif path.startswith('kernels/'):
+                return "⚙️ Kernel"
+            return "📄 File"
+        
+        def get_file_icon(path):
+            """获取文件类型图标"""
+            if path.endswith('.apk'):
+                return "📱"
+            elif path.endswith('.zip'):
+                return "📦"
+            elif path.endswith('.tar.gz'):
+                return "🗜️"
+            return "📄"
+        
         async def send_telegram_message(files):
             """使用Telethon发送消息"""
             try:
@@ -97,14 +116,16 @@ jobs:
                     api_hash
                 ) as client:
                     # 构建简洁消息
-                    message = "📱 **APK目录更新通知**\n\n"
+                    message = "🚀 **实时文件更新通知**\n\n"
                     message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n"
                     message += f"🆔 提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\n\n"
                     
                     # 添加文件列表
                     for file in files:
                         # 使用反引号包裹文件名，避免被解析为链接
-                        message += f"📄 `{file['name']}`\n"
+                        icon = get_file_icon(file['path'])
+                        file_type = get_file_type(file['path'])
+                        message += f"{icon} **{file_type}**: `{file['name']}`\n"
                         message += f"  - 版本: `{file['version']}`\n"
                         message += f"  - 更新: `{file['date']}`\n"
                         message += f"  - [下载文件]({file['url']})\n\n"
@@ -135,13 +156,13 @@ jobs:
                     return False
                 
                 # 构建邮件主题和内容
-                subject = f"APK目录更新通知 - {os.getenv('GITHUB_REPOSITORY')}"
+                subject = f"实时文件更新通知 - {os.getenv('GITHUB_REPOSITORY')}"
                 
                 # HTML格式的邮件内容
                 html_content = f"""
                 <html>
                 <body>
-                    <h2>📱 APK目录更新通知</h2>
+                    <h2>🚀 实时文件更新通知</h2>
                     <p><strong>🔖 仓库:</strong> {os.getenv('GITHUB_REPOSITORY')}</p>
                     <p><strong>🆔 提交:</strong> <a href="https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')}">{os.getenv('GITHUB_SHA')[:7]}</a></p>
                     <p><strong>📦 检测到 {len(files)} 个文件更新:</strong></p>
@@ -150,9 +171,11 @@ jobs:
                 
                 for file in files:
                     proxy_urls = generate_proxy_urls(file['url'])
+                    icon = get_file_icon(file['path'])
+                    file_type = get_file_type(file['path'])
                     html_content += f"""
                     <li>
-                        <p><strong>{file['name']}</strong></p>
+                        <p><strong>{icon} {file_type}: {file['name']}</strong></p>
                         <ul>
                             <li><strong>版本:</strong> {file['version']}</li>
                             <li><strong>更新:</strong> {file['date']}</li>
@@ -195,7 +218,7 @@ jobs:
                 return False
         
         def main():
-            print("🚀 开始监控APK目录变更...")
+            print("🚀 开始实时监控文件变更...")
             repo = pygit2.Repository('.')
             
             # 获取当前提交
@@ -224,8 +247,8 @@ jobs:
                 file_path = delta.new_file.path or delta.old_file.path
                 print(f"检测到变更: {file_path} [状态: {delta.status}]")
                 
-                # 只处理apk目录下的文件
-                if not file_path.startswith('apk/'):
+                # 只处理apk和kernels目录下的文件
+                if not (file_path.startswith('apk/') or file_path.startswith('kernels/')):
                     continue
                 
                 # 获取文件名
@@ -239,6 +262,7 @@ jobs:
                 raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{encoded_path}"
                 
                 changed_files.append({
+                    "path": file_path,
                     "name": filename,
                     "version": extract_version(filename),
                     "date": commit_time,
@@ -246,12 +270,12 @@ jobs:
                 })
             
             if not changed_files:
-                print("✅ 未检测到APK文件变更")
+                print("✅ 未检测到文件变更")
                 return
             
             print(f"📦 检测到 {len(changed_files)} 个文件变更:")
             for file in changed_files:
-                print(f"  - {file['name']} (v{file['version']}, {file['date']})")
+                print(f"  - {file['path']} (v{file['version']}, {file['date']})")
             
             # 发送到Telegram
             loop = asyncio.get_event_loop()
