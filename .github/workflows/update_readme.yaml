@@ -88,7 +88,7 @@ jobs:
           mv README.tmp README.md
           echo "Updated README.md"
 
-      - name: Commit changes
+      - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
           git config user.name "github-actions"
@@ -116,7 +116,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 1
-          retain_days: 0
+          keep_minimum_runs: 2
+          retain_days: 1
           delete_workflow_pattern: "Real-time README Updater"
           repository: ${{ github.repository }}
