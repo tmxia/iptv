@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   update-readme:
     runs-on: ubuntu-latest
@@ -17,6 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}  # 添加token确保推送权限
 
       - name: Validate version.txt
         id: validate-version
@@ -71,9 +76,12 @@ jobs:
           
           # 替换或插入表格
           awk -v table="$full_table" '
+            BEGIN { found=0 }
             /<!-- VERSION_TABLE -->/ {
-              print table
-              found=1
+              if (!found) {
+                print table
+                found=1
+              }
               next
             }
             { print }
@@ -91,8 +99,14 @@ jobs:
       - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
+          # 配置Git用户
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
+          
+          # 拉取最新更改避免冲突
+          git pull origin ${{ github.ref_name }}
+          
+          # 添加并提交更改
           git add README.md
           
           # 检查是否有实际变更
@@ -100,7 +114,20 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "📚 自动更新版本表格 [skip ci]"
-            git push
+            
+            # 使用token推送更改
+            git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
+          fi
+
+      - name: Verify update
+        if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
+        run: |
+          # 验证表格是否已更新
+          if grep -q "<!-- VERSION_TABLE -->" README.md; then
+            echo "README更新成功!"
+          else
+            echo "::error::README更新失败"
+            exit 1
           fi
 
   cleanup_self:
