@@ -300,9 +300,11 @@ jobs:
                                 if not version:
                                     continue
                                 
+                                # 优化：只存储每个版本的最新文件
                                 if version not in found_groups[group]:
                                     found_groups[group][version] = {}
                                 
+                                # 只存储最新版本的文件
                                 found_groups[group][version][filename] = msg
             
             # 检查每个组的完整性
@@ -406,7 +408,7 @@ jobs:
                 with client:
                     # 3. 连接Telegram查找新内核
                     new_kernels = client.loop.run_until_complete(
-                        find_new_kernels(client, current_versions)
+                        find_new_kernels(client, current_versions))
             except Exception as e:
                 log.error(f"Telegram错误: {str(e)}")
                 return 3
