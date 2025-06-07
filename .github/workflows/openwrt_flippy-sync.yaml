@@ -88,6 +88,7 @@ jobs:
             ]
         }
         KERNEL_DIR = "kernels"
+        KERNEL_VERSION_FILE = "kernel_versions.json"  # 专用内核版本文件
         
         # 环境变量
         WORK_DIR = os.path.join(os.getcwd(), "temp_kernels")
@@ -101,14 +102,6 @@ jobs:
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         log = logging.getLogger()
-        
-        def format_size(size):
-            """将字节数转换为易读的格式"""
-            for unit in ['B', 'KB', 'MB', 'GB']:
-                if size < 1024.0:
-                    return f"{size:.1f}{unit}"
-                size /= 1024.0
-            return f"{size:.1f}GB"
         
         def setup_git():
             try:
@@ -131,7 +124,7 @@ jobs:
         def commit_and_push(message):
             try:
                 # 添加内核目录和版本文件
-                subprocess.run(["git", "add", KERNEL_DIR, "version.txt"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "add", KERNEL_DIR, KERNEL_VERSION_FILE], cwd=GIT_DIR, check=True)
                 
                 # 检查是否有更改
                 status = subprocess.run(["git", "status", "--porcelain"], cwd=GIT_DIR, capture_output=True, text=True)
@@ -174,23 +167,22 @@ jobs:
                 log.error(f"Git操作失败: {str(e)}")
                 return False
         
-        def get_current_versions():
-            """获取当前版本信息"""
-            version_path = os.path.join(GIT_DIR, "version.txt")
+        def get_kernel_versions():
+            """获取内核版本信息"""
+            version_path = os.path.join(GIT_DIR, KERNEL_VERSION_FILE)
             if os.path.exists(version_path):
                 try:
                     with open(version_path, "r") as f:
-                        return json.load(f), True
+                        return json.load(f)
                 except json.JSONDecodeError:
-                    log.warning("版本文件格式错误，重新初始化")
-                    return {}, True
+                    log.warning("内核版本文件格式错误，重新初始化")
                 except Exception as e:
-                    log.warning(f"读取版本文件失败: {str(e)}，重新初始化")
-                    return {}, True
-            return {}, False
+                    log.warning(f"读取内核版本文件失败: {str(e)}")
+            # 返回默认空版本
+            return {group: {"version": "", "date": ""} for group in KERNEL_GROUPS}
         
-        def update_versions(versions):
-            version_path = os.path.join(GIT_DIR, "version.txt")
+        def save_kernel_versions(versions):
+            version_path = os.path.join(GIT_DIR, KERNEL_VERSION_FILE)
             with open(version_path, "w") as f:
                 json.dump(versions, f, indent=2)
         
@@ -259,20 +251,7 @@ jobs:
             log.info(f"ZIP文件创建完成: {zip_filename}")
             return zip_path, date_utc8
         
-        def check_local_kernel_files(current_versions):
-            """检查本地内核文件是否存在"""
-            for group, version_data in current_versions.items():
-                if ',' in version_data:
-                    version = version_data.split(',')[0]
-                    zip_file = f"{group}_{version}.zip"
-                    zip_path = os.path.join(GIT_DIR, KERNEL_DIR, zip_file)
-                    
-                    if not os.path.exists(zip_path):
-                        log.warning(f"本地内核文件缺失: {zip_file}")
-                        return False
-            return True
-        
-        async def find_new_kernels(client, current_versions):
+        async def find_new_kernels(client, kernel_versions):
             log.info("连接Telegram...")
             await client.connect()
             if not await client.is_user_authorized():
@@ -300,11 +279,10 @@ jobs:
                                 if not version:
                                     continue
                                 
-                                # 优化：只存储每个版本的最新文件
+                                # 存储文件信息
                                 if version not in found_groups[group]:
                                     found_groups[group][version] = {}
                                 
-                                # 只存储最新版本的文件
                                 found_groups[group][version][filename] = msg
             
             # 检查每个组的完整性
@@ -330,10 +308,9 @@ jobs:
                     if group_complete:
                         log.info(f"发现完整内核组: {group} 版本 {version}")
                         
-                        # 检查当前版本信息
-                        current_value = current_versions.get(group, "")
-                        current_version = current_value.split(",")[0] if current_value else ""
-                        current_date = current_value.split(",")[1] if "," in current_value else ""
+                        # 获取当前版本信息
+                        current_version = kernel_versions[group]["version"]
+                        current_date = kernel_versions[group]["date"]
                         
                         # 获取组内所有消息的最新日期
                         all_messages = list(files.values())
@@ -363,7 +340,7 @@ jobs:
                             zip_path, zip_date = await process_group(client, group, version, files_to_download, group_dir)
                             updates[group] = {
                                 "version": version,
-                                "date_iso": zip_date,
+                                "date": zip_date,
                                 "zip_path": zip_path
                             }
                         
@@ -387,16 +364,9 @@ jobs:
             if not setup_git():
                 return 2
             
-            # 1. 获取当前版本信息
-            current_versions, version_file_exists = get_current_versions()
-            log.info(f"当前版本信息: {json.dumps(current_versions, indent=2)}")
-            
-            # 2. 检查本地内核文件是否存在
-            if version_file_exists and current_versions:
-                local_files_ok = check_local_kernel_files(current_versions)
-                if not local_files_ok:
-                    log.error("错误: 本地内核文件缺失，请手动修复")
-                    return 5
+            # 1. 获取内核版本信息
+            kernel_versions = get_kernel_versions()
+            log.info(f"当前内核版本信息: {json.dumps(kernel_versions, indent=2)}")
             
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
@@ -406,9 +376,9 @@ jobs:
             
             try:
                 with client:
-                    # 3. 连接Telegram查找新内核
+                    # 2. 连接Telegram查找新内核
                     new_kernels = client.loop.run_until_complete(
-                        find_new_kernels(client, current_versions))
+                        find_new_kernels(client, kernel_versions))
             except Exception as e:
                 log.error(f"Telegram错误: {str(e)}")
                 return 3
@@ -416,7 +386,7 @@ jobs:
             updated = False
             
             if new_kernels:
-                # 4. 处理新内核
+                # 3. 处理新内核
                 target_dir = os.path.join(GIT_DIR, KERNEL_DIR)
                 os.makedirs(target_dir, exist_ok=True)
                 
@@ -426,12 +396,15 @@ jobs:
                     shutil.copy2(data["zip_path"], target_path)
                     
                     # 更新版本信息
-                    current_versions[group] = f"{data['version']},{data['date_iso']}"
-                    log.info(f"已更新: {group} (版本: {data['version']}, 日期: {data['date_iso']})")
+                    kernel_versions[group] = {
+                        "version": data["version"],
+                        "date": data["date"]
+                    }
+                    log.info(f"已更新: {group} (版本: {data['version']}, 日期: {data['date']})")
                     updated = True
                 
-                # 更新版本文件
-                update_versions(current_versions)
+                # 保存内核版本信息
+                save_kernel_versions(kernel_versions)
                 
                 # 生成提交信息
                 group_versions = []
