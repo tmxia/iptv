@@ -46,7 +46,7 @@ jobs:
       - name: Prepare README structure
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
         run: |
-          # 创建或修复README基础结构（确保表头和标记存在）
+          # 创建或修复README基础结构（确保表头和标记存在，统一用双引号）
           if [ ! -f README.md ]; then
             echo "# 应用版本列表" > README.md
             echo "| 文件名称 | 版本号 | 更新日期 |" >> README.md
@@ -56,7 +56,7 @@ jobs:
           else
             # 确保表头和标记存在（避免多次插入）
             if ! grep -q "| 文件名称 | 版本号 | 更新日期 |" README.md; then
-              echo -e "\n| 文件名称 | 版本号 | 更新日期 |" >> README.md
+              echo -e "\n| 文件名称 | 版本号 | 更新日期 |" >> README.md  # 双引号内安全使用单引号
               echo "|----------|--------|----------|" >> README.md
             fi
             if ! grep -q "<!-- VERSION_TABLE_START -->" README.md; then
@@ -74,7 +74,7 @@ jobs:
           BRANCH="${{ github.ref_name }}"
           BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
           
-          # 生成表格内容（按日期倒序，带链接）
+          # 生成表格内容（按日期倒序，带链接，双引号包裹）
           table_content=$(jq -r --arg base_url "$BASE_URL" '
             to_entries | 
             sort_by(.value | split(",")[1] | strptime("%Y-%m-%d") | mktime) | reverse | 
@@ -85,23 +85,14 @@ jobs:
           # 深度转义所有危险字符（|、&、/、"、'、\n）
           escaped_table_content=$(echo "$table_content" | sed 's/[&/|"\'\'\n]/\\&/g')
           
-          # 调试：打印转义后的内容和 sed 命令
-          echo "-------------------------"
-          echo "原始表格内容（行数）：$(echo "$table_content" | wc -l)"
-          echo "转义后表格内容："
-          echo "$escaped_table_content"
-          echo "执行的 sed 命令："
-          echo "sed -i '/<!-- VERSION_TABLE_START -->/a $escaped_table_content' README.md"
-          echo "-------------------------"
-          
-          # 清除旧表格内容（严格匹配标记）
+          # 清除旧表格内容（保留首尾标记）
           sed -i '/<!-- VERSION_TABLE_START -->/,/<!-- VERSION_TABLE_END -->/{
             /<!-- VERSION_TABLE_START -->/!d;
             /<!-- VERSION_TABLE_END -->/!d
           }' README.md
           
-          # 插入转义后的内容（确保命令结构完整）
-          sed -i '/<!-- VERSION_TABLE_START -->/a '"$escaped_table_content"'' README.md
+          # 插入转义后的内容（双引号确保变量正确解析）
+          sed -i "/<!-- VERSION_TABLE_START -->/a $escaped_table_content" README.md
           
           echo "✅ 表格更新完成，共生成 $(echo "$table_content" | wc -l) 行"
 
