@@ -66,7 +66,18 @@ jobs:
           echo "错误: 无法提取稳定版发布信息"
           exit 1
         fi
-        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        
+        # 关键修复：从发布标题中提取完整版本号并添加 'v' 前缀
+        RAW_STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.name' | grep -oP '(\d+\.)+\d+' | head -1)
+        if [ -z "$RAW_STABLE_VERSION" ]; then
+          RAW_STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        fi
+        if [[ ! "$RAW_STABLE_VERSION" =~ ^v ]]; then
+          STABLE_VERSION="v$RAW_STABLE_VERSION"
+        else
+          STABLE_VERSION="$RAW_STABLE_VERSION"
+        fi
+        
         STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
         # 转换为北京时间并格式化为 YYYY-MM-DD
         STABLE_DATE_UTC8=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
@@ -78,7 +89,17 @@ jobs:
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+          # 关键修复：从发布标题中提取完整版本号并添加 'v' 前缀
+          RAW_PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.name' | grep -oP '(\d+\.)+\d+' | head -1)
+          if [ -z "$RAW_PRE_RELEASE_VERSION" ]; then
+            RAW_PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+          fi
+          if [[ ! "$RAW_PRE_RELEASE_VERSION" =~ ^v ]]; then
+            PRE_RELEASE_VERSION="v$RAW_PRE_RELEASE_VERSION"
+          else
+            PRE_RELEASE_VERSION="$RAW_PRE_RELEASE_VERSION"
+          fi
+          
           PRE_RELEASE_PUBLISHED_AT=$(echo "$LATEST_PRE_RELEASE" | jq -r '.published_at')
           # 转换为北京时间并格式化为 YYYY-MM-DD
           PRE_RELEASE_DATE_UTC8=$(TZ=UTC date -d "$PRE_RELEASE_PUBLISHED_AT" +'%Y-%m-%d')
