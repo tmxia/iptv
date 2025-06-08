@@ -48,7 +48,6 @@ jobs:
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
-        TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL || '@YYKM_release' }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         TARGET_REPO: ${{ github.repository }}
       run: |
@@ -73,6 +72,7 @@ jobs:
             "tv-x5.apk": "armeabi-v7a-sdk21-X5"
         }
         APK_DIR = "apk"
+        TELEGRAM_CHANNEL = "YYKM_release"  # 硬编码频道名称
         
         # 环境变量
         WORK_DIR = os.path.join(os.getcwd(), "temp_apks")
@@ -409,7 +409,8 @@ jobs:
             
             try:
                 await client.start()
-                channel = os.environ.get('TELEGRAM_CHANNEL', 'YYKM_release')
+                # 直接使用硬编码的频道名称
+                channel = TELEGRAM_CHANNEL
                 log.info(f"连接Telegram频道: {channel}")
                 
                 try:
