@@ -175,6 +175,12 @@ jobs:
                 return match.group(1) or match.group(2) or match.group(3)
             return None
         
+        def ensure_version_prefix(version_str):
+            """确保版本号有'v'前缀"""
+            if version_str and not version_str.startswith('v'):
+                return f"v{version_str}"
+            return version_str
+        
         async def download_apk(client, message, filename):
             download_path = os.path.join(WORK_DIR, filename)
             
@@ -229,6 +235,7 @@ jobs:
             current_value = current_versions[target_name]
             if current_value and ',' in current_value:
                 current_version, current_date = current_value.split(',', 1)
+                # 规范化当前版本 - 移除"v"前缀
                 normalized_current = normalize_version(current_version)
             else:
                 normalized_current = None
@@ -251,8 +258,8 @@ jobs:
             """在频道中查找匹配的APK文件"""
             latest_msgs = {}
             
-            # 扫描最近的50条消息
-            async for msg in client.iter_messages(entity, limit=50):
+            # 扫描最近的100条消息
+            async for msg in client.iter_messages(entity, limit=100):
                 if msg.media and hasattr(msg.media, "document"):
                     for attr in msg.media.document.attributes:
                         if isinstance(attr, DocumentAttributeFilename):
@@ -293,9 +300,9 @@ jobs:
                 if should_download_apk(target_name, msg.date, version, current_versions):
                     apk_data = await download_apk(client, msg, filename)
                     if apk_data:
-                        # 在存储版本号时添加"v"前缀
-                        version_str = f"v{apk_data['version']}" if not apk_data['version'].startswith('v') else apk_data['version']
-                        new_value = f"{version_str},{apk_data['date_iso']}"
+                        # 确保版本号有'v'前缀
+                        normalized_version = ensure_version_prefix(apk_data['version'])
+                        new_value = f"{normalized_version},{apk_data['date_iso']}"
                         updates[target_name] = new_value
             
             return updates if updates else None
