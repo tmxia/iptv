@@ -58,10 +58,17 @@ jobs:
           exit 1
         fi
         
-        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
         # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
         STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
         RELEASE_DATE=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
+        
+        # 关键修复：从发布说明中提取完整版本号
+        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.body' | grep -oP '(\d+\.)+\d+' | head -1)
+        if [ -z "$STABLE_VERSION" ]; then
+          # 如果无法从发布说明提取，则使用标签名作为备选
+          STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        fi
+        
         echo "源仓库最新稳定版: $STABLE_VERSION (发布于: $RELEASE_DATE)"
 
         # 检查本地版本文件
