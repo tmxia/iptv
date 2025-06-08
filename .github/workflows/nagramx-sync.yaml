@@ -32,15 +32,11 @@ jobs:
       env:
         SOURCE_REPO: "risin42/NagramX"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        APK_PATTERN: "arm64
--v8a.apk"
-        WIN_PATTERN: "windows7-x64.zip"
+        APK_PATTERN: "arm64-v8a.apk"
         ANDROID_TARGET_NAME: "nagramx.apk"
-        WINDOWS_TARGET_NAME: "proxypin-win.zip"
       run: |
         # 目标文件路径
         ANDROID_TARGET_PATH="apk/$ANDROID_TARGET_NAME"
-        WINDOWS_TARGET_PATH="apk/$WINDOWS_TARGET_NAME"
         
         # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
@@ -78,7 +74,6 @@ jobs:
         
         # 解析当前版本和日期
         CURRENT_ANDROID_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$ANDROID_TARGET_NAME\"")
-        CURRENT_WINDOWS_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$WINDOWS_TARGET_NAME\"")
         
         # 分离版本和日期
         CURRENT_ANDROID_VERSION=""
@@ -88,15 +83,7 @@ jobs:
           CURRENT_ANDROID_DATE=$(echo "$CURRENT_ANDROID_FULL" | cut -d, -f2)
         fi
         
-        CURRENT_WINDOWS_VERSION=""
-        CURRENT_WINDOWS_DATE=""
-        if [ "$CURRENT_WINDOWS_FULL" != "null" ] && [[ "$CURRENT_WINDOWS_FULL" == *,* ]]; then
-          CURRENT_WINDOWS_VERSION=$(echo "$CURRENT_WINDOWS_FULL" | cut -d, -f1)
-          CURRENT_WINDOWS_DATE=$(echo "$CURRENT_WINDOWS_FULL" | cut -d, -f2)
-        fi
-        
         echo "当前Android版本: ${CURRENT_ANDROID_VERSION:-无} (日期: ${CURRENT_ANDROID_DATE:-无})"
-        echo "当前Windows版本: ${CURRENT_WINDOWS_VERSION:-无} (日期: ${CURRENT_WINDOWS_DATE:-无})"
 
         # 检查是否需要更新
         need_update=false
@@ -104,12 +91,6 @@ jobs:
         # 检查Android版本和文件
         if [ "$STABLE_VERSION" != "$CURRENT_ANDROID_VERSION" ] || [ ! -f "$ANDROID_TARGET_PATH" ]; then
           echo "Android需要更新: 版本不匹配或文件不存在"
-          need_update=true
-        fi
-        
-        # 检查Windows版本和文件
-        if [ "$STABLE_VERSION" != "$CURRENT_WINDOWS_VERSION" ] || [ ! -f "$WINDOWS_TARGET_PATH" ]; then
-          echo "Windows需要更新: 版本不匹配或文件不存在"
           need_update=true
         fi
         
@@ -128,13 +109,6 @@ jobs:
           exit 1
         fi
         
-        # 查找Windows ZIP文件
-        win_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$WIN_PATTERN'")) | .browser_download_url' | head -1)
-        if [ -z "$win_download_url" ]; then
-          echo "错误: 未找到匹配的Windows ZIP文件"
-          exit 1
-        fi
-        
         # 确保apk目录存在
         mkdir -p apk
         
@@ -147,27 +121,15 @@ jobs:
           exit 1
         fi
         
-        # 下载Windows ZIP
-        win_source_name=$(basename "$win_download_url")
-        echo "下载Windows ZIP: $win_source_name"
-        curl -sL "$win_download_url" -o "$WORK_DIR/$win_source_name"
-        if [ ! -f "$WORK_DIR/$win_source_name" ]; then
-          echo "错误: Windows ZIP下载失败"
-          exit 1
-        fi
-        
         # 重命名并移动到目标位置
         mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH"
-        mv "$WORK_DIR/$win_source_name" "$WINDOWS_TARGET_PATH"
-        echo "文件已保存到: $ANDROID_TARGET_PATH 和 $WINDOWS_TARGET_PATH"
+        echo "文件已保存到: $ANDROID_TARGET_PATH"
 
         # 更新版本文件（保留其他键值，添加日期）
         UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
           --arg android_key "$ANDROID_TARGET_NAME" \
           --arg android_value "$STABLE_VERSION,$RELEASE_DATE" \
-          --arg win_key "$WINDOWS_TARGET_NAME" \
-          --arg win_value "$STABLE_VERSION,$RELEASE_DATE" \
-          '.[$android_key] = $android_value | .[$win_key] = $win_value')
+          '.[$android_key] = $android_value')
           
         echo "$UPDATED_VERSION_JSON" > version.txt
 
@@ -197,7 +159,6 @@ jobs:
 
         echo "同步完成! 状态: 成功"
         echo "Android文件: $ANDROID_TARGET_PATH ($STABLE_VERSION, $RELEASE_DATE)"
-        echo "Windows文件: $WINDOWS_TARGET_PATH ($STABLE_VERSION, $RELEASE_DATE)"
         exit 0
 
   cleanup_self:
