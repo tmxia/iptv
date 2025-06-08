@@ -162,9 +162,10 @@ jobs:
                 json.dump(current_versions, f, indent=2)
         
         def normalize_version(version_str):
-            """规范化版本字符串"""
+            """规范化版本字符串 - 移除前缀'v'并转为小写"""
             if not version_str:
                 return None
+            # 移除前缀'v'或'V'，并转为小写
             return re.sub(r'^v', '', version_str, flags=re.IGNORECASE).lower()
         
         def extract_version_from_filename(filename):
@@ -217,7 +218,7 @@ jobs:
         
         def should_download_apk(target_name, msg_date, new_version, current_versions):
             """判断是否需要下载APK"""
-            # 规范化新版本
+            # 规范化新版本 - 用于比较
             normalized_new = normalize_version(new_version)
             
             # 如果本地没有该APK的记录，需要下载
@@ -292,7 +293,9 @@ jobs:
                 if should_download_apk(target_name, msg.date, version, current_versions):
                     apk_data = await download_apk(client, msg, filename)
                     if apk_data:
-                        new_value = f"{apk_data['version']},{apk_data['date_iso']}"
+                        # 在存储版本号时添加"v"前缀
+                        version_str = f"v{apk_data['version']}" if not apk_data['version'].startswith('v') else apk_data['version']
+                        new_value = f"{version_str},{apk_data['date_iso']}"
                         updates[target_name] = new_value
             
             return updates if updates else None
