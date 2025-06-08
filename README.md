@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-06-08 23:22:32 UTC
+最后更新: 2025-06-08 23:27:46 UTC
 
 | 文件名称 | 版本号 | 更新日期 |
 |----------|--------|----------|
@@ -14,6 +14,5 @@
 | [mobile.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk) | v2.9.3 | 2025-05-27 |
 | [leanback.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk) | v2.9.3 | 2025-05-27 |
 | [mytv-tv.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv.apk) | V1.1.1.135 | 2025-05-27 |
-| [tv-x5.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv-x5.apk) | 3.5.2 | 2025-04-21 |
-| [tv.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv.apk) | 3.5.2 | 2025-04-21 |
+| [serverbox.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk) | v1.0.1130 | 2025-02-03 |
 | [bv.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv.apk) | v0.2.9 | 2024-12-06 |
