@@ -190,5 +190,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "Proxypin Sync from Source Repository"
+          delete_workflow_pattern: "NagramX Sync from Source Repository"
           repository: ${{ github.repository }}
