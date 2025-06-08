@@ -14,5 +14,5 @@
   "mobile-pro.apk": "v3.3.2,2025-05-27",
   "proxypin.apk": "v1.1.9,2025-05-17",
   "proxypin-win.zip": "v1.1.9,2025-05-17",
-  "nagramx.apk": "1210,2025-06-05"
+  "nagramx.apk": "11.9.1.1210,2025-06-05"
 }
