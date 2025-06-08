@@ -82,6 +82,11 @@ jobs:
         # 配置参数
         APK_FILES = ["all-sdk21-original.apk", "armeabi-v7a-sdk21-X5.apk"]
         APK_DIR = "apk"
+        # 文件名映射：原始文件名 -> 新文件名
+        FILENAME_MAPPING = {
+            "all-sdk21-original.apk": "tv.apk",
+            "armeabi-v7a-sdk21-X5.apk": "tv-x5.apk"
+        }
         
         # 环境变量
         WORK_DIR = os.path.join(os.getcwd(), "temp_apks")
@@ -126,8 +131,8 @@ jobs:
         
         def commit_and_push(message):
             try:
-                # 只添加apk目录和版本文件
-                subprocess.run(["git", "add", APK_DIR, "version.txt"], cwd=GIT_DIR, check=True)
+                # 添加所有更改
+                subprocess.run(["git", "add", "."], cwd=GIT_DIR, check=True)
                 
                 # 检查是否有更改
                 status = subprocess.run(["git", "status", "--porcelain"], cwd=GIT_DIR, capture_output=True, text=True)
@@ -215,6 +220,25 @@ jobs:
                 log.error(f"提取版本号失败: {str(e)}")
                 return None
         
+        def parse_version_from_filename(filename):
+            """从文件名解析版本号"""
+            # 尝试匹配常见的版本号模式 (vX.X.X 或 X.X.X)
+            version_patterns = [
+                r'v?(\d+\.\d+\.\d+)',  # v1.2.3 或 1.2.3
+                r'v?(\d+\.\d+)',       # v1.2 或 1.2
+                r'(\d{8})'             # 20230608
+            ]
+            
+            for pattern in version_patterns:
+                match = re.search(pattern, filename)
+                if match:
+                    version = match.group(1)
+                    # 确保版本号以"v"开头（如果是数字版本）
+                    if re.match(r'\d', version[0]) and '.' in version:
+                        return 'v' + version
+                    return version
+            return None
+        
         async def download_apk(client, message, filename):
             download_path = os.path.join(WORK_DIR, filename)
             total_size = message.document.size
@@ -231,10 +255,34 @@ jobs:
             avg_speed = total_size / elapsed if elapsed > 0 else 0
             log.info(f"下载完成: {filename} - 耗时: {elapsed:.1f}秒, 平均速度: {format_size(avg_speed)}/s")
             
-            # 从APK提取版本号
-            version = extract_apk_version(download_path)
+            # 版本解析优先级:
+            # 1. 尝试从文件名解析版本号
+            # 2. 尝试从消息文本解析版本号
+            # 3. 使用aapt2提取版本号
+            # 4. 使用日期作为后备
+            
+            version = None
+            
+            # 1. 从文件名解析
+            version = parse_version_from_filename(filename)
+            if version:
+                log.info(f"从文件名解析出版本号: {version}")
+            
+            # 2. 从消息文本解析
+            if not version and message.text:
+                log.info(f"尝试从消息文本解析版本号: {message.text[:50]}...")
+                version = parse_version_from_filename(message.text)
+                if version:
+                    log.info(f"从消息文本解析出版本号: {version}")
+            
+            # 3. 使用aapt2提取
             if not version:
-                # 如果无法提取版本号，使用日期作为后备
+                version = extract_apk_version(download_path)
+                if version:
+                    log.info(f"使用aapt2提取出版本号: {version}")
+            
+            # 4. 使用日期作为后备
+            if not version:
                 date_str = message.date.strftime("%Y%m%d")
                 version = f"v{filename.split('.')[0]}-{date_str}"
                 log.info(f"使用后备版本号: {version}")
@@ -381,20 +429,24 @@ jobs:
                 os.makedirs(target_dir, exist_ok=True)
                 
                 for filename, data in new_apks.items():
-                    target_path = os.path.join(target_dir, filename)
+                    # 确定新文件名
+                    new_filename = FILENAME_MAPPING.get(filename, filename)
+                    target_path = os.path.join(target_dir, new_filename)
+                    
+                    # 复制文件到目标位置（使用新文件名）
                     shutil.copy2(data["path"], target_path)
                     
                     # 更新版本信息为 "版本号,日期" 格式 (YYYY-MM-DD)
                     new_value = f"{data['version']},{data['date_iso']}"
                     current_versions[filename] = new_value
-                    log.info(f"已更新: {filename} (版本: {new_value})")
+                    log.info(f"已更新: {filename} → {new_filename} (版本: {new_value})")
                     updated = True
                 
                 # 更新版本文件
                 update_versions(current_versions)
                 
                 # 提交更改
-                commit_msg = f"更新APK: {', '.join(new_apks.keys())}"
+                commit_msg = f"更新APK: {', '.join([FILENAME_MAPPING.get(f, f) for f in new_apks.keys()])}"
                 if commit_and_push(commit_msg):
                     log.info(f"同步成功! 更新了 {len(new_apks)} 个文件")
                 else:
@@ -403,13 +455,14 @@ jobs:
             else:
                 log.info("没有需要更新的APK文件")
             
-            # 检查APK文件是否存在（传统检查）
+            # 检查APK文件是否存在（检查新文件名）
             target_dir = os.path.join(GIT_DIR, APK_DIR)
             file_missing = False
             for filename in APK_FILES:
-                file_path = os.path.join(target_dir, filename)
+                new_filename = FILENAME_MAPPING.get(filename, filename)
+                file_path = os.path.join(target_dir, new_filename)
                 if not os.path.exists(file_path):
-                    log.error(f"错误: APK文件不存在: {filename}")
+                    log.error(f"错误: APK文件不存在: {new_filename}")
                     file_missing = True
             
             if file_missing and not updated:
