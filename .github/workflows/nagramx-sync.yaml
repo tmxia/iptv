@@ -62,11 +62,18 @@ jobs:
         STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
         RELEASE_DATE=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
         
-        # 关键修复：从发布标题中提取完整版本号
-        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.name' | grep -oP '(\d+\.)+\d+' | head -1)
-        if [ -z "$STABLE_VERSION" ]; then
+        # 关键修复：从发布标题中提取完整版本号并添加 'v' 前缀
+        RAW_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.name' | grep -oP '(\d+\.)+\d+' | head -1)
+        if [ -z "$RAW_VERSION" ]; then
           # 如果无法从标题提取，则使用标签名作为备选
-          STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+          RAW_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        fi
+        
+        # 确保版本号以 'v' 开头
+        if [[ ! "$RAW_VERSION" =~ ^v ]]; then
+          STABLE_VERSION="v$RAW_VERSION"
+        else
+          STABLE_VERSION="$RAW_VERSION"
         fi
         
         echo "源仓库最新稳定版: $STABLE_VERSION (发布于: $RELEASE_DATE)"
@@ -183,5 +190,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "NagramX Sync from Source Repository"
+          delete_workflow_pattern: "Proxypin Sync from Source Repository"
           repository: ${{ github.repository }}
