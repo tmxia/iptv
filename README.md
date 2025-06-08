@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-06-08 08:15:50 UTC
+最后更新: 2025-06-08 08:26:12 UTC
 
 | 文件名称 | 版本号 | 更新日期 |
 |----------|--------|----------|
@@ -19,4 +19,5 @@
 | [simple_live.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live.apk) | v1.8.6 | 2025-05-27 |
 | [proxypin-win.zip](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip) | v1.1.9 | 2025-05-17 |
 | [proxypin.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk) | v1.1.9 | 2025-05-17 |
+| [serverbox.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk) | v1.0.1130 | 2025-02-03 |
 | [bv.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv.apk) | v0.2.9 | 2024-12-06 |
