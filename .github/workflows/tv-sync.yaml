@@ -79,7 +79,7 @@ jobs:
         GIT_DIR = os.getcwd()
         os.makedirs(WORK_DIR, exist_ok=True)
         
-        # 配置简洁日志
+        # 配置日志
         logging.basicConfig(
             level=logging.INFO,
             format='[%(asctime)s] %(message)s',
@@ -134,20 +134,32 @@ jobs:
             return False
         
         def get_current_versions():
-            """获取当前版本信息"""
+            """获取当前版本信息，保留所有现有键值"""
             version_path = os.path.join(GIT_DIR, "version.txt")
+            versions = {}
             if os.path.exists(version_path):
                 try:
                     with open(version_path, "r") as f:
-                        return json.load(f), True
+                        versions = json.load(f)
                 except:
+                    # 如果解析失败，创建新的空字典
                     pass
-            return {}, False
+            return versions
         
-        def update_versions(versions):
+        def update_versions(new_versions):
+            """更新版本文件，只修改需要更新的键值"""
             version_path = os.path.join(GIT_DIR, "version.txt")
+            
+            # 读取现有版本信息
+            current_versions = get_current_versions()
+            
+            # 合并更新
+            for key, value in new_versions.items():
+                current_versions[key] = value
+            
+            # 写入更新后的版本信息
             with open(version_path, "w") as f:
-                json.dump(versions, f, indent=2)
+                json.dump(current_versions, f, indent=2)
         
         def normalize_version(version_str):
             """规范化版本字符串"""
@@ -164,7 +176,6 @@ jobs:
         
         async def download_apk(client, message, filename):
             download_path = os.path.join(WORK_DIR, filename)
-            total_size = message.document.size
             
             # 下载文件
             await client.download_media(message, file=download_path)
@@ -186,17 +197,18 @@ jobs:
             local_files = {}
             file_missing = False
             
+            current_versions = get_current_versions()
+            
             for target_name in APK_TARGETS.keys():
                 file_path = os.path.join(target_dir, target_name)
                 if os.path.exists(file_path):
-                    # 尝试从版本文件获取信息
-                    versions, exists = get_current_versions()
-                    if exists and target_name in versions:
-                        local_files[target_name] = versions[target_name]
-                        continue
-                    # 使用文件修改时间作为日期
-                    mtime = os.path.getmtime(file_path)
-                    local_files[target_name] = f"unknown,{datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')}"
+                    # 如果版本文件中有记录，使用它
+                    if target_name in current_versions:
+                        local_files[target_name] = current_versions[target_name]
+                    else:
+                        # 否则使用文件修改时间作为日期
+                        mtime = os.path.getmtime(file_path)
+                        local_files[target_name] = f"unknown,{datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')}"
                 else:
                     file_missing = True
                     local_files[target_name] = None
@@ -238,8 +250,8 @@ jobs:
             """在频道中查找匹配的APK文件"""
             latest_msgs = {}
             
-            # 扫描最近的50条消息
-            async for msg in client.iter_messages(entity, limit=50):
+            # 扫描最近的100条消息
+            async for msg in client.iter_messages(entity, limit=100):
                 if msg.media and hasattr(msg.media, "document"):
                     for attr in msg.media.document.attributes:
                         if isinstance(attr, DocumentAttributeFilename):
@@ -281,10 +293,7 @@ jobs:
                     apk_data = await download_apk(client, msg, filename)
                     if apk_data:
                         new_value = f"{apk_data['version']},{apk_data['date_iso']}"
-                        updates[target_name] = {
-                            "data": apk_data,
-                            "version_info": new_value
-                        }
+                        updates[target_name] = new_value
             
             return updates if updates else None
         
@@ -322,32 +331,25 @@ jobs:
                     return 3
                 
                 # 处理APK更新
-                new_apks = await process_apk_updates(client, entity, current_versions)
+                version_updates = await process_apk_updates(client, entity, current_versions)
             except Exception as e:
                 log.error(f"Telegram错误: {str(e)}")
                 return 4
             finally:
                 await client.disconnect()
             
-            if new_apks:
+            if version_updates:
                 # 处理新文件
                 target_dir = os.path.join(GIT_DIR, APK_DIR)
                 os.makedirs(target_dir, exist_ok=True)
                 
-                for target_name, data in new_apks.items():
-                    # 复制文件到目标位置
-                    shutil.copy2(data["data"]["path"], os.path.join(target_dir, target_name))
-                    
-                    # 更新版本信息
-                    current_versions[target_name] = data["version_info"]
-                
-                # 更新版本文件
-                update_versions(current_versions)
+                # 更新版本信息
+                update_versions(version_updates)
                 
                 # 提交更改
-                commit_msg = f"更新APK: {', '.join(new_apks.keys())}"
+                commit_msg = f"更新APK: {', '.join(version_updates.keys())}"
                 if commit_and_push(commit_msg):
-                    log.info(f"同步成功! 更新了 {len(new_apks)} 个文件")
+                    log.info(f"同步成功! 更新了 {len(version_updates)} 个文件")
                 else:
                     log.error("提交失败")
                     return 5
