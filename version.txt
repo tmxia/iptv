@@ -6,5 +6,7 @@
   "leanback.apk": "v2.9.3,2025-05-27",
   "mobile.apk": "v2.9.3,2025-05-27",
   "simple_live.apk": "v1.8.6,2025-05-27",
-  "simple_live-tv.apk": "v1.3.5,2025-05-27"
+  "simple_live-tv.apk": "v1.3.5,2025-05-27",
+  "bv.apk": "v0.2.9,2024-12-06",
+  "bv-beta.apk": "v0.3.0,2025-06-06"
 }
