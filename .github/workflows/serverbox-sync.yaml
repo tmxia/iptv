@@ -9,12 +9,16 @@ permissions:
   contents: write
   actions: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout current repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
@@ -28,10 +32,13 @@ jobs:
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
         
+    - name: Pull latest changes
+      run: git pull origin ${{ github.ref }}
+        
     - name: Run sync script
       env:
         SOURCE_REPO: "lollipopkit/flutter_server_box"
-        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TOKEN: ${{ secrets.REPO_PAT }}  # 使用 PAT 令牌
         APK_PATTERN: "arm64.apk"
         ANDROID_TARGET_NAME: "serverbox.apk"
       run: |
@@ -167,8 +174,8 @@ jobs:
         if [ $? -eq 0 ]; then
           echo "推送成功"
         else
-          echo "错误: 推送失败"
-          exit 1
+          echo "错误: 推送失败，尝试强制推送..."
+          git push --force origin HEAD:${{ github.ref }}
         fi
 
         echo "同步完成! 状态: 成功"
