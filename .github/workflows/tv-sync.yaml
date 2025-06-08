@@ -179,27 +179,20 @@ jobs:
             with open(version_path, "w") as f:
                 json.dump(versions, f, indent=2)
         
-        def parse_version_from_filename(filename):
-            """从文件名解析版本号"""
-            # 尝试匹配常见的版本号模式 (vX.X.X 或 X.X.X)
-            version_patterns = [
-                r'v?(\d+\.\d+\.\d+)',  # v1.2.3 或 1.2.3
-                r'v?(\d+\.\d+)',       # v1.2 或 1.2
-                r'(\d{8})'             # 20230608
-            ]
-            
-            for pattern in version_patterns:
-                match = re.search(pattern, filename)
-                if match:
-                    version = match.group(1)
-                    # 确保版本号以"v"开头（如果是数字版本）
-                    if re.match(r'\d', version[0]) and '.' in version:
-                        return 'v' + version
-                    return version
-            return None
+        def normalize_version(version_str):
+            """规范化版本字符串，移除前缀'v'并转换为小写"""
+            if version_str is None:
+                return None
+            # 移除前缀'v'或'V'
+            normalized = re.sub(r'^v', '', version_str, flags=re.IGNORECASE)
+            # 移除后缀'v'或'V'
+            normalized = re.sub(r'v$', '', normalized, flags=re.IGNORECASE)
+            # 移除所有非字母数字字符（除了点号）
+            normalized = re.sub(r'[^a-zA-Z0-9.]+', '', normalized)
+            return normalized.lower()
         
         def extract_version_from_filename(filename):
-            """从文件名提取版本号（不添加前缀）"""
+            """从文件名提取版本号"""
             # 尝试匹配常见的版本号模式 (vX.X.X 或 X.X.X)
             version_patterns = [
                 r'v?(\d+\.\d+\.\d+)',  # v1.2.3 或 1.2.3
@@ -286,6 +279,9 @@ jobs:
         
         def should_download_apk(target_name, msg_date, new_version, current_versions):
             """判断是否需要下载APK，基于版本和日期"""
+            # 规范化新版本
+            normalized_new_version = normalize_version(new_version)
+            
             # 如果本地没有该APK的记录，需要下载
             if target_name not in current_versions or current_versions[target_name] is None:
                 log.info(f"本地无记录，需要下载 {target_name}")
@@ -294,9 +290,11 @@ jobs:
             # 解析当前版本信息
             current_value = current_versions[target_name]
             if current_value and ',' in current_value:
-                current_version, current_date_str = current_value.split(',', 1)
+                current_version_str, current_date_str = current_value.split(',', 1)
+                # 规范化当前版本
+                normalized_current_version = normalize_version(current_version_str)
             else:
-                current_version = None
+                normalized_current_version = None
                 current_date_str = "1970-01-01"
             
             # 将消息日期转换为日期字符串（YYYY-MM-DD）
@@ -311,12 +309,17 @@ jobs:
             
             # 日期相同的情况，比较版本号
             if msg_date_str == current_date_str:
-                if current_version and new_version != current_version:
-                    log.info(f"同一天发布的新版本: {new_version} vs 当前版本: {current_version}，需要下载")
-                    return True
+                if normalized_current_version and normalized_new_version:
+                    if normalized_new_version != normalized_current_version:
+                        log.info(f"同一天发布的新版本: {normalized_new_version} vs 当前版本: {normalized_current_version}，需要下载")
+                        return True
+                    else:
+                        log.info(f"同一天发布的相同版本 ({normalized_new_version})，跳过下载")
+                        return False
                 else:
-                    log.info(f"同一天发布的相同版本 ({new_version})，跳过下载")
-                    return False
+                    # 如果无法比较版本，保守起见进行下载
+                    log.info(f"无法比较版本: 新版本={normalized_new_version}, 当前版本={normalized_current_version}，需要下载")
+                    return True
             
             log.info(f"消息日期 {msg_date_str} 不新于当前日期 {current_date_str}，跳过下载")
             return False
