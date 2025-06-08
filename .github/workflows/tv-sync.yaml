@@ -290,7 +290,7 @@ jobs:
             
             # 将消息日期转换为日期字符串（YYYY-MM-DD）
             utc8 = pytz.timezone('Asia/Shanghai')
-            msg_date_utc8 = msg.date.astimezone(utc8)
+            msg_date_utc8 = msg_date.astimezone(utc8)
             msg_date_str = msg_date_utc8.strftime("%Y-%m-%d")
             
             # 如果消息日期比记录日期新，需要下载
@@ -329,9 +329,9 @@ jobs:
                                     log.info(f"找到匹配文件: {filename} -> {target_name} (发布于 {msg.date})")
                                     
                                     # 只保留每个目标的最新消息
-                                    if target_name not in latest_msgs or msg.date > latest_msgs[target_name].date:
+                                    if target_name not in latest_msgs or msg.date > latest_msgs[target_name]["message"].date:
                                         latest_msgs[target_name] = {
-                                            "message": msg,
+                                            "message": msg,  # 存储消息对象
                                             "original_filename": filename
                                         }
                                     break
@@ -353,6 +353,13 @@ jobs:
             for target_name, data in apk_matches.items():
                 msg = data["message"]
                 original_filename = data["original_filename"]
+                
+                # 确保msg是消息对象而不是字典
+                if not hasattr(msg, 'date'):
+                    log.error(f"错误：消息对象无效，跳过处理: {original_filename}")
+                    continue
+                
+                log.info(f"处理APK: {original_filename} (目标: {target_name}), 消息日期: {msg.date}")
                 
                 # 检查是否需要下载
                 if not should_download_apk(target_name, msg.date, current_versions):
