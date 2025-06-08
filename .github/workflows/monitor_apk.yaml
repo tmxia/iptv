@@ -350,7 +350,7 @@ jobs:
   cleanup_self:
     name: Cleanup Self Workflow History
     runs-on: ubuntu-latest
-    needs: sync
+    needs: detect-and-notify
     if: ${{ always() }}
     permissions:
       actions: write
