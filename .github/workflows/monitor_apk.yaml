@@ -5,6 +5,7 @@ on:
     paths:
       - 'apk/**'
       - 'kernels/**'
+      - 'version.txt'
     branches: [ main ]
   workflow_run:
     workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "OpenWrt Kernel Sync from TELEGRAM"]
@@ -14,7 +15,6 @@ jobs:
   detect-and-notify:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # 添加并发控制
     concurrency: 
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -23,8 +23,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-        # 使用 PAT 令牌替代默认令牌
-        token: ${{ secrets.REPO_PAT }}  # 需要创建个人访问令牌
+        token: ${{ secrets.REPO_PAT }}
 
     - name: 获取最新变更
       run: git pull origin ${{ github.ref }}
@@ -52,7 +51,6 @@ jobs:
         SMTP_USER: ${{ secrets.SMTP_USER }}
         SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         GITHUB_REPOSITORY: ${{ github.repository }}
-        # 修复 SHA 获取逻辑
         GITHUB_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       run: |
         cat << 'EOF' > directory_monitor.py
@@ -69,22 +67,25 @@ jobs:
         from urllib.parse import quote
         import json
         
-        # 增强版版本号提取 - 适用于所有文件类型
-        def extract_version(filename):
-            patterns = [
-                r'[vV]?(\d+\.\d+(?:\.\d+)?)(?:[-_](beta|alpha|rc|preview)\d*)?',  # v1.2.3
-                r'_v?(\d+\.\d+(?:\.\d+)?)',  # _1.2.3
-                r'[vV](\d+)',                 # v123
-                r'_(\d+)',                    # _123
-                r'(\d+\.\d+)',                # 1.2
-                r'(\d+)'                      # 123
-            ]
-            
-            for pattern in patterns:
-                match = re.search(pattern, filename)
-                if match:
-                    return match.group(1)
-            return "unknown"
+        # 获取准确版本号（从version.txt）
+        def get_accurate_version(filename):
+            """从version.txt获取准确的版本号"""
+            version_path = "version.txt"
+            if os.path.exists(version_path):
+                try:
+                    with open(version_path, "r") as f:
+                        version_data = json.load(f)
+                    
+                    # 查找匹配的文件名
+                    if filename in version_data:
+                        # 格式为 "版本号,日期"
+                        version_info = version_data[filename]
+                        if isinstance(version_info, str) and ',' in version_info:
+                            return version_info.split(',')[0]
+                        return version_info
+                except Exception as e:
+                    print(f"❌ 解析version.txt失败: {str(e)}")
+            return None
         
         def generate_proxy_urls(raw_url):
             """生成代理下载链接"""
@@ -112,7 +113,7 @@ jobs:
             return "📄"
         
         def get_current_versions():
-            """从version.txt获取当前版本信息（仅用于增强监控）"""
+            """从version.txt获取当前版本信息"""
             version_path = "version.txt"
             if os.path.exists(version_path):
                 try:
@@ -202,7 +203,7 @@ jobs:
                         <p><strong>{icon} {file_type}: {file['name']}</strong></p>
                         <ul>
                             <li><strong>版本:</strong> {file['version']}</li>
-                            <li><strong>更新:</strong> {file['date']}</li>
+                            <li><strong>更新日期:</strong> {file['date']}</li>
                             <li><strong>下载地址:</strong> 
                                 <a href="{file['url']}">原始地址</a> | 
                                 <a href="{proxy_urls['gh-proxy']}">gh-proxy</a> | 
@@ -290,18 +291,24 @@ jobs:
                 encoded_path = quote(file_path)
                 raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{encoded_path}"
                 
-                # 检查版本信息（增强监控）
-                version_info = ""
-                if filename in current_versions:
-                    version_info = f" (版本文件: {current_versions[filename]})"
+                # 获取准确版本号（优先从version.txt）
+                accurate_version = get_accurate_version(filename)
+                if accurate_version:
+                    version = accurate_version
+                    version_source = "version.txt"
+                else:
+                    # 如果version.txt中没有，尝试从文件名解析
+                    version = "unknown"
+                    version_source = "文件名解析失败"
+                    print(f"⚠️ 未在version.txt中找到 {filename} 的版本信息")
                 
                 changed_files.append({
                     "path": file_path,
                     "name": filename,
-                    "version": extract_version(filename),
+                    "version": version,
                     "date": commit_time,
                     "url": raw_url,
-                    "version_info": version_info
+                    "version_source": version_source
                 })
             
             if not changed_files:
@@ -310,7 +317,7 @@ jobs:
             
             print(f"📦 检测到 {len(changed_files)} 个文件变更:")
             for file in changed_files:
-                print(f"  - {file['path']} (v{file['version']}, {file['date']}){file['version_info']}")
+                print(f"  - {file['path']} (v{file['version']}, {file['date']}) [来源: {file['version_source']}]")
             
             # 发送到Telegram
             loop = asyncio.get_event_loop()
