@@ -251,8 +251,8 @@ jobs:
             """在频道中查找匹配的APK文件"""
             latest_msgs = {}
             
-            # 扫描最近的100条消息
-            async for msg in client.iter_messages(entity, limit=100):
+            # 扫描最近的50条消息
+            async for msg in client.iter_messages(entity, limit=50):
                 if msg.media and hasattr(msg.media, "document"):
                     for attr in msg.media.document.attributes:
                         if isinstance(attr, DocumentAttributeFilename):
