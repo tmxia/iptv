@@ -1,13 +1,13 @@
 # 应用版本列表
 
-最后更新: 2025-06-08 04:09:52 UTC
+最后更新: 2025-06-08 04:36:41 UTC
 
 | 文件名称 | 版本号 | 更新日期 |
 |----------|--------|----------|
 | [karing-win.zip](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip) | v1.1.3.726 | 2025-06-07 |
 | [karing.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk) | v1.1.3.726 | 2025-06-07 |
 | [mytv-tv-beta.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk) | V1.2.0.143 | 2025-06-07 |
-| [bv-beta.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk) | alpha-r839 | 2025-06-06 |
+| [nagramx.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk) | v11.9.1.1210 | 2025-06-05 |
 | [github.zip](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip) | v1.212.0 | 2025-06-05 |
 | [mobile-pro.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk) | v3.3.2 | 2025-05-27 |
 | [leanback-pro.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk) | v3.3.3 | 2025-05-27 |
@@ -18,4 +18,3 @@
 | [simple_live.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live.apk) | v1.8.6 | 2025-05-27 |
 | [proxypin-win.zip](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip) | v1.1.9 | 2025-05-17 |
 | [proxypin.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk) | v1.1.9 | 2025-05-17 |
-| [bv.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv.apk) | v0.2.9 | 2024-12-06 |
