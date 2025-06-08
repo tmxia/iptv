@@ -198,6 +198,21 @@ jobs:
                     return version
             return None
         
+        def extract_version_from_filename(filename):
+            """从文件名提取版本号（不添加前缀）"""
+            # 尝试匹配常见的版本号模式 (vX.X.X 或 X.X.X)
+            version_patterns = [
+                r'v?(\d+\.\d+\.\d+)',  # v1.2.3 或 1.2.3
+                r'v?(\d+\.\d+)',       # v1.2 或 1.2
+                r'(\d{8})'             # 20230608
+            ]
+            
+            for pattern in version_patterns:
+                match = re.search(pattern, filename)
+                if match:
+                    return match.group(1)
+            return None
+        
         async def download_apk(client, message, filename):
             download_path = os.path.join(WORK_DIR, filename)
             total_size = message.document.size
@@ -214,17 +229,12 @@ jobs:
             log.info(f"下载完成: {filename} - 耗时: {elapsed:.1f}秒, 平均速度: {format_size(avg_speed)}/s")
             
             # 版本解析
-            version = None
-            
-            # 1. 从文件名解析
-            version = parse_version_from_filename(filename)
+            version = extract_version_from_filename(filename)
             if version:
                 log.info(f"从文件名解析出版本号: {version}")
-            
-            # 2. 从消息文本解析
-            if not version and message.text:
+            elif message.text:
                 log.info(f"尝试从消息文本解析版本号: {message.text[:50]}...")
-                version = parse_version_from_filename(message.text)
+                version = extract_version_from_filename(message.text)
                 if version:
                     log.info(f"从消息文本解析出版本号: {version}")
             
@@ -274,8 +284,8 @@ jobs:
             
             return local_files, not file_missing
         
-        def should_download_apk(target_name, msg_date, current_versions):
-            """判断是否需要下载APK"""
+        def should_download_apk(target_name, msg_date, new_version, current_versions):
+            """判断是否需要下载APK，基于版本和日期"""
             # 如果本地没有该APK的记录，需要下载
             if target_name not in current_versions or current_versions[target_name] is None:
                 log.info(f"本地无记录，需要下载 {target_name}")
@@ -284,8 +294,9 @@ jobs:
             # 解析当前版本信息
             current_value = current_versions[target_name]
             if current_value and ',' in current_value:
-                _, current_date_str = current_value.split(',', 1)
+                current_version, current_date_str = current_value.split(',', 1)
             else:
+                current_version = None
                 current_date_str = "1970-01-01"
             
             # 将消息日期转换为日期字符串（YYYY-MM-DD）
@@ -298,10 +309,14 @@ jobs:
                 log.info(f"新发布日期: {msg_date_str} > 当前日期: {current_date_str}，需要下载")
                 return True
             
-            # 日期相同的情况，需要下载以检查版本号是否更新
+            # 日期相同的情况，比较版本号
             if msg_date_str == current_date_str:
-                log.info(f"同一天发布的消息 ({msg_date_str})，需要检查版本号是否更新")
-                return True
+                if current_version and new_version != current_version:
+                    log.info(f"同一天发布的新版本: {new_version} vs 当前版本: {current_version}，需要下载")
+                    return True
+                else:
+                    log.info(f"同一天发布的相同版本 ({new_version})，跳过下载")
+                    return False
             
             log.info(f"消息日期 {msg_date_str} 不新于当前日期 {current_date_str}，跳过下载")
             return False
@@ -326,13 +341,20 @@ jobs:
                             # 检查文件名是否匹配任何目标
                             for target_name, key_part in APK_TARGETS.items():
                                 if key_part.lower() in filename.lower():
-                                    log.info(f"找到匹配文件: {filename} -> {target_name} (发布于 {msg.date})")
+                                    # 从文件名提取版本号
+                                    version = extract_version_from_filename(filename)
+                                    if not version:
+                                        log.warning(f"无法从文件名解析版本号: {filename}")
+                                        continue
+                                    
+                                    log.info(f"找到匹配文件: {filename} -> {target_name} (版本: {version}, 发布于 {msg.date})")
                                     
                                     # 只保留每个目标的最新消息
                                     if target_name not in latest_msgs or msg.date > latest_msgs[target_name]["message"].date:
                                         latest_msgs[target_name] = {
                                             "message": msg,  # 存储消息对象
-                                            "original_filename": filename
+                                            "original_filename": filename,
+                                            "version": version
                                         }
                                     break
             
@@ -353,16 +375,17 @@ jobs:
             for target_name, data in apk_matches.items():
                 msg = data["message"]
                 original_filename = data["original_filename"]
+                new_version = data["version"]
                 
-                # 确保msg是消息对象而不是字典
+                # 确保msg是消息对象
                 if not hasattr(msg, 'date'):
                     log.error(f"错误：消息对象无效，跳过处理: {original_filename}")
                     continue
                 
-                log.info(f"处理APK: {original_filename} (目标: {target_name}), 消息日期: {msg.date}")
+                log.info(f"处理APK: {original_filename} (目标: {target_name}), 版本: {new_version}, 消息日期: {msg.date}")
                 
                 # 检查是否需要下载
-                if not should_download_apk(target_name, msg.date, current_versions):
+                if not should_download_apk(target_name, msg.date, new_version, current_versions):
                     log.info(f"跳过下载: {original_filename} (版本已存在或非最新)")
                     continue
                 
