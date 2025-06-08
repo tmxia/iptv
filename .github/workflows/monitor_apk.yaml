@@ -3,20 +3,31 @@ name: Real-time Directory Monitor
 on:
   push:
     paths:
-      - 'apk/**'       # 监控apk目录下的所有文件
-      - 'kernels/**'   # 监控kernels目录下的所有文件
+      - 'apk/**'
+      - 'kernels/**'
     branches: [ main ]
+  workflow_run:
+    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "OpenWrt Kernel Sync from TELEGRAM"]
+    types: [completed]
 
 jobs:
   detect-and-notify:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # 添加并发控制
+    concurrency: 
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-        ref: ${{ github.ref }}
+        # 使用 PAT 令牌替代默认令牌
+        token: ${{ secrets.REPO_PAT }}  # 需要创建个人访问令牌
+
+    - name: 获取最新变更
+      run: git pull origin ${{ github.ref }}
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -41,7 +52,8 @@ jobs:
         SMTP_USER: ${{ secrets.SMTP_USER }}
         SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         GITHUB_REPOSITORY: ${{ github.repository }}
-        GITHUB_SHA: ${{ github.sha }}
+        # 修复 SHA 获取逻辑
+        GITHUB_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       run: |
         cat << 'EOF' > directory_monitor.py
         import os
