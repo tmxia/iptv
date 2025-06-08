@@ -38,7 +38,7 @@ jobs:
     - name: Run sync script
       env:
         SOURCE_REPO: "lollipopkit/flutter_server_box"
-        TOKEN: ${{ secrets.REPO_PAT }}  # 使用 PAT 令牌
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
         APK_PATTERN: "arm64.apk"
         ANDROID_TARGET_NAME: "serverbox.apk"
       run: |
