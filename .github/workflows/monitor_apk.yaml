@@ -346,3 +346,21 @@ jobs:
         EOF
         
         python directory_monitor.py
+
+  cleanup_self:
+    name: Cleanup Self Workflow History
+    runs-on: ubuntu-latest
+    needs: sync
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "Real-time Directory Monitor"
+          repository: ${{ github.repository }}
