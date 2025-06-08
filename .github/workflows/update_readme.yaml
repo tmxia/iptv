@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - 'version.txt'
-  # 添加工作流完成事件监听
   workflow_run:
     workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "ServerBox Sync from Source Repository"]
     types: [completed]
@@ -12,7 +11,7 @@ on:
 
 permissions:
   contents: write
-  actions: read  # 添加 actions 读取权限
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
