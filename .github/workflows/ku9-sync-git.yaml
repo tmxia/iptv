@@ -44,6 +44,12 @@ jobs:
         sudo apt-get install -y python3 python3-pip aapt
         pip3 install requests beautifulsoup4
         
+    - name: List directory contents (debug)
+      run: |
+        echo "当前工作目录: $(pwd)"
+        echo "文件列表:"
+        ls -la
+        
     - name: Run APK sync script
       run: |
         python3 lanzou_downloader.py
@@ -93,5 +99,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: Ku9 APK Sync from LanZou Cloud"
+          delete_workflow_pattern: "Ku9 APK Sync from LanZou Cloud"  # 修正引号问题
           repository: ${{ github.repository }}
