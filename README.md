@@ -1,13 +1,13 @@
 # 应用版本列表
 
-最后更新: 2025-06-09 03:36:15 UTC
+最后更新: 2025-06-09 03:46:56 UTC
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
+| [karing-win.zip](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip) | 46.18 | v1.1.3.727 | 2025-06-09 |
+| [karing.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk) | 43.34 | v1.1.3.727 | 2025-06-09 |
 | [github.zip](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip) | 16.56 | v1.212.0 | 2025-06-09 |
 | [mytv-tv-beta.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk) | 12.19 | V1.2.0.145 | 2025-06-09 |
-| [karing-win.zip](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip) | 46.18 | v1.1.3.726 | 2025-06-07 |
-| [karing.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk) | 43.34 | v1.1.3.726 | 2025-06-07 |
 | [bv-beta.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk) | 13.36 | v0.3.0 | 2025-06-06 |
 | [nagramx.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk) | 47.12 | v11.9.1.1210 | 2025-06-05 |
 | [simple_live-tv.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live-tv.apk) | 13.45 | v1.3.5 | 2025-05-27 |
