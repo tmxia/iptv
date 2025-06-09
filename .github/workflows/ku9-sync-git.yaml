@@ -2,7 +2,7 @@ name: Ku9 APK Sync from LanZou Cloud
 
 on:
   schedule:
-    - cron: '0 */48 * * *'  # 每48小时运行一次
+    - cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:
 
 concurrency:
@@ -13,6 +13,17 @@ permissions:
   contents: write
   actions: write
 
+env:
+  LANZOU_PHPSESSID: ${{ secrets.LANZOU_PHPSESSID }}
+  LANZOU_YLOGIN: ${{ secrets.LANZOU_YLOGIN }}
+  LANZOU_PHPDISK_INFO: ${{ secrets.LANZOU_PHPDISK_INFO }}
+  LANZOU_51VCKE: ${{ secrets.LANZOU_51VCKE }}
+  LANZOU_51VUFT: ${{ secrets.LANZOU_51VUFT }}
+  LANZOU_UAG: ${{ secrets.LANZOU_UAG }}
+  LANZOU_TFSTK: ${{ secrets.LANZOU_TFSTK }}
+  LANZOU_TINS: ${{ secrets.LANZOU_TINS }}
+  LANZOU_VTINS: ${{ secrets.LANZOU_VTINS }}
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -20,7 +31,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
       with:
-        fetch-depth: 0  # 获取完整历史记录
+        fetch-depth: 0
 
     - name: Setup Git identity
       run: |
@@ -30,156 +41,22 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl aapt
+        sudo apt-get install -y python3 python3-pip aapt
+        pip3 install requests beautifulsoup4
         
     - name: Run APK sync script
-      env:
-        LANZOU_URL: "https://wfy.lanzout.com/b0izqfjwb"
-        LANZOU_PWD: "123456"
-        FILE1_NAME: "app-release_flow_sign.apk"
-        FILE2_NAME: "app-releaseVLC_flow_sign.apk"
-        TARGET1_NAME: "ku9.apk"
-        TARGET2_NAME: "ku9-vlc.apk"
       run: |
-        # 创建临时工作目录
-        WORK_DIR=$(mktemp -d)
-        echo "创建临时目录: $WORK_DIR"
-        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
+        python3 lanzou_downloader.py
         
-        # 确保apk目录存在
-        mkdir -p apk
-        
-        # 检查版本文件
-        VERSION_FILE="version.txt"
-        CURRENT_VERSION_DATA="{}"
-        if [ -f "$VERSION_FILE" ]; then
-          echo "找到本地版本文件"
-          CURRENT_VERSION_DATA=$(cat "$VERSION_FILE" | jq . 2>/dev/null || echo "{}")
+    - name: Commit and push changes
+      if: success()
+      run: |
+        if git diff --quiet -- apk version.txt; then
+          echo "没有检测到更改，跳过提交"
         else
-          echo "创建新的版本文件"
-          echo "{}" > "$VERSION_FILE"
-        fi
-        
-        # 获取当前日期（北京时间）
-        CURRENT_DATE=$(TZ=Asia/Shanghai date +'%Y-%m-%d')
-        echo "同步日期: $CURRENT_DATE"
-        
-        # 函数：从APK文件获取版本信息
-        get_apk_version() {
-          local apk_path="$1"
-          local version_name=$(aapt dump badging "$apk_path" | grep "versionName" | sed -E "s/.*versionName='([^']+)'.*/\1/")
-          echo "$version_name"
-        }
-        
-        # 函数：处理APK下载和版本检查
-        process_apk() {
-          local source_name="$1"
-          local target_name="$2"
-          local key_name="$3"
-          
-          echo "===== 处理 $key_name ====="
-          local target_path="apk/$target_name"
-          
-          # 从版本文件获取当前版本
-          local current_version=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$key_name\" // \"\"" | cut -d, -f1)
-          local current_date=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$key_name\" // \"\"" | cut -d, -f2)
-          
-          echo "当前版本: $current_version (日期: $current_date)"
-          
-          # 下载APK文件
-          echo "下载 $source_name..."
-          local download_url="https://wfy.lanzout.com/$source_name"
-          local temp_apk="$WORK_DIR/$source_name"
-          
-          # 使用密码下载文件
-          curl -sL -o "$temp_apk" "$download_url" -H "Referer: $LANZOU_URL" --data-raw "p=$LANZOU_PWD"
-          
-          if [ ! -f "$temp_apk" ]; then
-            echo "错误: 下载失败 - $source_name"
-            return 1
-          fi
-          
-          # 检查文件类型
-          file_type=$(file -b "$temp_apk")
-          if [[ "$file_type" != *"Android"* ]]; then
-            echo "错误: 下载的文件不是有效的APK - $source_name"
-            return 1
-          fi
-          
-          # 获取版本信息
-          local new_version=$(get_apk_version "$temp_apk")
-          if [ -z "$new_version" ]; then
-            echo "错误: 无法获取APK版本信息 - $source_name"
-            return 1
-          fi
-          
-          echo "下载版本: $new_version"
-          
-          # 检查是否需要更新
-          local need_update=false
-          
-          if [ "$new_version" != "$current_version" ]; then
-            echo "发现新版本: $new_version (当前: $current_version)"
-            need_update=true
-          elif [ ! -f "$target_path" ]; then
-            echo "版本相同但文件不存在，需要重新下载"
-            need_update=true
-          else
-            echo "版本相同且文件存在，无需更新"
-          fi
-          
-          # 如果需要更新，则复制文件
-          if [ "$need_update" = true ]; then
-            echo "更新 $target_path..."
-            cp "$temp_apk" "$target_path"
-            # 更新版本数据
-            NEW_VERSION_DATA=$(echo "$NEW_VERSION_DATA" | jq \
-                --arg key "$key_name" \
-                --arg value "$new_version,$CURRENT_DATE" \
-                '.[$key] = $value')
-          else
-            # 保持当前版本数据
-            NEW_VERSION_DATA=$(echo "$NEW_VERSION_DATA" | jq \
-                --arg key "$key_name" \
-                --arg value "$current_version,$current_date" \
-                '.[$key] = $value')
-          fi
-          
-          return 0
-        }
-        
-        # 初始化新版本数据
-        NEW_VERSION_DATA="{}"
-        
-        # 处理第一个APK
-        if ! process_apk "$FILE1_NAME" "$TARGET1_NAME" "$TARGET1_NAME"; then
-          echo "错误: 第一个APK处理失败"
-          exit 1
-        fi
-        
-        # 处理第二个APK
-        if ! process_apk "$FILE2_NAME" "$TARGET2_NAME" "$TARGET2_NAME"; then
-          echo "错误: 第二个APK处理失败"
-          exit 1
-        fi
-        
-        # 更新版本文件
-        NEW_VERSION_CONTENT=$(echo "$NEW_VERSION_DATA" | jq -r .)
-        echo "更新后的版本文件内容:"
-        echo "$NEW_VERSION_CONTENT"
-        echo "$NEW_VERSION_CONTENT" > version.txt
-        
-        # 检查是否有需要提交的更改
-        CHANGES_DETECTED=false
-        if ! git diff --quiet -- version.txt apk; then
-          CHANGES_DETECTED=true
-        fi
-        
-        # 提交并推送更改
-        if [ "$CHANGES_DETECTED" = true ]; then
           echo "提交更改到Git仓库..."
           git add apk/* version.txt
-          git commit -m "更新APK: $TARGET1_NAME 和 $TARGET2_NAME"
+          git commit -m "自动更新APK文件"
           
           # 重试推送机制
           MAX_RETRIES=3
@@ -199,15 +76,7 @@ jobs:
               exit 1
             fi
           done
-        else
-          echo "没有检测到更改，跳过提交"
         fi
-
-        echo "同步完成! 状态: 成功"
-        echo "$TARGET1_NAME: $(echo "$NEW_VERSION_DATA" | jq -r ".\"$TARGET1_NAME\"")"
-        echo "$TARGET2_NAME: $(echo "$NEW_VERSION_DATA" | jq -r ".\"$TARGET2_NAME\"")"
-        
-        exit 0
 
   cleanup_self:
     name: Cleanup Self Workflow History
@@ -224,5 +93,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "Ku9 APK Sync from LanZou Cloud"
+          delete_workflow_pattern: Ku9 APK Sync from LanZou Cloud"
           repository: ${{ github.repository }}
