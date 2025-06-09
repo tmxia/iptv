@@ -411,5 +411,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "MYTV APK Sync from Source Repository"
+          delete_workflow_pattern: "Hiddify APK Sync from Source Repository"
           repository: ${{ github.repository }}
