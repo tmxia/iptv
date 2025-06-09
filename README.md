@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-06-08 23:59:04 UTC
+最后更新: 2025-06-09 00:01:16 UTC
 
 | 文件名称 | 版本号 | 更新日期 |
 |----------|--------|----------|
@@ -9,6 +9,7 @@
 | [karing-win.zip](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip) | v1.1.3.726 | 2025-06-07 |
 | [karing.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk) | v1.1.3.726 | 2025-06-07 |
 | [bv-beta.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk) | v0.3.0 | 2025-06-06 |
+| [nagramx.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk) | v11.9.1.1210 | 2025-06-05 |
 | [simple_live-tv.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live-tv.apk) | v1.3.5 | 2025-05-27 |
 | [simple_live.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live.apk) | v1.8.6 | 2025-05-27 |
 | [mobile.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk) | v2.9.3 | 2025-05-27 |
