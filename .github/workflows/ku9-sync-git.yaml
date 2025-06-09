@@ -128,25 +128,8 @@ jobs:
         def extract_params(html):
             """从HTML中提取所有可能的参数"""
             params = {}
-            # 尝试提取标准参数
-            sign_match = re.search(r"sign\s*[:=]\s*['\"]?(\w+)['\"]?", html)
-            websign_match = re.search(r"websign\s*[:=]\s*['\"]?(\w+)['\"]?", html)
-            websignkey_match = re.search(r"websignkey\s*[:=]\s*['\"]?(\w+)['\"]?", html)
             
-            if sign_match: params["sign"] = sign_match.group(1)
-            if websign_match: params["websign"] = websign_match.group(1)
-            if websignkey_match: params["websignkey"] = websignkey_match.group(1)
-            
-            # 尝试提取AJAX数据
-            ajax_match = re.search(r"var ajaxdata\s*=\s*'({.*?})';", html)
-            if ajax_match:
-                try:
-                    ajax_data = json.loads(ajax_match.group(1))
-                    params.update(ajax_data)
-                except json.JSONDecodeError:
-                    logger.warning("无法解析AJAX数据")
-            
-            # 尝试提取隐藏输入字段
+            # 1. 提取隐藏输入字段
             soup = BeautifulSoup(html, 'html.parser')
             for input_tag in soup.find_all('input', {'type': 'hidden'}):
                 name = input_tag.get('name')
@@ -154,18 +137,53 @@ jobs:
                 if name:
                     params[name] = value
             
+            # 2. 提取JavaScript变量
+            js_vars = [
+                'sign', 't', 'k', 'websign', 'websignkey', 
+                've', 'fid', 'uid', 'vip', 'file_id', 'action'
+            ]
+            for var in js_vars:
+                match = re.search(rf'var\s+{var}\s*=\s*["\']?([^"\';]+)[^;]*;', html)
+                if match:
+                    params[var] = match.group(1).strip('"\'')
+            
+            # 3. 提取AJAX数据
+            ajax_match = re.search(r'var ajaxdata\s*=\s*\'({.*?})\';', html)
+            if ajax_match:
+                try:
+                    ajax_data = json.loads(ajax_match.group(1))
+                    params.update(ajax_data)
+                except json.JSONDecodeError:
+                    logger.debug("无法解析AJAX数据")
+            
+            # 4. 提取全局变量
+            global_match = re.search(r'<script>window\.(\w+)\s*=\s*"([^"]+)";</script>', html)
+            if global_match:
+                params[global_match.group(1)] = global_match.group(2)
+            
+            logger.debug(f"提取的参数: {params}")
             return params
 
+        def debug_response(response):
+            """记录响应信息用于调试"""
+            logger.debug(f"响应状态码: {response.status_code}")
+            logger.debug(f"响应头: {response.headers}")
+            
+            # 仅记录前500个字符的响应内容
+            content = response.text[:500] + '...' if len(response.text) > 500 else response.text
+            logger.debug(f"响应内容: {content}")
+
         def get_real_download_url(share_url, password):
-            """获取蓝奏云文件的真实下载链接（加强版）"""
+            """获取蓝奏云文件的真实下载链接（调试版）"""
             session = requests.Session()
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.124 Safari/537.36",
                 "Referer": share_url,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                 "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                 "Cache-Control": "no-cache",
                 "Pragma": "no-cache",
+                "Connection": "keep-alive",
             }
             
             # 解析分享URL以获取基础域名
@@ -175,7 +193,7 @@ jobs:
                 logger.error("无法解析域名")
                 return None
                 
-            # 修正API URL
+            # API URL
             api_url = f"https://{domain}/ajaxm.php"
             
             # 重试逻辑
@@ -184,8 +202,12 @@ jobs:
                 try:
                     # 1. 获取初始页面
                     logger.info(f"获取分享页面 ({retry+1}/{max_retries})")
-                    res1 = session.get(share_url, headers=headers, cookies=LANZOU_COOKIES)
+                    res1 = session.get(share_url, headers=headers, cookies=LANZOU_COOKIES, timeout=20)
                     res1.raise_for_status()
+                    
+                    # 调试初始响应
+                    logger.debug("初始页面响应:")
+                    debug_response(res1)
                     
                     # 2. 提取所有可能的参数
                     params = extract_params(res1.text)
@@ -198,7 +220,7 @@ jobs:
                         "web": "0",  # 可能需要的参数
                     }
                     
-                    # 添加提取的参数
+                    # 添加提取的参数（只添加存在的参数）
                     for key in ["sign", "t", "k", "websign", "websignkey", "ve", "fid", "uid", "vip"]:
                         if key in params:
                             post_data[key] = params[key]
@@ -206,54 +228,66 @@ jobs:
                     logger.info(f"提交数据: { {k: v for k, v in post_data.items() if k not in ['p']} }...")
                     
                     # 4. 提交请求
+                    post_headers = {
+                        **headers,
+                        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Origin": f"https://{domain}",
+                    }
+                    
                     res2 = session.post(
                         api_url,
                         data=post_data,
-                        headers={
-                            "Content-Type": "application/x-www-form-urlencoded",
-                            "Referer": share_url,
-                            "Origin": f"https://{domain}",
-                            "X-Requested-With": "XMLHttpRequest",
-                        },
-                        cookies=LANZOU_COOKIES
+                        headers=post_headers,
+                        cookies=LANZOU_COOKIES,
+                        timeout=20
                     )
                     res2.raise_for_status()
                     
+                    # 调试API响应
+                    logger.debug("API响应:")
+                    debug_response(res2)
+                    
+                    # 5. 解析响应
                     try:
+                        # 尝试解析为JSON
                         json_data = res2.json()
-                        if json_data.get("zt") != 1:
-                            logger.error(f"验证失败: {json_data.get('inf', '未知错误')}")
-                            if "刷新" in json_data.get('inf', '') and retry < max_retries - 1:
-                                logger.info("页面要求刷新，重试中...")
-                                time.sleep(2)  # 等待2秒后重试
-                                continue
+                        logger.debug(f"解析的JSON: {json_data}")
+                        
+                        if json_data.get("zt") == 1:
+                            # 获取下载URL
+                            download_url = f"https://{json_data['dom']}/file/{json_data['url']}"
+                            
+                            # 处理特殊CDN链接
+                            if "vip." in download_url:
+                                download_url = download_url.replace("vip.", "developer.")
+                            
+                            logger.info(f"获取到下载URL: {download_url}")
+                            return download_url
+                        else:
+                            error_msg = json_data.get('inf', '未知错误')
+                            logger.error(f"API错误: {error_msg}")
                             return None
                             
-                        # 获取下载URL
-                        download_url = f"https://{json_data['dom']}/file/{json_data['url']}"
-                        if "vip." in download_url:
-                            download_url = download_url.replace("vip.", "developer.")
-                            
-                        logger.info(f"获取到下载URL: {download_url}")
-                        
-                        # 5. 获取最终下载链接
-                        res3 = session.get(download_url, headers=headers, allow_redirects=False)
-                        if res3.status_code == 302:
-                            final_url = res3.headers['Location']
-                            logger.info(f"解析到最终下载链接: {final_url}")
-                            return final_url
-                        else:
-                            return download_url
-                    
                     except json.JSONDecodeError:
-                        logger.error("响应不是有效的JSON")
-                        return None
+                        # 不是JSON响应，尝试从HTML提取直接下载链接
+                        download_match = re.search(r'data: \{url: \'(https?://[^\']+)\'', res2.text)
+                        if not download_match:
+                            download_match = re.search(r'url: \'(https?://[^\']+)\'', res2.text)
+                        
+                        if download_match:
+                            download_url = download_match.group(1)
+                            logger.info(f"从HTML提取下载链接: {download_url}")
+                            return download_url
+                        else:
+                            logger.error("响应不是有效的JSON，且无法从HTML提取下载链接")
+                            return None
                         
                 except requests.RequestException as e:
                     logger.error(f"请求失败: {e}")
                     if retry < max_retries - 1:
-                        logger.info("等待2秒后重试...")
-                        time.sleep(2)
+                        logger.info("等待3秒后重试...")
+                        time.sleep(3)
                     
             return None
 
@@ -261,12 +295,13 @@ jobs:
             """下载文件"""
             try:
                 headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.124 Safari/537.36",
                     "Referer": "https://www.lanzoui.com/",
                     "Accept-Encoding": "gzip, deflate, br",
+                    "Accept": "*/*",
                 }
                 
-                with requests.get(url, stream=True, headers=headers, timeout=30) as r:
+                with requests.get(url, stream=True, headers=headers, timeout=60) as r:
                     r.raise_for_status()
                     
                     # 检查文件大小
