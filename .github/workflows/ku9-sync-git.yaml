@@ -168,7 +168,7 @@ jobs:
                 return None, None
         
         def get_real_download_url(share_url, file_name, password):
-            """获取蓝奏云文件的真实下载链接"""
+            """获取蓝奏云文件的真实下载链接 - 更新版"""
             session = requests.Session()
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36",
@@ -180,63 +180,53 @@ jobs:
                 res1 = session.get(share_url, headers=headers, cookies=LANZOU_COOKIES)
                 res1.raise_for_status()
                 
-                # 2. 提取iframe链接
+                # 2. 提取文件ID（新方法）
                 soup = BeautifulSoup(res1.text, 'html.parser')
-                iframe = soup.find('iframe', id='iframe')
-                if not iframe:
-                    logger.error("未找到iframe元素，页面结构可能已改变")
+                
+                # 查找包含文件信息的元素
+                file_element = None
+                for element in soup.find_all('div', class_='fileinfo'):
+                    if file_name in element.text:
+                        file_element = element
+                        break
+                
+                if not file_element:
+                    logger.error(f"未找到文件: {file_name}")
                     return None
                 
-                iframe_src = iframe.get('src')
-                if not iframe_src:
-                    logger.error("iframe缺少src属性")
+                # 3. 提取文件ID
+                file_id_match = re.search(r'data-id="(\d+)"', str(file_element))
+                if not file_id_match:
+                    logger.error("无法提取文件ID")
                     return None
                 
-                # 3. 访问iframe页面
-                iframe_url = f"https://www.lanzoui.com{iframe_src}"
-                res2 = session.get(iframe_url, headers=headers, cookies=LANZOU_COOKIES)
+                file_id = file_id_match.group(1)
+                logger.info(f"提取到文件ID: {file_id}")
+                
+                # 4. 获取下载签名
+                sign_url = f"https://www.lanzout.com/fileurl.php?type=down&fileid={file_id}"
+                res2 = session.get(sign_url, headers=headers, cookies=LANZOU_COOKIES)
                 res2.raise_for_status()
                 
-                # 4. 提取ajaxdata
-                ajax_data_match = re.search(r'var ajaxdata = \'({.*?})\';', res2.text)
-                if not ajax_data_match:
-                    logger.error("未找到ajaxdata，页面结构可能已改变")
-                    return None
-                
-                try:
-                    ajax_data = json.loads(ajax_data_match.group(1))
-                except json.JSONDecodeError:
-                    logger.error("解析ajaxdata失败")
-                    return None
-                
-                # 5. 提交下载请求
-                post_url = "https://www.lanzoui.com/ajaxm.php"
-                data = {
-                    "action": "downprocess",
-                    "sign": ajax_data["sign"],
-                    "p": password,
-                    "ve": ajax_data["ve"]
-                }
-                
-                res3 = session.post(post_url, data=data, headers=headers, cookies=LANZOU_COOKIES)
-                res3.raise_for_status()
-                response_data = res3.json()
-                
-                if response_data.get("zt") != 1:
-                    logger.error(f"下载请求失败: {response_data.get('inf', '未知错误')}")
+                # 5. 解析下载链接
+                download_data = res2.json()
+                if download_data.get("zt") != 1:
+                    logger.error(f"下载请求失败: {download_data.get('inf', '未知错误')}")
                     return None
                     
-                direct_url = f"{response_data['dom']}/file/{response_data['url']}"
+                direct_url = download_data.get('dom', '') + download_data.get('url', '')
                 
-                # 6. 获取最终下载链接
-                res4 = session.head(direct_url, allow_redirects=False)
-                if res4.status_code == 302:
-                    return unquote(res4.headers['Location'])  # 解码URL
-                logger.error(f"未获取到重定向链接，状态码: {res4.status_code}")
-                return None
+                if not direct_url:
+                    logger.error("未获取到下载链接")
+                    return None
+                
+                return unquote(direct_url)  # 解码URL
                 
             except requests.RequestException as e:
                 logger.error(f"网络请求失败: {e}")
+                return None
+            except json.JSONDecodeError:
+                logger.error("JSON解析失败")
                 return None
             except Exception as e:
                 logger.error(f"获取下载链接时出错: {e}")
@@ -264,7 +254,7 @@ jobs:
             try:
                 # 检查文件大小
                 file_size = os.path.getsize(file_path)
-                if file_size < 1024:  # 小于1KB视为无效
+                if file_size < 1024 * 100:  # 小于100KB视为无效
                     logger.error(f"文件大小无效: {file_size}字节")
                     return False
                     
@@ -324,7 +314,7 @@ jobs:
             return version_number, version_date
         
         def update_version_file(versions_data):
-            """更新版本文件"""
+            """更新版本文件 - 仅更新目标文件"""
             version_file = "version.txt"
             new_data = {}
             
@@ -336,9 +326,10 @@ jobs:
                 except json.JSONDecodeError:
                     logger.warning("版本文件格式错误，将创建新文件")
             
-            # 更新数据
+            # 仅更新目标文件
+            target_files = [config["target_name"] for config in FILE_CONFIG.values()]
             for target_name, (version, date) in versions_data.items():
-                if version and date:
+                if version and date and target_name in target_files:
                     new_data[target_name] = f"{version},{date}"
             
             # 写入文件
@@ -368,7 +359,8 @@ jobs:
             # 输出结果
             logger.info("同步结果:")
             for file, info in version_info.items():
-                logger.info(f"  {file}: {info}")
+                if file in [config["target_name"] for config in FILE_CONFIG.values()]:
+                    logger.info(f"  {file}: {info}")
             
             # 统计结果
             success_count = sum(1 for v in versions_data.values() if v[0] and v[1])
