@@ -1,6 +1,8 @@
 name: Ku9 APK Sync from LanZou Cloud
 
 on:
+  schedule:
+    - cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:
 
 concurrency:
@@ -42,10 +44,10 @@ jobs:
         sudo apt-get install -y python3 python3-pip aapt
         pip3 install requests beautifulsoup4
         
-    - name: Create updated APK sync script
+    - name: Create and run APK sync script
       run: |
+        # 创建Python脚本
         cat > lanzou_downloader.py << 'EOF'
-        #!/usr/bin/env python3
         import requests
         from bs4 import BeautifulSoup
         import re
@@ -55,8 +57,8 @@ jobs:
         import time
         import logging
         from datetime import datetime, timedelta, timezone
-        from urllib.parse import urlparse, unquote
-
+        from urllib.parse import unquote
+        
         # 配置日志
         logging.basicConfig(
             level=logging.INFO,
@@ -66,41 +68,71 @@ jobs:
             ]
         )
         logger = logging.getLogger(__name__)
-
-        # 蓝奏云Cookie配置（使用GitHub Secrets注入）
+        
+        # 蓝奏云Cookie配置
         LANZOU_COOKIES = {
             "PHPSESSID": os.getenv('LANZOU_PHPSESSID'),
             "ylogin": os.getenv('LANZOU_YLOGIN'),
             "phpdisk_info": os.getenv('LANZOU_PHPDISK_INFO'),
             "__51cke__": "",
-            "__51vcke__": os.getenv('LANZOU_51VCKE'),
-            "__51vuft__": os.getenv('LANZOU_51VUFT'),
+            "__51vcke__undefined": os.getenv('LANZOU_51VCKE'),
+            "__51vuft__undefined": os.getenv('LANZOU_51VUFT'),
             "uag": os.getenv('LANZOU_UAG'),
             "tfstk": os.getenv('LANZOU_TFSTK'),
             "folder_id_c": "-1",
             "__tins__21412745": os.getenv('LANZOU_TINS'),
             "__51laig__": "10",
-            "__vtins__": os.getenv('LANZOU_VTINS'),
+            "__vtins__undefined": os.getenv('LANZOU_VTINS'),
         }
-
+        
         # 蓝奏云文件配置
         FILE_CONFIG = {
-            "ku9.apk": {
+            "app-release_flow_sign.apk": {
                 "share_url": "https://wfy.lanzout.com/b0izqfjwb",
+                "target_name": "ku9.apk",
                 "password": "123456"
             },
-            "ku9-vlc.apk": {
+            "app-releaseVLC_flow_sign.apk": {
                 "share_url": "https://wfy.lanzout.com/b0izqfjwb",
+                "target_name": "ku9-vlc.apk",
                 "password": "123456"
             }
         }
-
+        
         def get_beijing_time():
             """获取北京时间"""
             utc_time = datetime.now(timezone.utc)
             beijing_time = utc_time + timedelta(hours=8)
             return beijing_time.strftime('%Y-%m-%d')
-
+        
+        def parse_version_info(version_str):
+            """
+            解析版本字符串，提取版本号和日期
+            格式示例: 1.7.2.1_20250604_1828
+            返回: (版本号, 日期)
+            """
+            try:
+                # 分割版本字符串
+                parts = version_str.split('_')
+                if len(parts) >= 3:
+                    # 版本号是第一部分
+                    version_number = parts[0]
+                    
+                    # 日期是第二部分 (格式: YYYYMMDD)
+                    date_str = parts[1]
+                    if len(date_str) == 8 and date_str.isdigit():
+                        # 格式化为 YYYY-MM-DD
+                        formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                        return version_number, formatted_date
+                
+                # 如果格式不符，返回原始值和当前日期
+                logger.warning(f"版本格式不标准: {version_str}")
+                return version_str, get_beijing_time()
+                
+            except Exception as e:
+                logger.error(f"解析版本信息失败: {e}")
+                return version_str, get_beijing_time()
+        
         def get_apk_version(apk_path):
             """使用aapt获取APK版本信息"""
             try:
@@ -111,298 +143,211 @@ jobs:
                     check=True
                 )
                 output = result.stdout
+                
+                # 提取完整版本字符串
                 version_match = re.search(r"versionName='([^']+)'", output)
-                if version_match:
-                    return version_match.group(1)
-                logger.error("无法从APK提取版本信息")
-                return "unknown"
+                if not version_match:
+                    logger.error("无法从APK提取版本信息")
+                    return None, None
+                
+                version_str = version_match.group(1)
+                logger.info(f"提取到完整版本字符串: {version_str}")
+                
+                # 解析版本信息
+                version_number, version_date = parse_version_info(version_str)
+                return version_number, version_date
+                
             except subprocess.CalledProcessError as e:
                 logger.error(f"aapt命令执行失败: {e.stderr}")
-                return "unknown"
+                return None, None
             except FileNotFoundError:
                 logger.error("aapt工具未找到，请确保已安装Android SDK工具")
-                return "unknown"
-
-        def extract_params(html):
-            """从HTML中提取所有可能的参数"""
-            params = {}
-            
-            # 1. 提取隐藏输入字段
-            soup = BeautifulSoup(html, 'html.parser')
-            for input_tag in soup.find_all('input', {'type': 'hidden'}):
-                name = input_tag.get('name')
-                value = input_tag.get('value', '')
-                if name:
-                    params[name] = value
-            
-            # 2. 提取JavaScript变量
-            js_vars = [
-                'sign', 't', 'k', 'websign', 'websignkey', 
-                've', 'fid', 'uid', 'vip', 'file_id', 'action'
-            ]
-            for var in js_vars:
-                match = re.search(rf'var\s+{var}\s*=\s*["\']?([^"\';]+)[^;]*;', html)
-                if match:
-                    params[var] = match.group(1).strip('"\'')
-            
-            # 3. 提取AJAX数据
-            ajax_match = re.search(r'var ajaxdata\s*=\s*\'({.*?})\';', html)
-            if ajax_match:
-                try:
-                    ajax_data = json.loads(ajax_match.group(1))
-                    params.update(ajax_data)
-                except json.JSONDecodeError:
-                    logger.debug("无法解析AJAX数据")
-            
-            # 4. 提取全局变量
-            global_match = re.search(r'<script>window\.(\w+)\s*=\s*"([^"]+)";</script>', html)
-            if global_match:
-                params[global_match.group(1)] = global_match.group(2)
-            
-            logger.debug(f"提取的参数: {params}")
-            return params
-
-        def debug_response(response):
-            """记录响应信息用于调试"""
-            logger.debug(f"响应状态码: {response.status_code}")
-            logger.debug(f"响应头: {response.headers}")
-            
-            # 仅记录前500个字符的响应内容
-            content = response.text[:500] + '...' if len(response.text) > 500 else response.text
-            logger.debug(f"响应内容: {content}")
-
-        def get_real_download_url(share_url, password):
-            """获取蓝奏云文件的真实下载链接（调试版）"""
+                return None, None
+            except Exception as e:
+                logger.error(f"获取APK版本信息时出错: {e}")
+                return None, None
+        
+        def get_real_download_url(share_url, file_name, password):
+            """获取蓝奏云文件的真实下载链接"""
             session = requests.Session()
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.124 Safari/537.36",
-                "Referer": share_url,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                "Cache-Control": "no-cache",
-                "Pragma": "no-cache",
-                "Connection": "keep-alive",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36",
+                "Referer": share_url
             }
             
-            # 解析分享URL以获取基础域名
-            parsed_url = urlparse(share_url)
-            domain = parsed_url.netloc
-            if not domain:
-                logger.error("无法解析域名")
+            try:
+                # 1. 获取初始页面
+                res1 = session.get(share_url, headers=headers, cookies=LANZOU_COOKIES)
+                res1.raise_for_status()
+                
+                # 2. 提取iframe链接
+                soup = BeautifulSoup(res1.text, 'html.parser')
+                iframe = soup.find('iframe', id='iframe')
+                if not iframe:
+                    logger.error("未找到iframe元素，页面结构可能已改变")
+                    return None
+                
+                iframe_src = iframe.get('src')
+                if not iframe_src:
+                    logger.error("iframe缺少src属性")
+                    return None
+                
+                # 3. 访问iframe页面
+                iframe_url = f"https://www.lanzoui.com{iframe_src}"
+                res2 = session.get(iframe_url, headers=headers, cookies=LANZOU_COOKIES)
+                res2.raise_for_status()
+                
+                # 4. 提取ajaxdata
+                ajax_data_match = re.search(r'var ajaxdata = \'({.*?})\';', res2.text)
+                if not ajax_data_match:
+                    logger.error("未找到ajaxdata，页面结构可能已改变")
+                    return None
+                
+                try:
+                    ajax_data = json.loads(ajax_data_match.group(1))
+                except json.JSONDecodeError:
+                    logger.error("解析ajaxdata失败")
+                    return None
+                
+                # 5. 提交下载请求
+                post_url = "https://www.lanzoui.com/ajaxm.php"
+                data = {
+                    "action": "downprocess",
+                    "sign": ajax_data["sign"],
+                    "p": password,
+                    "ve": ajax_data["ve"]
+                }
+                
+                res3 = session.post(post_url, data=data, headers=headers, cookies=LANZOU_COOKIES)
+                res3.raise_for_status()
+                response_data = res3.json()
+                
+                if response_data.get("zt") != 1:
+                    logger.error(f"下载请求失败: {response_data.get('inf', '未知错误')}")
+                    return None
+                    
+                direct_url = f"{response_data['dom']}/file/{response_data['url']}"
+                
+                # 6. 获取最终下载链接
+                res4 = session.head(direct_url, allow_redirects=False)
+                if res4.status_code == 302:
+                    return unquote(res4.headers['Location'])  # 解码URL
+                logger.error(f"未获取到重定向链接，状态码: {res4.status_code}")
                 return None
                 
-            # API URL
-            api_url = f"https://{domain}/ajaxm.php"
-            
-            # 重试逻辑
-            max_retries = 3
-            for retry in range(max_retries):
-                try:
-                    # 1. 获取初始页面
-                    logger.info(f"获取分享页面 ({retry+1}/{max_retries})")
-                    res1 = session.get(share_url, headers=headers, cookies=LANZOU_COOKIES, timeout=20)
-                    res1.raise_for_status()
-                    
-                    # 调试初始响应
-                    logger.debug("初始页面响应:")
-                    debug_response(res1)
-                    
-                    # 2. 提取所有可能的参数
-                    params = extract_params(res1.text)
-                    
-                    # 3. 构造提交数据
-                    post_data = {
-                        "action": "downprocess",
-                        "p": password,
-                        "code": "",  # 可能需要的参数
-                        "web": "0",  # 可能需要的参数
-                    }
-                    
-                    # 添加提取的参数（只添加存在的参数）
-                    for key in ["sign", "t", "k", "websign", "websignkey", "ve", "fid", "uid", "vip"]:
-                        if key in params:
-                            post_data[key] = params[key]
-                    
-                    logger.info(f"提交数据: { {k: v for k, v in post_data.items() if k not in ['p']} }...")
-                    
-                    # 4. 提交请求
-                    post_headers = {
-                        **headers,
-                        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                        "X-Requested-With": "XMLHttpRequest",
-                        "Origin": f"https://{domain}",
-                    }
-                    
-                    res2 = session.post(
-                        api_url,
-                        data=post_data,
-                        headers=post_headers,
-                        cookies=LANZOU_COOKIES,
-                        timeout=20
-                    )
-                    res2.raise_for_status()
-                    
-                    # 调试API响应
-                    logger.debug("API响应:")
-                    debug_response(res2)
-                    
-                    # 5. 解析响应
-                    try:
-                        # 尝试解析为JSON
-                        json_data = res2.json()
-                        logger.debug(f"解析的JSON: {json_data}")
-                        
-                        if json_data.get("zt") == 1:
-                            # 获取下载URL
-                            download_url = f"https://{json_data['dom']}/file/{json_data['url']}"
-                            
-                            # 处理特殊CDN链接
-                            if "vip." in download_url:
-                                download_url = download_url.replace("vip.", "developer.")
-                            
-                            logger.info(f"获取到下载URL: {download_url}")
-                            return download_url
-                        else:
-                            error_msg = json_data.get('inf', '未知错误')
-                            logger.error(f"API错误: {error_msg}")
-                            return None
-                            
-                    except json.JSONDecodeError:
-                        # 不是JSON响应，尝试从HTML提取直接下载链接
-                        download_match = re.search(r'data: \{url: \'(https?://[^\']+)\'', res2.text)
-                        if not download_match:
-                            download_match = re.search(r'url: \'(https?://[^\']+)\'', res2.text)
-                        
-                        if download_match:
-                            download_url = download_match.group(1)
-                            logger.info(f"从HTML提取下载链接: {download_url}")
-                            return download_url
-                        else:
-                            logger.error("响应不是有效的JSON，且无法从HTML提取下载链接")
-                            return None
-                        
-                except requests.RequestException as e:
-                    logger.error(f"请求失败: {e}")
-                    if retry < max_retries - 1:
-                        logger.info("等待3秒后重试...")
-                        time.sleep(3)
-                    
-            return None
-
+            except requests.RequestException as e:
+                logger.error(f"网络请求失败: {e}")
+                return None
+            except Exception as e:
+                logger.error(f"获取下载链接时出错: {e}")
+                return None
+        
         def download_file(url, file_path):
             """下载文件"""
             try:
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.124 Safari/537.36",
-                    "Referer": "https://www.lanzoui.com/",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Accept": "*/*",
-                }
-                
-                with requests.get(url, stream=True, headers=headers, timeout=60) as r:
+                with requests.get(url, stream=True, timeout=30) as r:
                     r.raise_for_status()
-                    
-                    # 检查文件大小
-                    file_size = int(r.headers.get('Content-Length', 0))
-                    if file_size < 100 * 1024:  # 小于100KB视为无效
-                        logger.error(f"文件大小异常: {file_size} 字节")
-                        return False
-                    
-                    # 下载文件
                     with open(file_path, 'wb') as f:
                         for chunk in r.iter_content(chunk_size=8192):
-                            if chunk:
+                            if chunk:  # 过滤空chunk
                                 f.write(chunk)
-                                
-                    return True
-                    
+                return True
             except requests.RequestException as e:
                 logger.error(f"文件下载失败: {e}")
                 return False
-
-        def process_apk_file(file_name):
-            """处理单个APK文件"""
-            if file_name not in FILE_CONFIG:
-                logger.error(f"找不到目标文件配置: {file_name}")
-                return None
-            
-            config = FILE_CONFIG[file_name]
-            share_url = config["share_url"]
-            password = config["password"]
-            target_path = f"apk/{file_name}"
-            
-            logger.info(f"开始处理: {file_name}")
-            
-            # 获取真实下载链接
-            download_url = get_real_download_url(share_url, password)
-            if not download_url:
-                logger.error(f"无法获取 {file_name} 的下载链接")
-                return None
-            
-            logger.info(f"获取到下载链接: {download_url}")
-            
-            # 下载文件
-            temp_path = f"temp_{file_name}"
-            if not download_file(download_url, temp_path):
-                return None
-            
-            # 验证文件类型
-            if not is_valid_apk(temp_path):
-                logger.error(f"下载的文件不是有效的APK: {file_name}")
-                os.remove(temp_path)
-                return None
-            
-            # 获取版本信息
-            version = get_apk_version(temp_path)
-            date = get_beijing_time()
-            
-            # 移动文件到目标位置
-            os.replace(temp_path, target_path)
-            
-            logger.info(f"成功下载: {file_name}, 版本: {version}, 日期: {date}")
-            return {"version": version, "date": date}
-
+            except Exception as e:
+                logger.error(f"下载文件时出错: {e}")
+                return False
+        
         def is_valid_apk(file_path):
             """检查文件是否为有效的APK"""
             try:
                 # 检查文件大小
-                if os.path.getsize(file_path) < 10 * 1024:  # 小于10KB视为无效
+                file_size = os.path.getsize(file_path)
+                if file_size < 1024:  # 小于1KB视为无效
+                    logger.error(f"文件大小无效: {file_size}字节")
                     return False
                     
                 # 检查文件类型
                 with open(file_path, 'rb') as f:
                     header = f.read(4)
                     # APK文件以PK开头（ZIP格式）
-                    return header == b'PK\x03\x04'
+                    if header != b'PK\x03\x04':
+                        logger.error("文件签名无效")
+                        return False
+                return True
             except Exception as e:
-                logger.error(f"文件验证失败: {e}")
+                logger.error(f"验证APK文件时出错: {e}")
                 return False
-
-        def update_version_file(new_versions):
+        
+        def process_apk_file(source_name, config):
+            """处理单个APK文件"""
+            target_name = config["target_name"]
+            share_url = config["share_url"]
+            password = config["password"]
+            target_path = f"apk/{target_name}"
+            
+            logger.info(f"开始处理: {source_name} → {target_name}")
+            
+            # 获取真实下载链接
+            download_url = get_real_download_url(share_url, source_name, password)
+            if not download_url:
+                logger.error(f"无法获取 {source_name} 的下载链接")
+                return None, None
+            
+            logger.info(f"获取到下载链接: {download_url}")
+            
+            # 下载文件
+            temp_path = f"temp_{target_name}"
+            if not download_file(download_url, temp_path):
+                return None, None
+            
+            # 验证文件类型
+            if not is_valid_apk(temp_path):
+                logger.error(f"下载的文件不是有效的APK: {source_name}")
+                os.remove(temp_path)
+                return None, None
+            
+            # 获取版本信息
+            version_number, version_date = get_apk_version(temp_path)
+            if not version_number or not version_date:
+                logger.error(f"无法获取 {source_name} 的版本信息")
+                os.remove(temp_path)
+                return None, None
+            
+            logger.info(f"版本信息: {version_number}, 日期: {version_date}")
+            
+            # 移动文件到目标位置 - 完成重命名
+            os.replace(temp_path, target_path)
+            
+            logger.info(f"成功处理: {source_name} → {target_name}")
+            return version_number, version_date
+        
+        def update_version_file(versions_data):
             """更新版本文件"""
-            version_data = {}
             version_file = "version.txt"
+            new_data = {}
             
             # 读取现有版本数据
             if os.path.exists(version_file):
                 try:
                     with open(version_file, 'r') as f:
-                        version_data = json.load(f)
-                except (json.JSONDecodeError, Exception) as e:
-                    logger.warning(f"版本文件格式错误或损坏，将创建新文件: {e}")
-                    version_data = {}
+                        new_data = json.load(f)
+                except json.JSONDecodeError:
+                    logger.warning("版本文件格式错误，将创建新文件")
             
             # 更新数据
-            for file_name, data in new_versions.items():
-                if data:  # 只有成功下载时才更新
-                    version_data[file_name] = f"{data['version']},{data['date']}"
+            for target_name, (version, date) in versions_data.items():
+                if version and date:
+                    new_data[target_name] = f"{version},{date}"
             
             # 写入文件
             with open(version_file, 'w') as f:
-                json.dump(version_data, f, indent=2)
+                json.dump(new_data, f, indent=2)
             
             logger.info("版本文件已更新")
-
+            return new_data
+        
         def main():
             logger.info("蓝奏云APK同步开始")
             start_time = time.time()
@@ -411,40 +356,42 @@ jobs:
             os.makedirs("apk", exist_ok=True)
             
             # 处理所有文件
-            new_versions = {}
-            for file_name in FILE_CONFIG.keys():
-                result = process_apk_file(file_name)
-                new_versions[file_name] = result
+            versions_data = {}
+            for source_name, config in FILE_CONFIG.items():
+                target_name = config["target_name"]
+                version, date = process_apk_file(source_name, config)
+                versions_data[target_name] = (version, date)
             
             # 更新版本文件
-            update_version_file(new_versions)
+            version_info = update_version_file(versions_data)
+            
+            # 输出结果
+            logger.info("同步结果:")
+            for file, info in version_info.items():
+                logger.info(f"  {file}: {info}")
             
             # 统计结果
-            success_count = sum(1 for v in new_versions.values() if v)
+            success_count = sum(1 for v in versions_data.values() if v[0] and v[1])
             elapsed = time.time() - start_time
-            logger.info(f"同步完成! 成功: {success_count}/{len(FILE_CONFIG)}, 耗时: {elapsed:.2f}秒")
+            status = "成功" if success_count == len(FILE_CONFIG) else "部分成功"
+            logger.info(f"同步完成! 状态: {status}, 成功: {success_count}/{len(FILE_CONFIG)}, 耗时: {elapsed:.2f}秒")
             
             # 如果有失败，返回错误状态
             if success_count < len(FILE_CONFIG):
                 exit(1)
-
+        
         if __name__ == "__main__":
             main()
         EOF
+        
+        # 设置脚本权限并执行
         chmod +x lanzou_downloader.py
-        
-    - name: List directory contents (debug)
-      run: |
-        echo "当前工作目录: $(pwd)"
-        echo "文件列表:"
-        ls -la
-        
-    - name: Run APK sync script
-      run: python3 lanzou_downloader.py
+        python3 lanzou_downloader.py
         
     - name: Commit and push changes
       if: success()
       run: |
+        # 检查是否有更改
         if git diff --quiet -- apk version.txt; then
           echo "没有检测到更改，跳过提交"
         else
