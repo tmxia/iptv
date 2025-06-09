@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-06-09 04:23:08 UTC
+最后更新: 2025-06-09 04:25:50 UTC
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
@@ -10,8 +10,8 @@
 | [mytv-tv-beta.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk) | 12.19 | V1.2.0.145 | 2025-06-09 |
 | [bv-beta.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk) | 13.36 | v0.3.0 | 2025-06-06 |
 | [nagramx.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk) | 47.12 | v11.9.1.1210 | 2025-06-05 |
-| [simple_#95;live-tv.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live-tv.apk) | 13.45 | v1.3.5 | 2025-05-27 |
-| [simple_#95;live.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live.apk) | 17.46 | v1.8.6 | 2025-05-27 |
+| [simple&#95;live-tv.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live-tv.apk) | 13.45 | v1.3.5 | 2025-05-27 |
+| [simple&#95;live.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live.apk) | 17.46 | v1.8.6 | 2025-05-27 |
 | [mobile.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk) | 46.35 | v2.9.3 | 2025-05-27 |
 | [leanback.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk) | 48.45 | v2.9.3 | 2025-05-27 |
 | [mytv-tv.apk](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv.apk) | 11.55 | V1.1.1.135 | 2025-05-27 |
