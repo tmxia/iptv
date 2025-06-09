@@ -4,8 +4,9 @@ on:
   push:
     paths:
       - 'version.txt'
+      - 'apk/**'  # 添加对apk目录变化的监听
   workflow_run:
-    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM"]
+    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM", "Hiddify APK Sync from Source Repository"]
     types: [completed]
   workflow_dispatch:
 
@@ -65,17 +66,35 @@ jobs:
             echo ""
             echo "最后更新: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo ""
-            echo "| 文件名称 | 版本号 | 更新日期 |"
-            echo "|----------|--------|----------|"
+            echo "| 文件名称 | 文件大小(M) | 版本号 | 更新日期 |"
+            echo "|----------|------------|--------|----------|"
             
-            # 按更新日期降序排列
+            # 按更新日期降序排列并添加文件大小
             jq -r --arg base_url "$BASE_URL" '
               to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
-              "| [\(.key)](\($base_url + (.key | @uri))) | \(.value | split(",")[0]) | \(.value | split(",")[1]) |"
-            ' version.txt
+              .key as $key |
+              $key
+            ' version.txt | while read -r key; do
+              # 获取版本信息
+              value=$(jq -r ".\"$key\"" version.txt)
+              version=$(echo "$value" | cut -d, -f1)
+              date=$(echo "$value" | cut -d, -f2)
+              
+              # 获取文件大小（MB）
+              file_path="apk/$key"
+              if [ -f "$file_path" ]; then
+                file_bytes=$(stat -c%s "$file_path")
+                file_size=$(echo "scale=2; $file_bytes / (1024*1024)" | bc)
+              else
+                file_size="N/A"
+              fi
+              
+              # 生成表格行
+              echo "| [$key](${BASE_URL}${key} | ${file_size} | ${version} | ${date} |"
+            done
           } > README.md
           
-          echo "Generated new README.md"
+          echo "Generated new README.md with file sizes"
 
       - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
@@ -99,7 +118,7 @@ jobs:
         run: |
           # 简单验证README是否包含关键内容
           if grep -q "应用版本列表" README.md && \
-             grep -q "最后更新" README.md; then
+             grep -q "文件大小" README.md; then
             echo "✅ README更新成功"
           else
             echo "::error::README更新失败"
