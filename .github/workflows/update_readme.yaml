@@ -6,7 +6,7 @@ on:
       - 'version.txt'
       - 'apk/**'
   workflow_run:
-    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM", "Hiddify APK Sync from Source Repository"]
+    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM"]
     types: [completed]
   workflow_dispatch:
 
@@ -91,12 +91,12 @@ jobs:
                 file_size="N/A"
               fi
               
-              # 使用HTML格式避免Markdown下划线问题
-              echo "| <a href=\"${BASE_URL}${key}\">$key</a> | $file_size | $version | $date |"
+              # 在代码块中显示文件名，避免下划线问题
+              echo "| [\`$key\`](${BASE_URL}${key}) | $file_size | $version | $date |"
             done
           } > README.md
           
-          echo "Generated new README.md with HTML links"
+          echo "Generated new README.md with code-formatted filenames"
 
       - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
@@ -121,7 +121,8 @@ jobs:
           # 简单验证README是否包含关键内容
           if grep -q "应用版本列表" README.md && \
              grep -q "文件大小" README.md && \
-             grep -q "github.zip" README.md; then
+             grep -q "github.zip" README.md && \
+             grep -q "\`github.zip\`" README.md; then
             echo "✅ README更新成功"
           else
             echo "::error::README更新失败"
