@@ -6,7 +6,7 @@ on:
       - 'version.txt'
       - 'apk/**'
   workflow_run:
-    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM"]
+    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM", "Hiddify APK Sync from Source Repository"]
     types: [completed]
   workflow_dispatch:
 
@@ -71,7 +71,7 @@ jobs:
             echo "| 文件名称 | 文件大小(M) | 版本号 | 更新日期 |"
             echo "|----------|------------|--------|----------|"
             
-            # 按更新日期降序排列并添加文件大小
+            # 按更新日期降序排列
             jq -r --arg base_url "$BASE_URL" '
               to_entries | sort_by(.value | split(",")[1]) | reverse | .[] |
               .key as $key |
@@ -91,12 +91,12 @@ jobs:
                 file_size="N/A"
               fi
               
-              # 在代码块中显示文件名，避免下划线问题
-              echo "| [\`$key\`](${BASE_URL}${key}) | $file_size | $version | $date |"
+              # 使用原始方式显示文件名称（无代码块）
+              echo "| [$key](${BASE_URL}${key}) | $file_size | $version | $date |"
             done
           } > README.md
           
-          echo "Generated new README.md with code-formatted filenames"
+          echo "Generated new README.md"
 
       - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
@@ -121,8 +121,7 @@ jobs:
           # 简单验证README是否包含关键内容
           if grep -q "应用版本列表" README.md && \
              grep -q "文件大小" README.md && \
-             grep -q "github.zip" README.md && \
-             grep -q "\`github.zip\`" README.md; then
+             grep -q "github.zip" README.md; then
             echo "✅ README更新成功"
           else
             echo "::error::README更新失败"
