@@ -61,7 +61,31 @@ jobs:
           exit 1
         fi
         
-        PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+        # 提取原始标签名
+        TAG_NAME=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+        
+        # 尝试从发布标题中提取完整版本号
+        RELEASE_NAME=$(echo "$LATEST_PRE_RELEASE" | jq -r '.name')
+        RAW_VERSION=$(echo "$RELEASE_NAME" | grep -oE '([0-9]+\.[0-9]+\.[0-9]+)' | head -1)
+        
+        # 添加 'v' 前缀处理
+        if [ -z "$RAW_VERSION" ]; then
+          # 如果无法从标题提取，则使用标签名作为备选
+          echo "警告: 无法从标题提取版本号，使用标签名: $TAG_NAME"
+          if [[ ! "$TAG_NAME" =~ ^v ]]; then
+            PRE_RELEASE_VERSION="v$TAG_NAME"
+          else
+            PRE_RELEASE_VERSION="$TAG_NAME"
+          fi
+        else
+          # 确保版本号以 'v' 开头
+          if [[ ! "$RAW_VERSION" =~ ^v ]]; then
+            PRE_RELEASE_VERSION="v$RAW_VERSION"
+          else
+            PRE_RELEASE_VERSION="$RAW_VERSION"
+          fi
+        fi
+        
         # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
         PRE_RELEASE_PUBLISHED_AT=$(echo "$LATEST_PRE_RELEASE" | jq -r '.published_at')
         RELEASE_DATE=$(TZ=UTC date -d "$PRE_RELEASE_PUBLISHED_AT" +'%Y-%m-%d')
