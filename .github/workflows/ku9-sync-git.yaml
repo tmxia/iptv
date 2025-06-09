@@ -124,8 +124,8 @@ jobs:
                 logger.error("aapt工具未找到，请确保已安装Android SDK工具")
                 return "unknown"
 
-        def get_real_download_url(share_url, file_name, password):
-            """获取蓝奏云文件的真实下载链接（兼容新版页面）"""
+        def get_real_download_url(share_url, password):
+            """获取蓝奏云文件的真实下载链接（新方法）"""
             session = requests.Session()
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36",
@@ -136,123 +136,78 @@ jobs:
             try:
                 res1 = session.get(share_url, headers=headers, cookies=LANZOU_COOKIES)
                 res1.raise_for_status()
+                
+                # 检查是否有密码验证
+                if "输入密码" in res1.text and password:
+                    logger.info("需要密码验证...")
+                    post_url = share_url.replace("com/", "com/ajaxm.php")
+                    data = {
+                        "action": "downprocess",
+                        "sign": None,
+                        "p": password
+                    }
+                    
+                    # 从页面提取验证所需参数
+                    sign_match = re.search(r"var link_sign = \"(\w+)\";", res1.text)
+                    websign_match = re.search(r"var websign = \"(\w+)\";", res1.text)
+                    websignkey_match = re.search(r"var websignkey = \"(\w+)\";", res1.text)
+                    
+                    if sign_match and websign_match and websignkey_match:
+                        data["sign"] = sign_match.group(1)
+                        data["websign"] = websign_match.group(1)
+                        data["websignkey"] = websignkey_match.group(1)
+                    
+                    # 提交密码验证
+                    res_verify = session.post(post_url, data=data, headers=headers)
+                    res_verify.raise_for_status()
+                    verify_data = res_verify.json()
+                    
+                    if verify_data.get("zt") != 1:
+                        logger.error(f"密码验证失败: {verify_data.get('inf', '未知错误')}")
+                        return None
+                    
+                    # 使用验证后返回的链接
+                    download_url = f"https://{verify_data['dom']}/file/{verify_data['url']}"
+                    
+                else:
+                    # 无密码页面，直接提取下载链接
+                    download_match = re.search(r"\"url\":\"(https?://[^\"]+)\"", res1.text)
+                    if download_match:
+                        download_url = download_match.group(1)
+                    else:
+                        logger.error("无法提取下载链接")
+                        return None
+                
+                # 处理CDN链接
+                if "//vip." in download_url or "//developer." in download_url:
+                    download_url = download_url.replace("//vip.", "//developer.")
+                
+                # 获取最终下载链接
+                try:
+                    res_download = session.get(download_url, headers=headers, allow_redirects=False)
+                    if res_download.status_code == 302:
+                        real_url = res_download.headers.get("Location")
+                        if real_url:
+                            logger.info(f"获取到真实下载链接: {real_url}")
+                            return real_url
+                    logger.error(f"未获取到重定向链接，状态码: {res_download.status_code}")
+                    return None
+                except requests.RequestException as e:
+                    logger.error(f"获取下载链接失败: {e}")
+                    return None
+                    
             except requests.RequestException as e:
                 logger.error(f"获取分享页面失败: {e}")
                 return None
-            
-            # 新版页面结构 - 尝试提取JSON参数
-            script_match = re.search(r'<script>[\s\S]*?var \w+ = ([\s\S]*?);[\s\S]*?</script>', res1.text)
-            if script_match:
-                try:
-                    script_content = script_match.group(1)
-                    # 转换JSON中的单引号双引号
-                    script_content = script_content.replace("'", '"')
-                    data = json.loads(script_content)
-                    
-                    if "sign" in data and "websign" in data and "websignkey" in data:
-                        sign = data["sign"]
-                        pwd = password
-                        
-                        # 提交下载请求
-                        post_url = "https://www.lanzoui.com/ajaxm.php"
-                        payload = {
-                            "action": "downprocess",
-                            "sign": sign,
-                            "p": pwd
-                        }
-                        
-                        try:
-                            res2 = session.post(post_url, data=payload, headers=headers, cookies=LANZOU_COOKIES)
-                            res2.raise_for_status()
-                            response_data = res2.json()
-                            
-                            if response_data.get("zt") != 1:
-                                logger.error(f"下载请求失败: {response_data.get('inf', '未知错误')}")
-                                return None
-                                
-                            direct_url = f"{response_data['dom']}/file/{response_data['url']}"
-                        except (requests.RequestException, json.JSONDecodeError) as e:
-                            logger.error(f"获取下载链接失败: {e}")
-                            return None
-                        
-                        # 获取最终下载链接
-                        try:
-                            res3 = session.head(direct_url, allow_redirects=False)
-                            if res3.status_code == 302:
-                                return res3.headers['Location']
-                            logger.error(f"未获取到重定向链接，状态码: {res3.status_code}")
-                            return None
-                        except requests.RequestException as e:
-                            logger.error(f"获取最终下载链接失败: {e}")
-                            return None
-                except json.JSONDecodeError:
-                    logger.error("解析页面数据失败")
-            else:
-                logger.error("未找到新版页面参数")
-            
-            # 尝试旧版方法作为备用
-            soup = BeautifulSoup(res1.text, 'html.parser')
-            iframe = soup.find('iframe', id='iframe')
-            if iframe:
-                iframe_src = iframe.get('src')
-                if iframe_src:
-                    try:
-                        iframe_url = f"https://www.lanzoui.com{iframe_src}"
-                        res2 = session.get(iframe_url, headers=headers, cookies=LANZOU_COOKIES)
-                        res2.raise_for_status()
-                    except requests.RequestException as e:
-                        logger.error(f"访问iframe页面失败: {e}")
-                        return None
-                    
-                    ajax_data_match = re.search(r'var ajaxdata = \'({.*?})\';', res2.text)
-                    if ajax_data_match:
-                        try:
-                            ajax_data = json.loads(ajax_data_match.group(1))
-                        except json.JSONDecodeError:
-                            logger.error("解析ajaxdata失败")
-                            return None
-                        
-                        post_url = "https://www.lanzoui.com/ajaxm.php"
-                        data = {
-                            "action": "downprocess",
-                            "sign": ajax_data.get("sign"),
-                            "p": password,
-                            "ve": ajax_data.get("ve")
-                        }
-                        
-                        try:
-                            res3 = session.post(post_url, data=data, headers=headers, cookies=LANZOU_COOKIES)
-                            res3.raise_for_status()
-                            response_data = res3.json()
-                            
-                            if response_data.get("zt") != 1:
-                                logger.error(f"下载请求失败: {response_data.get('inf', '未知错误')}")
-                                return None
-                                
-                            direct_url = f"{response_data['dom']}/file/{response_data['url']}"
-                        except (requests.RequestException, json.JSONDecodeError) as e:
-                            logger.error(f"获取下载链接失败: {e}")
-                            return None
-                        
-                        try:
-                            res4 = session.head(direct_url, allow_redirects=False)
-                            if res4.status_code == 302:
-                                return res4.headers['Location']
-                            logger.error(f"未获取到重定向链接，状态码: {res4.status_code}")
-                            return None
-                        except requests.RequestException as e:
-                            logger.error(f"获取最终下载链接失败: {e}")
-                            return None
-                    else:
-                        logger.error("未找到ajaxdata")
-            else:
-                logger.error("未找到iframe元素，页面结构可能已改变")
+            except json.JSONDecodeError as e:
+                logger.error(f"解析验证响应失败: {e}")
                 return None
 
         def download_file(url, file_path):
             """下载文件"""
             try:
-                with requests.get(url, stream=True) as r:
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36"}
+                with requests.get(url, stream=True, headers=headers) as r:
                     r.raise_for_status()
                     with open(file_path, 'wb') as f:
                         for chunk in r.iter_content(chunk_size=8192):
@@ -276,7 +231,7 @@ jobs:
             logger.info(f"开始处理: {file_name}")
             
             # 获取真实下载链接
-            download_url = get_real_download_url(share_url, file_name, password)
+            download_url = get_real_download_url(share_url, password)
             if not download_url:
                 logger.error(f"无法获取 {file_name} 的下载链接")
                 return None
