@@ -91,13 +91,12 @@ jobs:
                 file_size="N/A"
               fi
               
-              # 修复HTML实体编码 - 使用正确的格式
-              display_name=$(echo "$key" | sed 's/_/\&#95;/g')
-              echo "| [$display_name](${BASE_URL}${key}) | $file_size | $version | $date |"
+              # 使用纯文本显示文件名，下方添加下载链接
+              echo "| <div>$key</div><div><small>[下载](${BASE_URL}${key})</small></div> | $file_size | $version | $date |"
             done
           } > README.md
           
-          echo "Generated new README.md with correct HTML entity encoding"
+          echo "Generated new README.md with plain text filenames"
 
       - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
