@@ -2,7 +2,7 @@ name: Hiddify APK Sync from Source Repository
 
 on:
   schedule:
-    - cron: '0 */1 * * *'  # 每1小时运行一次
+    - cron: '0 */48 * * *'  # 每48小时运行一次
   workflow_dispatch:
 
 permissions:
