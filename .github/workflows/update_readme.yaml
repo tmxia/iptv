@@ -6,7 +6,7 @@ on:
       - 'version.txt'
       - 'apk/**'
   workflow_run:
-    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM"]
+    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM", "Hiddify APK Sync from Source Repository"]
     types: [completed]
   workflow_dispatch:
 
@@ -91,12 +91,12 @@ jobs:
                 file_size="N/A"
               fi
               
-              # 生成表格行（修复链接格式）
-              echo "| [$key](${BASE_URL}${key}) | ${file_size} | ${version} | ${date} |"
+              # 使用HTML格式避免Markdown下划线问题
+              echo "| <a href=\"${BASE_URL}${key}\">$key</a> | $file_size | $version | $date |"
             done
           } > README.md
           
-          echo "Generated new README.md with file sizes"
+          echo "Generated new README.md with HTML links"
 
       - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
