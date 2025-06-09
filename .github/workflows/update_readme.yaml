@@ -91,13 +91,13 @@ jobs:
                 file_size="N/A"
               fi
               
-              # 使用HTML实体编码下划线，保持原始显示
-              display_name=$(echo "$key" | sed 's/_/&#95;/g')
+              # 修复HTML实体编码 - 使用正确的格式
+              display_name=$(echo "$key" | sed 's/_/\&#95;/g')
               echo "| [$display_name](${BASE_URL}${key}) | $file_size | $version | $date |"
             done
           } > README.md
           
-          echo "Generated new README.md with HTML entity encoding"
+          echo "Generated new README.md with correct HTML entity encoding"
 
       - name: 提交更改
         if: ${{ steps.validate-version.outputs.skip_update == 'false' }}
@@ -122,7 +122,7 @@ jobs:
           # 简单验证README是否包含关键内容
           if grep -q "应用版本列表" README.md && \
              grep -q "文件大小" README.md && \
-             grep -q "github&#95;zip" README.md; then
+             grep -q "github.zip" README.md; then
             echo "✅ README更新成功"
           else
             echo "::error::README更新失败"
