@@ -57,7 +57,7 @@ jobs:
         import time
         import logging
         from datetime import datetime, timedelta, timezone
-        from urllib.parse import urlparse
+        from urllib.parse import urlparse, unquote
 
         # 配置日志
         logging.basicConfig(
@@ -125,131 +125,154 @@ jobs:
                 logger.error("aapt工具未找到，请确保已安装Android SDK工具")
                 return "unknown"
 
+        def extract_params(html):
+            """从HTML中提取所有可能的参数"""
+            params = {}
+            # 尝试提取标准参数
+            sign_match = re.search(r"sign\s*[:=]\s*['\"]?(\w+)['\"]?", html)
+            websign_match = re.search(r"websign\s*[:=]\s*['\"]?(\w+)['\"]?", html)
+            websignkey_match = re.search(r"websignkey\s*[:=]\s*['\"]?(\w+)['\"]?", html)
+            
+            if sign_match: params["sign"] = sign_match.group(1)
+            if websign_match: params["websign"] = websign_match.group(1)
+            if websignkey_match: params["websignkey"] = websignkey_match.group(1)
+            
+            # 尝试提取AJAX数据
+            ajax_match = re.search(r"var ajaxdata\s*=\s*'({.*?})';", html)
+            if ajax_match:
+                try:
+                    ajax_data = json.loads(ajax_match.group(1))
+                    params.update(ajax_data)
+                except json.JSONDecodeError:
+                    logger.warning("无法解析AJAX数据")
+            
+            # 尝试提取隐藏输入字段
+            soup = BeautifulSoup(html, 'html.parser')
+            for input_tag in soup.find_all('input', {'type': 'hidden'}):
+                name = input_tag.get('name')
+                value = input_tag.get('value', '')
+                if name:
+                    params[name] = value
+            
+            return params
+
         def get_real_download_url(share_url, password):
-            """获取蓝奏云文件的真实下载链接（修正版）"""
+            """获取蓝奏云文件的真实下载链接（加强版）"""
             session = requests.Session()
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36",
-                "Referer": share_url
+                "Referer": share_url,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
             }
             
             # 解析分享URL以获取基础域名
-            domain = "www.lanzoui.com"  # 默认域名
             parsed_url = urlparse(share_url)
-            if parsed_url.netloc:
-                domain = parsed_url.netloc
-                if domain.startswith("wfy."):
-                    domain = domain.replace("wfy.", "www.")
+            domain = parsed_url.netloc
+            if not domain:
+                logger.error("无法解析域名")
+                return None
                 
-            # 修正后请求URL
+            # 修正API URL
             api_url = f"https://{domain}/ajaxm.php"
             
-            try:
-                # 1. 获取初始页面
-                res1 = session.get(share_url, headers=headers, cookies=LANZOU_COOKIES)
-                res1.raise_for_status()
-                
-                # 检查是否有密码验证
-                if ("输入密码" in res1.text or "文件需要密码" in res1.text) and password:
-                    logger.info("需要密码验证...")
+            # 重试逻辑
+            max_retries = 3
+            for retry in range(max_retries):
+                try:
+                    # 1. 获取初始页面
+                    logger.info(f"获取分享页面 ({retry+1}/{max_retries})")
+                    res1 = session.get(share_url, headers=headers, cookies=LANZOU_COOKIES)
+                    res1.raise_for_status()
                     
-                    # 从页面提取验证所需参数
-                    sign_match = re.search(r"var link_sign = ['\"]?(\w+)['\"]?;", res1.text)
-                    websign_match = re.search(r"var websign = ['\"]?(\w+)['\"]?;", res1.text)
-                    websignkey_match = re.search(r"var websignkey = ['\"]?(\w+)['\"]?;", res1.text)
+                    # 2. 提取所有可能的参数
+                    params = extract_params(res1.text)
                     
-                    data = {
+                    # 3. 构造提交数据
+                    post_data = {
                         "action": "downprocess",
-                        "p": password
+                        "p": password,
+                        "code": "",  # 可能需要的参数
+                        "web": "0",  # 可能需要的参数
                     }
                     
-                    if sign_match:
-                        data["sign"] = sign_match.group(1)
-                    if websign_match:
-                        data["websign"] = websign_match.group(1)
-                    if websignkey_match:
-                        data["websignkey"] = websignkey_match.group(1)
+                    # 添加提取的参数
+                    for key in ["sign", "t", "k", "websign", "websignkey", "ve", "fid", "uid", "vip"]:
+                        if key in params:
+                            post_data[key] = params[key]
                     
-                    # 备用参数匹配
-                    if not sign_match:
-                        sign_match_alt = re.search(r"sign = '(\w+)'", res1.text)
-                        if sign_match_alt:
-                            data["sign"] = sign_match_alt.group(1)
+                    logger.info(f"提交数据: { {k: v for k, v in post_data.items() if k not in ['p']} }...")
                     
-                    # 提交密码验证
-                    logger.info(f"向API提交请求: {api_url}")
-                    res_verify = session.post(api_url, data=data, headers=headers, cookies=LANZOU_COOKIES)
-                    res_verify.raise_for_status()
+                    # 4. 提交请求
+                    res2 = session.post(
+                        api_url,
+                        data=post_data,
+                        headers={
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "Referer": share_url,
+                            "Origin": f"https://{domain}",
+                            "X-Requested-With": "XMLHttpRequest",
+                        },
+                        cookies=LANZOU_COOKIES
+                    )
+                    res2.raise_for_status()
                     
                     try:
-                        verify_data = res_verify.json()
-                    except json.JSONDecodeError:
-                        logger.error("验证响应不是有效的JSON")
-                        return None
-                    
-                    if verify_data.get("zt") != 1:
-                        logger.error(f"密码验证失败: {verify_data.get('inf', '未知错误')}")
-                        return None
-                    
-                    # 使用验证后返回的链接
-                    download_url = f"https://{verify_data['dom']}/file/{verify_data['url']}"
-                    
-                    # 处理CDN链接
-                    if "//vip." in download_url:
-                        download_url = download_url.replace("//vip.", "//developer.")
-                    
-                else:
-                    # 无密码页面，直接提取下载链接
-                    download_match = re.search(r"\"url\":\"(https?://[^\"]+)\"", res1.text)
-                    if download_match:
-                        download_url = download_match.group(1)
-                    else:
-                        logger.error("无法提取下载链接，尝试备用方法")
-                        # 备用方法提取下载链接
-                        download_match = re.search(r"href=\"(https?://[^\"]+?)[\"']", res1.text)
-                        if download_match:
-                            download_url = download_match.group(1)
-                        else:
-                            logger.error("无法提取下载链接")
+                        json_data = res2.json()
+                        if json_data.get("zt") != 1:
+                            logger.error(f"验证失败: {json_data.get('inf', '未知错误')}")
+                            if "刷新" in json_data.get('inf', '') and retry < max_retries - 1:
+                                logger.info("页面要求刷新，重试中...")
+                                time.sleep(2)  # 等待2秒后重试
+                                continue
                             return None
-                
-                # 获取最终下载链接
-                try:
-                    # 直接下载不需要重定向检查
-                    if "developer.lanzou" in download_url or "vip.lanzou" in download_url:
-                        logger.info(f"获取到开发者CDN下载链接: {download_url}")
-                        return download_url
+                            
+                        # 获取下载URL
+                        download_url = f"https://{json_data['dom']}/file/{json_data['url']}"
+                        if "vip." in download_url:
+                            download_url = download_url.replace("vip.", "developer.")
+                            
+                        logger.info(f"获取到下载URL: {download_url}")
+                        
+                        # 5. 获取最终下载链接
+                        res3 = session.get(download_url, headers=headers, allow_redirects=False)
+                        if res3.status_code == 302:
+                            final_url = res3.headers['Location']
+                            logger.info(f"解析到最终下载链接: {final_url}")
+                            return final_url
+                        else:
+                            return download_url
                     
-                    # 对于普通链接需要检查重定向
-                    res_download = session.get(download_url, headers=headers, allow_redirects=False)
-                    if res_download.status_code in [301, 302]:
-                        real_url = res_download.headers.get("Location")
-                        if real_url:
-                            logger.info(f"获取到真实下载链接: {real_url}")
-                            return real_url
-                    
-                    return download_url
+                    except json.JSONDecodeError:
+                        logger.error("响应不是有效的JSON")
+                        return None
+                        
                 except requests.RequestException as e:
-                    logger.error(f"获取下载链接失败: {e}")
-                    return None
+                    logger.error(f"请求失败: {e}")
+                    if retry < max_retries - 1:
+                        logger.info("等待2秒后重试...")
+                        time.sleep(2)
                     
-            except requests.RequestException as e:
-                logger.error(f"获取分享页面失败: {e}")
-                return None
+            return None
 
         def download_file(url, file_path):
             """下载文件"""
             try:
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36",
-                    "Referer": "https://www.lanzoui.com/"
+                    "Referer": "https://www.lanzoui.com/",
+                    "Accept-Encoding": "gzip, deflate, br",
                 }
-                with requests.get(url, stream=True, headers=headers) as r:
+                
+                with requests.get(url, stream=True, headers=headers, timeout=30) as r:
                     r.raise_for_status()
+                    
                     # 检查文件大小
                     file_size = int(r.headers.get('Content-Length', 0))
-                    if file_size < 1024:
-                        logger.error(f"下载文件大小无效: {file_size} 字节")
+                    if file_size < 100 * 1024:  # 小于100KB视为无效
+                        logger.error(f"文件大小异常: {file_size} 字节")
                         return False
                     
                     # 下载文件
@@ -257,7 +280,9 @@ jobs:
                         for chunk in r.iter_content(chunk_size=8192):
                             if chunk:
                                 f.write(chunk)
-                return True
+                                
+                    return True
+                    
             except requests.RequestException as e:
                 logger.error(f"文件下载失败: {e}")
                 return False
