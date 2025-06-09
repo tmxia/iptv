@@ -1,8 +1,6 @@
 name: Ku9 APK Sync from LanZou Cloud
 
 on:
-  schedule:
-  
   workflow_dispatch:
 
 concurrency:
