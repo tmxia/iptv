@@ -65,7 +65,9 @@ jobs:
           echo "错误: 无法提取稳定版发布信息"
           exit 1
         fi
-        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        
+        # 修正版本前缀：确保以v开头（小写）
+        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name | if startswith("V") then "v" + .[1:] elif startswith("v") then . else "v" + . end')
         # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
         STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
         STABLE_DATE=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
@@ -77,7 +79,8 @@ jobs:
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+          # 修正版本前缀：确保以v开头（小写）
+          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name | if startswith("V") then "v" + .[1:] elif startswith("v") then . else "v" + . end')
           # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
           PRE_RELEASE_PUBLISHED_AT=$(echo "$LATEST_PRE_RELEASE" | jq -r '.published_at')
           PRE_RELEASE_DATE=$(TZ=UTC date -d "$PRE_RELEASE_PUBLISHED_AT" +'%Y-%m-%d')
@@ -108,19 +111,23 @@ jobs:
             # 解析稳定版版本和日期
             STABLE_FULL_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".\"$STABLE_KEY_NAME\"")
             if [ "$STABLE_FULL_VALUE" != "null" ] && [[ "$STABLE_FULL_VALUE" == *,* ]]; then
-              CURRENT_STABLE_VERSION=$(echo "$STABLE_FULL_VALUE" | cut -d, -f1)
+              # 修正版本前缀（处理大写的V开头）
+              CURRENT_STABLE_VERSION=$(echo "$STABLE_FULL_VALUE" | cut -d, -f1 | sed -E 's/^V/v/; s/^([^v])/v\1/')
               CURRENT_STABLE_DATE=$(echo "$STABLE_FULL_VALUE" | cut -d, -f2)
             else
-              CURRENT_STABLE_VERSION=$STABLE_FULL_VALUE
+              # 修正版本前缀（处理大写的V开头）
+              CURRENT_STABLE_VERSION=$(echo "$STABLE_FULL_VALUE" | sed -E 's/^V/v/; s/^([^v])/v\1/')
             fi
             
             # 解析预发行版版本和日期
             PRE_RELEASE_FULL_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"")
             if [ "$PRE_RELEASE_FULL_VALUE" != "null" ] && [[ "$PRE_RELEASE_FULL_VALUE" == *,* ]]; then
-              CURRENT_PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_FULL_VALUE" | cut -d, -f1)
+              # 修正版本前缀（处理大写的V开头）
+              CURRENT_PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_FULL_VALUE" | cut -d, -f1 | sed -E 's/^V/v/; s/^([^v])/v\1/')
               CURRENT_PRE_RELEASE_DATE=$(echo "$PRE_RELEASE_FULL_VALUE" | cut -d, -f2)
             else
-              CURRENT_PRE_RELEASE_VERSION=$PRE_RELEASE_FULL_VALUE
+              # 修正版本前缀（处理大写的V开头）
+              CURRENT_PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_FULL_VALUE" | sed -E 's/^V/v/; s/^([^v])/v\1/')
             fi
           else
             echo "警告: 版本文件格式无效，重置为JSON格式"
@@ -142,7 +149,7 @@ jobs:
           local current_version="$4"
           
           # 检查是否需要更新
-          local latest_version=$(echo "$release_json" | jq -r '.tag_name')
+          local latest_version=$(echo "$release_json" | jq -r '.tag_name | if startswith("V") then "v" + .[1:] elif startswith("v") then . else "v" + . end')
           
           # 检查目标仓库中APK文件是否存在
           echo "检查目标仓库中APK文件是否存在: $target_filename..."
