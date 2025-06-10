@@ -163,8 +163,8 @@ jobs:
               return 1
             fi
             
-            # 返回成功和需要更新的标志
-            return 0
+            # 返回需要更新的标志
+            return 1  # 1表示需要更新
           else
             # 不需要更新 - 返回0表示成功
             return 0
@@ -176,18 +176,15 @@ jobs:
         echo "===== 处理稳定版 ====="
         check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION"
         STABLE_RESULT=$?
-        if [ $STABLE_RESULT -eq 0 ]; then
-          # 检查是否需要更新（通过文件内容判断）
-          if [ -f "$STABLE_TARGET_FILENAME" ]; then
-            STABLE_NEED_UPDATE=true
-            NEW_STABLE_VERSION="$STABLE_VERSION"
-            NEW_STABLE_DATE="$STABLE_DATE"
-            echo "稳定版需要更新"
-          else
-            NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
-            NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
-            echo "稳定版无需更新"
-          fi
+        if [ $STABLE_RESULT -eq 1 ]; then
+          STABLE_NEED_UPDATE=true
+          NEW_STABLE_VERSION="$STABLE_VERSION"
+          NEW_STABLE_DATE="$STABLE_DATE"
+          echo "稳定版需要更新"
+        elif [ $STABLE_RESULT -eq 0 ]; then
+          NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
+          NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
+          echo "稳定版无需更新"
         else
           echo "错误: 稳定版处理失败"
           exit 1
@@ -199,17 +196,15 @@ jobs:
           echo "===== 处理预发行版 ====="
           check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION"
           PRE_RELEASE_RESULT=$?
-          if [ $PRE_RELEASE_RESULT -eq 0 ]; then
-            if [ -f "$PRE_RELEASE_TARGET_FILENAME" ]; then
-              PRE_RELEASE_NEED_UPDATE=true
-              NEW_PRE_RELEASE_VERSION="$PRE_RELEASE_VERSION"
-              NEW_PRE_RELEASE_DATE="$PRE_RELEASE_DATE"
-              echo "预发行版需要更新"
-            else
-              NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
-              NEW_PRE_RELEASE_DATE="$CURRENT_PRE_RELEASE_DATE"
-              echo "预发行版无需更新"
-            fi
+          if [ $PRE_RELEASE_RESULT -eq 1 ]; then
+            PRE_RELEASE_NEED_UPDATE=true
+            NEW_PRE_RELEASE_VERSION="$PRE_RELEASE_VERSION"
+            NEW_PRE_RELEASE_DATE="$PRE_RELEASE_DATE"
+            echo "预发行版需要更新"
+          elif [ $PRE_RELEASE_RESULT -eq 0 ]; then
+            NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
+            NEW_PRE_RELEASE_DATE="$CURRENT_PRE_RELEASE_DATE"
+            echo "预发行版无需更新"
           else
             echo "错误: 预发行版处理失败"
             exit 1
@@ -232,23 +227,40 @@ jobs:
 
         echo "更新后的版本文件内容:"
         echo "$NEW_VERSION_CONTENT"
-        echo "$NEW_VERSION_CONTENT" > version.txt
+        
+        # 检查版本内容是否变化
+        echo "$NEW_VERSION_CONTENT" > "$WORK_DIR/new_version.txt"
+        VERSION_CHANGED=true
+        if [ -f "$VERSION_FILE" ]; then
+          if diff -q "$WORK_DIR/new_version.txt" "$VERSION_FILE" >/dev/null; then
+            echo "版本文件内容未变化"
+            VERSION_CHANGED=false
+          fi
+        fi
+        
+        if $VERSION_CHANGED; then
+          echo "$NEW_VERSION_CONTENT" > version.txt
+        fi
 
         # 检查是否有需要提交的更改
         CHANGES_DETECTED=false
         if [ "$STABLE_NEED_UPDATE" = true ] || [ "$PRE_RELEASE_NEED_UPDATE" = true ]; then
           CHANGES_DETECTED=true
         fi
-
-        # 检查版本文件是否有变化
-        if ! git diff --quiet -- version.txt; then
+        
+        if $VERSION_CHANGED; then
           CHANGES_DETECTED=true
         fi
 
         # 提交并推送更改
         if [ "$CHANGES_DETECTED" = true ]; then
           echo "提交更改到Git仓库..."
-          git add apk/* version.txt
+          git add apk/* 
+          
+          if $VERSION_CHANGED; then
+            git add version.txt
+          fi
+          
           git commit -m "更新APK: 稳定版=$NEW_STABLE_VERSION, 预发行版=$NEW_PRE_RELEASE_VERSION"
           
           # 重试推送机制
