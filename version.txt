@@ -17,5 +17,7 @@
   "proxypin.apk": "v1.1.9,2025-05-17",
   "proxypin-win.zip": "v1.1.9,2025-05-17",
   "hiddify.apk": "v2.0.5,2024-07-31",
-  "hiddify-beta.apk": "v2.5.7,2024-10-03"
+  "hiddify-beta.apk": "v2.5.7,2024-10-03",
+  "termux.apk": "v0.118.3,2025-05-22",
+  "termux-beta.apk": "v0.119.0-beta.3,2025-05-22"
 }
