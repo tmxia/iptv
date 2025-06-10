@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout current repository
-      uses: actions/checkout@v3
+      uses极客: actions/checkout@v3
 
     - name: Install dependencies
       run: |
@@ -45,8 +45,8 @@ jobs:
         RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" \
                   "https://api.github.com/repos/$TARGET_REPO")
         if [ "$RESPONSE" != "200" ]; then
-          echo "错误: 令牌无效 (HTTP $RESPONSE)"
-          echo "请检查工作流权限设置"
+          echo "错误: 令牌无效 (HTTP $极客RESPONSE)"
+          echo "请极客检查工作流权限设置"
           exit 1
         fi
 
@@ -66,7 +66,7 @@ jobs:
           echo "错误: 无法提取稳定版发布信息"
           exit 1
         fi
-        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -极客 r '.tag_name')
         # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
         STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
         STABLE_DATE=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
@@ -78,11 +78,12 @@ jobs:
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
+          # 去除预发布版本的后缀部分（如"-beta.3"）
+          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name' | sed -E 's/-[^0-9].*$//')
           # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
           PRE_RELEASE_PUBLISHED_AT=$(echo "$LATEST_PRE_RELEASE" | jq -r '.published_at')
           PRE_RELEASE_DATE=$(TZ=UTC date -d "$PRE_RELEASE_PUBLISHED_AT" +'%Y-%m-%d')
-          echo "源仓库最新预发行版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE)"
+          echo "源仓库最新预发行版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE) - 原始版本: $(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')"
           SYNC_PRE_RELEASE=true
         fi
 
@@ -135,16 +136,16 @@ jobs:
         echo "目标仓库当前稳定版版本: $CURRENT_STABLE_VERSION (日期: $CURRENT_STABLE_DATE)"
         echo "目标仓库当前预发行版版本: $CURRENT_PRE_RELEASE_VERSION (日期: $CURRENT_PRE_RELEASE_DATE)"
 
-        # 函数：检查并下载APK
+        # 函数：检查并下载APK（添加日期比较逻辑）
         check_and_download_apk() {
           local release_json="$1"
           local target_filename="$2"
           local key_name="$3"
           local current_version="$4"
-          local apk_pattern="$5"  # 新增：APK文件匹配模式
-          
-          # 检查是否需要更新
-          local latest_version=$(echo "$release_json" | jq -r '.tag_name')
+          local current_date="$5"
+          local release_version="$6"
+          local release_date="$7"
+          local apk_pattern="$8"  # 新增：APK文件匹配模式
           
           # 检查目标仓库中APK文件是否存在
           echo "检查目标仓库中APK文件是否存在: $target_filename..."
@@ -164,8 +165,8 @@ jobs:
           local need_update=false
           
           # 情况1: 版本号不匹配
-          if [ "$latest_version" != "$current_version" ]; then
-            echo "发现新版本: $latest_version (当前: $current_version)"
+          if [ "$release_version" != "$current_version" ]; then
+            echo "发现新版本: $release_version (当前: $current_version)"
             need_update=true
           # 情况2: 版本号匹配但文件不存在
           elif [ "$apk_exists" = false ]; then
@@ -175,8 +176,20 @@ jobs:
           elif [ -z "$current_version" ]; then
             echo "版本文件无效，需要更新"
             need_update=true
+          # 情况4: 版本号相同但发布日期更新 (新增)
+          elif [ -n "$release_date" ] && [ -n "$current_date" ] && [ "$release_date" != "$current_date" ]; then
+            # 将日期转换为时间戳进行比较
+            release_timestamp=$(date -d "$release_date" +%s)
+            current_timestamp=$(date -d "$current_date" +%s)
+            
+            if [ $release_timestamp -gt $current_timestamp ]; then
+                echo "版本相同，但发布日期更新: $release_date (当前: $current_date)"
+                need_update=true
+            else
+                echo "版本相同且发布日期相同或更旧 ($release_date <= $current_date)"
+            fi
           else
-            echo "版本相同 ($latest_version) 且APK文件存在，无需更新"
+            echo "版本相同 ($release_version) 且发布日期相同，无需更新"
           fi
           
           # 如果需要更新，下载APK
@@ -275,7 +288,8 @@ jobs:
         # 处理稳定版
         STABLE_NEED_UPDATE=false
         echo "===== 处理稳定版 ====="
-        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN"
+        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" \
+            "$CURRENT_STABLE_VERSION" "$CURRENT_STABLE_DATE" "$STABLE_VERSION" "$STABLE_DATE" "$STABLE_APK_PATTERN"
         STABLE_RESULT=$?
         if [ $STABLE_RESULT -eq 0 ]; then
           # 检查是否需要更新（通过文件内容判断）
@@ -286,7 +300,7 @@ jobs:
             echo "稳定版需要更新"
           else
             NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
-            NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
+            NEW_STABLE_DATE="$极客CURRENT_STABLE_DATE"
             echo "稳定版无需更新"
           fi
         else
@@ -298,7 +312,8 @@ jobs:
         PRE_RELEASE_NEED_UPDATE=false
         if [ "$SYNC_PRE_RELEASE" = true ]; then
           echo "===== 处理预发行版 ====="
-          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN"
+          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" \
+              "$CURRENT_PRE_RELEASE_VERSION" "$CURRENT_PRE_RELEASE_DATE" "$PRE_RELEASE_VERSION" "$PRE_RELEASE_DATE" "$PRE_RELEASE_APK_PATTERN"
           PRE_RELEASE_RESULT=$?
           if [ $PRE_RELEASE_RESULT -eq 0 ]; then
             if [ -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" ]; then
@@ -392,7 +407,7 @@ jobs:
         echo "同步完成! 状态: 成功"
         echo "稳定版: $STABLE_TARGET_FILENAME ($NEW_STABLE_VERSION, $NEW_STABLE_DATE) - 文件匹配规则: $STABLE_APK_PATTERN"
         if [ "$SYNC_PRE_RELEASE" = true ]; then
-          echo "预发行版: $PRE_RELEASE_TARGET_FILENAME ($NEW_PRE_RELEASE_VERSION, $NEW_PRE_RELEASE_DATE) - 文件匹配规则: $PRE_RELEASE_APK_PATTERN"
+          echo "预发行版: $PRE_RELEASE_TARGET_FILENAME ($NEW_PRE_RELEASE_VERSION, $NEW_PRE_RELEASE_DATE) - 原始预发布版本: $(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')"
         fi
         
         # 总是以成功状态退出
