@@ -1,4 +1,4 @@
-name: MYTV APK Sync from Source Repository
+name: Termux APK Sync from Source Repository
 
 on:
   schedule:
@@ -23,12 +23,12 @@ jobs:
         
     - name: Run APK sync script
       env:
-        SOURCE_REPO: "mytv-android/mytv-android"
+        SOURCE_REPO: "termux/termux-app"
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        APK_PATTERN: "armeabi-v7a-sdk21-original.apk"
-        STABLE_KEY_NAME: "mytv-tv.apk"
-        PRE_RELEASE_KEY_NAME: "mytv-tv-beta.apk"
+        APK_PATTERN: "debug_arm64-v8a.apk"
+        STABLE_KEY_NAME: "termux.apk"
+        PRE_RELEASE_KEY_NAME: "termux-beta.apk"
       run: |
         # 从环境变量获取配置
         STABLE_TARGET_FILENAME="apk/$STABLE_KEY_NAME"
@@ -411,5 +411,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "MYTV APK Sync from Source Repository"
+          delete_workflow_pattern: "Termux APK Sync from Source Repository"
           repository: ${{ github.repository }}
