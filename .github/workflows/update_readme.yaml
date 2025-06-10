@@ -66,7 +66,7 @@ jobs:
           {
             echo "# 应用版本列表"
             echo ""
-            echo "最后更新: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "最后更新: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S') (北京时间)"
             echo ""
             echo "| 文件名称 | 文件大小(M) | 版本号 | 更新日期 |"
             echo "|----------|------------|--------|----------|"
