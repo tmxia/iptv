@@ -110,46 +110,241 @@ jobs:
         
         if [ "$need_update" = false ]; then
           echo "版本相同且文件存在，无需更新"
-          exit 0
-        fi
-
-        # 下载新版本文件
-        echo "下载新版本文件..."
-        
-        # 查找Android APK文件
-        apk_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
-        if [ -z "$apk_download_url" ]; then
-          echo "错误: 未找到匹配的Android APK文件"
-          exit 1
-        fi
-        
-        # 确保apk目录存在
-        mkdir -p apk
-        
-        # 下载Android APK
-        apk_source_name=$(basename "$apk_download_url")
-        echo "下载Android APK: $apk_source_name"
-        curl -sL "$apk_download_url" -o "$WORK_DIR/$apk_source_name"
-        if [ ! -f "$WORK_DIR/$apk_source_name" ]; then
-          echo "错误: Android APK下载失败"
-          exit 1
-        fi
-        
-        # 重命名并移动到目标位置
-        mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH"
-        echo "文件已保存到: $ANDROID_TARGET_PATH"
-
-        # 更新版本文件（保留其他键值，添加日期）
-        UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
-          --arg android_key "$ANDROID_TARGET_NAME" \
-          --arg android_value "$STABLE_VERSION,$RELEASE_DATE" \
-          '.[$android_key] = $android_value')
+          # 继续执行后续步骤（测试版同步）
+        else
+          # 下载新版本文件
+          echo "下载新版本文件..."
           
-        echo "$UPDATED_VERSION_JSON" > version.txt
+          # 查找Android APK文件
+          apk_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
+          if [ -z "$apk_download_url" ]; then
+            echo "错误: 未找到匹配的Android APK文件"
+            exit 1
+          fi
+          
+          # 确保apk目录存在
+          mkdir -p apk
+          
+          # 下载Android APK
+          apk_source_name=$(basename "$apk_download_url")
+          echo "下载Android APK: $apk_source_name"
+          curl -sL "$apk_download_url" -o "$WORK_DIR/$apk_source_name"
+          if [ ! -f "$WORK_DIR/$apk_source_name" ]; then
+            echo "错误: Android APK下载失败"
+            exit 1
+          fi
+          
+          # 重命名并移动到目标位置
+          mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH"
+          echo "文件已保存到: $ANDROID_TARGET_PATH"
 
-        # 添加所有更改
-        git add apk/ version.txt
+          # 更新版本文件（保留其他键值，添加日期）
+          UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
+            --arg android_key "$ANDROID_TARGET_NAME" \
+            --arg android_value "$STABLE_VERSION,$RELEASE_DATE" \
+            '.[$android_key] = $android_value')
+            
+          echo "$UPDATED_VERSION_JSON" > version.txt
+        fi
+
+    - name: Set up Python for Beta Sync
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Python dependencies for Beta Sync
+      run: |
+        pip install telethon requests pytz
+
+    - name: Sync Beta from Telegram
+      env:
+        TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+        TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+        TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL || 'NagramX' }}
+        BETA_APK_PATTERN: "arm64-v8a.apk"
+        BETA_TARGET_NAME: "nagramx-beta.apk"
+      run: |
+        python - << "EOF"
+        import os
+        import json
+        import sys
+        import re
+        import time
+        import logging
+        from datetime import datetime
+        from telethon import TelegramClient
+        from telethon.sessions import StringSession
+        from telethon.tl.types import DocumentAttributeFilename
+        import pytz
         
+        # 配置参数
+        BETA_APK_PATTERN = os.environ.get("BETA_APK_PATTERN", "arm64-v8a.apk")
+        BETA_TARGET_NAME = os.environ.get("BETA_TARGET_NAME", "nagramx-beta.apk")
+        APK_DIR = "apk"
+        WORK_DIR = os.path.join(os.getcwd(), "temp_beta_apk")
+        os.makedirs(WORK_DIR, exist_ok=True)
+        
+        # 配置日志
+        logging.basicConfig(
+            level=logging.INFO,
+            format='[%(asctime)s] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        log = logging.getLogger()
+        
+        def parse_beta_version(filename):
+            """从文件名解析测试版版本号"""
+            # 示例文件名: NagramX-v11.12.0-19b801a(1211)-arm64-v8a.apk
+            pattern = r'NagramX-v(\d+\.\d+\.\d+)-([a-f0-9]+)\(\d+\)-arm64-v8a\.apk'
+            match = re.search(pattern, filename)
+            if match:
+                main_ver = match.group(1)
+                commit_ver = match.group(2)
+                return f"v{main_ver}-{commit_ver}"
+            return None
+        
+        async def get_latest_beta_apk(client, channel_name):
+            """获取最新的测试版APK文件"""
+            try:
+                log.info(f"连接Telegram频道: {channel_name}")
+                entity = await client.get_entity(channel_name)
+                
+                latest_apk = None
+                latest_date = None
+                
+                # 获取最新的100条消息
+                async for message in client.iter_messages(entity, limit=100):
+                    if message.media:
+                        for attr in message.media.document.attributes:
+                            if isinstance(attr, DocumentAttributeFilename):
+                                filename = attr.file_name
+                                if BETA_APK_PATTERN in filename:
+                                    # 解析版本号
+                                    beta_version = parse_beta_version(filename)
+                                    if not beta_version:
+                                        log.warning(f"无法解析版本号: {filename}, 跳过")
+                                        continue
+                                    
+                                    # 记录最新文件
+                                    if not latest_apk or message.date > latest_date:
+                                        latest_apk = {
+                                            "message": message,
+                                            "filename": filename,
+                                            "version": beta_version
+                                        }
+                                        latest_date = message.date
+                return latest_apk
+            except Exception as e:
+                log.error(f"获取Telegram消息失败: {str(e)}")
+                return None
+        
+        async def download_apk(client, message, filename):
+            """下载APK文件到临时目录"""
+            download_path = os.path.join(WORK_DIR, filename)
+            log.info(f"开始下载: {filename}")
+            start_time = time.time()
+            await client.download_media(message, file=download_path)
+            elapsed = time.time() - start_time
+            log.info(f"下载完成, 耗时: {elapsed:.2f}秒")
+            return download_path
+        
+        def get_current_versions():
+            """获取当前版本信息"""
+            version_path = os.path.join(os.getcwd(), "version.txt")
+            if os.path.exists(version_path):
+                try:
+                    with open(version_path, "r") as f:
+                        return json.load(f)
+                except:
+                    log.warning("版本文件格式错误，将重置")
+            return {}
+        
+        def update_version_file(apk_key, version, date_str):
+            """更新版本文件"""
+            version_path = os.path.join(os.getcwd(), "version.txt")
+            current_versions = get_current_versions()
+            current_versions[apk_key] = f"{version},{date_str}"
+            
+            with open(version_path, "w") as f:
+                json.dump(current_versions, f, indent=2)
+            log.info(f"更新版本文件: {apk_key} = {version},{date_str}")
+        
+        async def main():
+            # 验证环境变量
+            required_env = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION']
+            missing = [var for var in required_env if not os.environ.get(var)]
+            if missing:
+                log.error(f"缺少环境变量: {', '.join(missing)}")
+                return 1
+            
+            # 连接Telegram
+            client = TelegramClient(
+                StringSession(os.environ['TELEGRAM_SESSION']),
+                int(os.environ['TELEGRAM_API_ID']),
+                os.environ['TELEGRAM_API_HASH']
+            )
+            
+            try:
+                await client.start()
+                
+                # 获取频道名称
+                channel_name = os.environ.get('TELEGRAM_CHANNEL', 'NagramX')
+                
+                # 获取最新的测试版APK
+                beta_apk = await get_latest_beta_apk(client, channel_name)
+                if not beta_apk:
+                    log.info("未找到测试版APK文件")
+                    return 0
+                
+                log.info(f"找到测试版APK: {beta_apk['filename']}, 版本: {beta_apk['version']}")
+                
+                # 获取当前版本
+                current_versions = get_current_versions()
+                current_beta = current_versions.get(BETA_TARGET_NAME, "")
+                current_beta_ver = current_beta.split(',')[0] if current_beta else ""
+                
+                # 转换日期为北京时间 (YYYY-MM-DD)
+                utc8 = pytz.timezone('Asia/Shanghai')
+                release_date = beta_apk['message'].date.astimezone(utc8)
+                date_str = release_date.strftime('%Y-%m-%d')
+                
+                # 检查是否需要更新
+                if current_beta_ver == beta_apk['version']:
+                    log.info(f"测试版已是最新版本: {beta_apk['version']}")
+                    return 0
+                
+                # 下载APK
+                apk_path = await download_apk(client, beta_apk['message'], beta_apk['filename'])
+                if not os.path.exists(apk_path):
+                    log.error("APK下载失败")
+                    return 1
+                
+                # 确保目录存在
+                os.makedirs(APK_DIR, exist_ok=True)
+                target_path = os.path.join(APK_DIR, BETA_TARGET_NAME)
+                
+                # 移动并重命名文件
+                os.rename(apk_path, target_path)
+                log.info(f"测试版APK已保存到: {target_path}")
+                
+                # 更新版本文件
+                update_version_file(BETA_TARGET_NAME, beta_apk['version'], date_str)
+                return 0
+                
+            except Exception as e:
+                log.error(f"处理过程中出错: {str(e)}")
+                return 1
+            finally:
+                await client.disconnect()
+        
+        if __name__ == "__main__":
+            import asyncio
+            sys.exit(asyncio.run(main()))
+        EOF
+
+    - name: Commit changes
+      run: |
         # 检查是否有更改
         if git diff-index --quiet HEAD --; then
           echo "没有需要提交的更改"
@@ -157,11 +352,12 @@ jobs:
         fi
 
         # 提交更改
-        git commit -m "更新稳定版本: $STABLE_VERSION (日期: $RELEASE_DATE)"
+        git add apk/ version.txt
+        git commit -m "同步NagramX更新"
         
         # 推送到远程仓库
         echo "推送到远程仓库..."
-        git remote set-url origin https://x-access-token:$TOKEN@github.com/${{ github.repository }}.git
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         git push origin HEAD:${{ github.ref }}
         
         if [ $? -eq 0 ]; then
@@ -170,10 +366,6 @@ jobs:
           echo "错误: 推送失败"
           exit 1
         fi
-
-        echo "同步完成! 状态: 成功"
-        echo "Android文件: $ANDROID_TARGET_PATH ($STABLE_VERSION, $RELEASE_DATE)"
-        exit 0
 
   cleanup_self:
     name: Cleanup Self Workflow History
