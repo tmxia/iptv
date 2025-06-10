@@ -15,6 +15,8 @@ jobs:
   detect-and-notify:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      TZ: Asia/Shanghai  # 设置为北京时间
     concurrency: 
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -37,7 +39,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake libgit2-dev
-        pip install telethon pygit2
+        pip install telethon pygit2 pytz
 
     - name: Run enhanced detection script
       env:
@@ -61,11 +63,15 @@ jobs:
         import smtplib
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
-        from datetime import datetime
+        from datetime import datetime, timezone, timedelta
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         from urllib.parse import quote
         import json
+        import pytz
+        
+        # 设置为北京时间
+        BJT_ZONE = pytz.timezone('Asia/Shanghai')
         
         # 获取准确版本号（从version.txt）
         def get_accurate_version(filename):
@@ -143,7 +149,8 @@ jobs:
                     # 构建简洁消息
                     message = "🚀 **实时文件更新通知**\n\n"
                     message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n"
-                    message += f"🆔 提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\n\n"
+                    message += f"🆔 提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\n"
+                    message += f"🕒 更新时间: {datetime.now(BJT_ZONE).strftime('%Y-%m-%d %H:%M BJT')}\n\n"
                     
                     # 添加文件列表
                     for file in files:
@@ -152,7 +159,7 @@ jobs:
                         file_type = get_file_type(file['path'])
                         message += f"{icon} **{file_type}**: `{file['name']}`\n"
                         message += f"  - 版本: `{file['version']}`\n"
-                        message += f"  - 更新: `{file['date']}`\n"
+                        message += f"  - 更新时间: `{file['date']}`\n"
                         message += f"  - [下载文件]({file['url']})\n\n"
                     
                     await client.send_message(
@@ -183,13 +190,20 @@ jobs:
                 # 构建邮件主题和内容
                 subject = f"实时文件更新通知 - {os.getenv('GITHUB_REPOSITORY')}"
                 
+                # 获取当前北京时间
+                current_time = datetime.now(BJT_ZONE).strftime("%Y-%m-%d %H:%M:%S")
+                
                 # HTML格式的邮件内容
                 html_content = f"""
                 <html>
+                <head>
+                  <meta charset="UTF-8">
+                </head>
                 <body>
                     <h2>🚀 实时文件更新通知</h2>
                     <p><strong>🔖 仓库:</strong> {os.getenv('GITHUB_REPOSITORY')}</p>
                     <p><strong>🆔 提交:</strong> <a href="https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')}">{os.getenv('GITHUB_SHA')[:7]}</a></p>
+                    <p><strong>🕒 报告时间:</strong> {current_time} (北京时间)</p>
                     <p><strong>📦 检测到 {len(files)} 个文件更新:</strong></p>
                     <ul>
                 """
@@ -203,7 +217,7 @@ jobs:
                         <p><strong>{icon} {file_type}: {file['name']}</strong></p>
                         <ul>
                             <li><strong>版本:</strong> {file['version']}</li>
-                            <li><strong>更新日期:</strong> {file['date']}</li>
+                            <li><strong>更新时间:</strong> {file['date']}</li>
                             <li><strong>下载地址:</strong> 
                                 <a href="{file['url']}">原始地址</a> | 
                                 <a href="{proxy_urls['gh-proxy']}">gh-proxy</a> | 
@@ -222,13 +236,15 @@ jobs:
                 
                 # 创建邮件
                 msg = MIMEMultipart()
-                msg['From'] = smtp_user
+                msg['From'] = f"GitHub Monitor <{smtp_user}>"
                 msg['To'] = receiver_email
                 msg['Subject'] = subject
                 msg.attach(MIMEText(html_content, 'html'))
                 
                 # 使用SSL连接SMTP服务器
-                server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+                server = smtplib.SMTP(smtp_server, smtp_port)
+                if smtp_port == 587:
+                    server.starttls()  # 启用TLS加密
                 server.login(smtp_user, smtp_password)
                 server.sendmail(smtp_user, receiver_email, msg.as_string())
                 server.quit()
@@ -242,6 +258,11 @@ jobs:
                 print(f"❌ 邮件发送失败: {str(e)}")
                 return False
         
+        def to_beijing_time(utc_timestamp):
+            """UTC时间戳转北京时间"""
+            utc_dt = datetime.utcfromtimestamp(utc_timestamp).replace(tzinfo=timezone.utc)
+            return utc_dt.astimezone(BJT_ZONE)
+        
         def main():
             print("🚀 开始实时监控目录变更...")
             repo = pygit2.Repository('.')
@@ -249,6 +270,11 @@ jobs:
             # 获取当前提交
             head_commit = repo.head.peel()
             print(f"当前提交: {head_commit.id}")
+            print(f"提交时间 (UTC): {datetime.utcfromtimestamp(head_commit.commit_time)}")
+            
+            # 转换为北京时间
+            commit_time_bj = to_beijing_time(head_commit.commit_time)
+            print(f"提交时间 (北京): {commit_time_bj}")
             
             # 获取父提交
             parent_commits = head_commit.parents
@@ -284,8 +310,8 @@ jobs:
                 # 获取文件名
                 filename = os.path.basename(file_path)
                 
-                # 获取更新时间 (转换为UTC时间)
-                commit_time = datetime.utcfromtimestamp(head_commit.commit_time).strftime('%Y-%m-%d %H:%M UTC')
+                # 获取更新时间 (使用提交时间)
+                file_time = to_beijing_time(head_commit.commit_time)
                 
                 # 构建原始下载URL
                 encoded_path = quote(file_path)
@@ -306,7 +332,7 @@ jobs:
                     "path": file_path,
                     "name": filename,
                     "version": version,
-                    "date": commit_time,
+                    "date": file_time.strftime('%Y-%m-%d %H:%M BJT'),
                     "url": raw_url,
                     "version_source": version_source
                 })
