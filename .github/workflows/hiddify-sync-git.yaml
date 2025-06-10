@@ -63,7 +63,7 @@ jobs:
 
         # 提取最新稳定版
         LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]')
-        if [ -z "$LATEST_STABLE_RELEASE"] || [ "$LATEST_STABLE_RELEASE" = "null" ]; then
+        if [ -z "$LATEST_STABLE_RELEASE" ] || [ "$LATEST_STABLE_RELEASE" = "null" ]; then
           echo "错误: 无法提取稳定版发布信息"
           exit 1
         fi
@@ -79,12 +79,11 @@ jobs:
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          # 修改预发布版本号，去除后缀部分（如"-beta.3"）
-          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name' | sed -E 's/-[^0-9].*$//')
+          PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
           # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
           PRE_RELEASE_PUBLISHED_AT=$(echo "$LATEST_PRE_RELEASE" | jq -r '.published_at')
           PRE_RELEASE_DATE=$(TZ=UTC date -d "$PRE_RELEASE_PUBLISHED_AT" +'%Y-%m-%d')
-          echo "源仓库最新预发行版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE) - 原始版本: $(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')"
+          echo "源仓库最新预发行版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE)"
           SYNC_PRE_RELEASE=true
         fi
 
@@ -116,7 +115,7 @@ jobs:
           local current_version="$4"
           
           # 检查是否需要更新
-          local latest_version=$(echo "$release_json" | jq -r '.tag_name' | sed -E 's/-[^0-9].*$//')
+          local latest_version=$(echo "$release_json" | jq -r '.tag_name')
           
           # 检查本地APK文件是否存在
           echo "检查本地APK文件是否存在: $target_filename..."
@@ -270,7 +269,7 @@ jobs:
           for i in $(seq 1 $MAX_RETRIES); do
             echo "推送更改 (尝试 $i/$MAX_RETRIES)..."
             git pull --rebase origin $(git rev-parse --abbrev-ref HEAD)
-            if git push origin $(极客rev-parse --abbrev-ref HEAD); then
+            if git push origin $(git rev-parse --abbrev-ref HEAD); then
               echo "推送成功"
               break
             else
@@ -287,9 +286,9 @@ jobs:
         fi
 
         echo "同步完成! 状态: 成功"
-        echo "稳定版: $STABLE_TARGET_FILENAME ($NEW_STABLE_VERSION, $NEW极客_STABLE_DATE)"
+        echo "稳定版: $STABLE_TARGET_FILENAME ($NEW_STABLE_VERSION, $NEW_STABLE_DATE)"
         if [ "$SYNC_PRE_RELEASE" = true ]; then
-          echo "预发行版: $PRE_RELEASE_TARGET_FILENAME ($NEW_PRE_RELEASE_VERSION, $NEW_PRE_RELEASE_DATE) - 原始预发布版本: $(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')"
+          echo "预发行版: $PRE_RELEASE_TARGET_FILENAME ($NEW_PRE_RELEASE_VERSION, $NEW_PRE_RELEASE_DATE)"
         fi
         
         exit 0
