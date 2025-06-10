@@ -1,8 +1,6 @@
 name: Ku9 APK Sync from LanZou Cloud
 
 on:
-  schedule:
-    - cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:
 
 concurrency:
