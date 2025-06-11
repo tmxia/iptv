@@ -154,15 +154,14 @@ jobs:
 
     - name: Install Python dependencies for Beta Sync
       run: |
-        pip install telethon requests pytz
+        pip install telethon pytz
 
     - name: Sync Beta from Telegram
       env:
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
-        TELEGRAM_CHANNEL: "NagramX"
-        BETA_APK_PATTERN: "arm64-v8a.apk"
+        TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL || 'NagramX' }}
         BETA_TARGET_NAME: "nagramx-beta.apk"
       run: |
         python - << "EOF"
@@ -172,14 +171,12 @@ jobs:
         import re
         import time
         import logging
-        from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         from telethon.tl.types import DocumentAttributeFilename
         import pytz
         
         # 配置参数
-        BETA_APK_PATTERN = os.environ.get("BETA_APK_PATTERN", "arm64-v8a.apk")
         BETA_TARGET_NAME = os.environ.get("BETA_TARGET_NAME", "nagramx-beta.apk")
         APK_DIR = "apk"
         WORK_DIR = os.path.join(os.getcwd(), "temp_beta_apk")
@@ -195,54 +192,51 @@ jobs:
         
         def parse_beta_version(filename):
             """从文件名解析测试版版本号"""
-            # 示例文件名: NagramX-v11.12.0-19b801a(1211)-arm64-v8a.apk
-            pattern = r'NagramX-v(\d+\.\d+\.\d+)-([a-f0-9]+)\(\d+\)-arm64-v8a\.apk'
+            pattern = r'NagramX-v(\d+\.\d+\.\d+)(?:-([a-f0-9]+))?\((\d+)\)-arm64-v8a\.apk'
             match = re.search(pattern, filename)
             if match:
                 main_ver = match.group(1)
-                commit_ver = match.group(2)
-                return f"v{main_ver}-{commit_ver}"
+                commit_ver = match.group(2) or ""
+                build_num = match.group(3)
+                if commit_ver:
+                    return f"v{main_ver}-{commit_ver}"
+                return f"v{main_ver}-{build_num}"
             return None
         
-        async def get_all_beta_apks(client, channel_name):
-            """获取所有测试版APK文件"""
+        async def get_latest_beta_apk(client, channel_name):
+            """获取最新的测试版APK文件"""
             try:
                 log.info(f"连接Telegram频道: {channel_name}")
                 entity = await client.get_entity(channel_name)
                 
-                apk_list = []
+                latest_apk = None
                 
-                # 获取最新的100条消息
-                async for message in client.iter_messages(entity, limit=100):
-                    if message.media:
+                # 获取最新的20条消息
+                async for message in client.iter_messages(entity, limit=20):
+                    if message.media and hasattr(message.media, "document"):
                         for attr in message.media.document.attributes:
                             if isinstance(attr, DocumentAttributeFilename):
                                 filename = attr.file_name
-                                if BETA_APK_PATTERN in filename:
-                                    # 解析版本号
-                                    beta_version = parse_beta_version(filename)
-                                    if not beta_version:
-                                        log.warning(f"无法解析版本号: {filename}, 跳过")
+                                if filename.endswith("-arm64-v8a.apk") and "NagramX-v" in filename:
+                                    version = parse_beta_version(filename)
+                                    if not version:
                                         continue
-                                    
-                                    apk_list.append({
-                                        "message": message,
-                                        "filename": filename,
-                                        "version": beta_version
-                                    })
-                return apk_list
+                                    if not latest_apk or message.date > latest_apk['message'].date:
+                                        latest_apk = {
+                                            "message": message,
+                                            "filename": filename,
+                                            "version": version
+                                        }
+                return latest_apk
             except Exception as e:
-                log.error(f"获取Telegram消息失败: {str(e)}")
-                return []
+                log.error(f"获取消息失败: {str(e)}")
+                return None
         
         async def download_apk(client, message, filename):
             """下载APK文件到临时目录"""
             download_path = os.path.join(WORK_DIR, filename)
-            log.info(f"开始下载: {filename}")
-            start_time = time.time()
+            log.info(f"下载APK: {filename}")
             await client.download_media(message, file=download_path)
-            elapsed = time.time() - start_time
-            log.info(f"下载完成, 耗时: {elapsed:.2f}秒")
             return download_path
         
         def get_current_versions():
@@ -253,49 +247,8 @@ jobs:
                     with open(version_path, "r") as f:
                         return json.load(f)
                 except:
-                    log.warning("版本文件格式错误，将重置")
                     return {}
             return {}
-        
-        def update_version_file(apk_key, version, date_str):
-            """更新版本文件"""
-            version_path = os.path.join(os.getcwd(), "version.txt")
-            current_versions = get_current_versions()
-            current_versions[apk_key] = f"{version},{date_str}"
-            
-            with open(version_path, "w") as f:
-                json.dump(current_versions, f, indent=2)
-            log.info(f"更新版本文件: {apk_key} = {version},{date_str}")
-        
-        def should_update_beta(current_versions, beta_version, date_str, target_path):
-            """检查是否需要更新测试版"""
-            # 检查版本文件中是否有记录
-            current_beta = current_versions.get(BETA_TARGET_NAME, "")
-            current_beta_ver = current_beta.split(',')[0] if current_beta else ""
-            current_beta_date = current_beta.split(',')[1] if current_beta and ',' in current_beta else ""
-            
-            # 检查本地文件是否存在
-            local_file_exists = os.path.exists(target_path)
-            
-            log.info(f"当前测试版: {current_beta_ver or '无'} (日期: {current_beta_date or '无'})")
-            log.info(f"本地文件存在: {'是' if local_file_exists else '否'}")
-            
-            # 如果本地文件不存在，需要更新
-            if not local_file_exists:
-                log.info("本地测试版文件不存在，需要更新")
-                return True
-            
-            # 如果版本号不同，需要更新
-            if current_beta_ver != beta_version:
-                log.info(f"发现新版本: {current_beta_ver} → {beta_version}")
-                return True
-            
-            # 如果日期较新，需要更新
-            if current_beta_date and date_str > current_beta_date:
-                log.info(f"发现新日期: {current_beta_date} → {date_str}")
-                return True
-            
-            return False
         
         async def main():
             # 验证环境变量
@@ -314,55 +267,52 @@ jobs:
             
             try:
                 await client.start()
-                
-                # 获取频道名称
                 channel_name = os.environ.get('TELEGRAM_CHANNEL', 'NagramX')
                 
-                # 获取所有测试版APK
-                beta_apks = await get_all_beta_apks(client, channel_name)
-                if not beta_apks:
-                    log.info("未找到测试版APK文件")
+                # 获取最新的测试版APK
+                beta_apk = await get_latest_beta_apk(client, channel_name)
+                if not beta_apk:
+                    log.info("未找到测试版APK")
                     return 0
                 
-                # 按日期排序，获取最新的APK
-                beta_apks.sort(key=lambda x: x['message'].date, reverse=True)
-                latest_apk = beta_apks[0]
+                log.info(f"找到测试版: {beta_apk['filename']}, 版本: {beta_apk['version']}")
                 
-                log.info(f"找到测试版APK: {latest_apk['filename']}, 版本: {latest_apk['version']}")
-                
-                # 转换日期为北京时间 (YYYY-MM-DD)
+                # 转换日期为北京时间
                 utc8 = pytz.timezone('Asia/Shanghai')
-                release_date = latest_apk['message'].date.astimezone(utc8)
+                release_date = beta_apk['message'].date.astimezone(utc8)
                 date_str = release_date.strftime('%Y-%m-%d')
                 
                 # 检查目标路径
                 target_path = os.path.join(APK_DIR, BETA_TARGET_NAME)
+                current_versions = get_current_versions()
+                current_beta = current_versions.get(BETA_TARGET_NAME, "")
+                current_beta_ver = current_beta.split(',')[0] if current_beta else ""
                 
                 # 检查是否需要更新
-                current_versions = get_current_versions()
-                if not should_update_beta(current_versions, latest_apk['version'], date_str, target_path):
-                    log.info(f"测试版已是最新版本: {latest_apk['version']}")
+                if current_beta_ver == beta_apk['version'] and os.path.exists(target_path):
+                    log.info(f"测试版已是最新版本: {beta_apk['version']}")
                     return 0
                 
                 # 下载APK
-                apk_path = await download_apk(client, latest_apk['message'], latest_apk['filename'])
+                apk_path = await download_apk(client, beta_apk['message'], beta_apk['filename'])
                 if not os.path.exists(apk_path):
-                    log.error("APK下载失败")
+                    log.error("下载失败")
                     return 1
                 
-                # 确保目录存在
+                # 确保目录存在并移动文件
                 os.makedirs(APK_DIR, exist_ok=True)
-                
-                # 移动并重命名文件
                 os.rename(apk_path, target_path)
-                log.info(f"测试版APK已保存到: {target_path}")
+                log.info(f"文件保存到: {target_path}")
                 
                 # 更新版本文件
-                update_version_file(BETA_TARGET_NAME, latest_apk['version'], date_str)
+                current_versions[BETA_TARGET_NAME] = f"{beta_apk['version']},{date_str}"
+                with open("version.txt", "w") as f:
+                    json.dump(current_versions, f, indent=2)
+                log.info("版本文件已更新")
                 return 0
                 
             except Exception as e:
-                log.error(f"处理过程中出错: {str(e)}")
+                log.error(f"处理出错: {str(e)}")
                 return 1
             finally:
                 await client.disconnect()
@@ -374,27 +324,16 @@ jobs:
 
     - name: Commit changes
       run: |
-        # 检查是否有更改
         if git diff-index --quiet HEAD --; then
           echo "没有需要提交的更改"
           exit 0
         fi
 
-        # 提交更改
         git add apk/ version.txt
         git commit -m "同步NagramX更新"
         
-        # 推送到远程仓库
-        echo "推送到远程仓库..."
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         git push origin HEAD:${{ github.ref }}
-        
-        if [ $? -eq 0 ]; then
-          echo "推送成功"
-        else
-          echo "错误: 推送失败"
-          exit 1
-        fi
 
   cleanup_self:
     name: Cleanup Self Workflow History
