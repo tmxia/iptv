@@ -26,8 +26,8 @@ jobs:
         SOURCE_REPO: "aaa1115910/bv"
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        STABLE_APK_PATTERN: "release_default_universal.apk"  # 稳定版匹配模式
-        PRE_RELEASE_APK_PATTERN: "alpha_default_universal.apk"  # 预发行版匹配模式
+        STABLE_APK_PATTERN: "default_universal"  # 稳定版匹配模式（更灵活）
+        PRE_RELEASE_APK_PATTERN: "alpha"         # 预发行版匹配模式（更灵活）
         STABLE_KEY_NAME: "bv.apk"
         PRE_RELEASE_KEY_NAME: "bv-beta.apk"
       run: |
@@ -132,6 +132,32 @@ jobs:
           CURRENT_PRE_RELEASE_DATE=""
         fi
 
+        # 函数：查找匹配的APK文件（更灵活的模式匹配）
+        find_matching_apk() {
+          local release_json="$1"
+          local pattern="$2"
+          
+          # 获取所有asset名称
+          local asset_names=$(echo "$release_json" | jq -r '.assets[].name')
+          
+          # 调试输出所有文件名
+          echo "可供匹配的文件:"
+          echo "$asset_names"
+          
+          # 查找匹配的文件（不区分大小写）
+          local matched_file=$(echo "$asset_names" | grep -i "$pattern" | head -1)
+          
+          if [ -z "$matched_file" ]; then
+            echo "警告: 未找到任何匹配 '$pattern' 的文件名"
+            return 1
+          fi
+          
+          echo "找到匹配文件: $matched_file (模式: '$pattern')"
+          
+          # 返回下载URL
+          echo "$release_json" | jq -r '.assets[] | select(.name == "'"$matched_file"'") | .browser_download_url'
+        }
+
         # 函数：检查并下载APK
         check_and_download_apk() {
           local release_json="$1"
@@ -180,8 +206,7 @@ jobs:
           # 如果需要更新，下载APK
           if [ "$need_update" = true ]; then
             # 查找匹配的APK文件
-            local download_url=$(echo "$release_json" | jq -r '.assets[] | select(.name | contains("'$apk_pattern'")) | .browser_download_url' | head -1)
-            
+            download_url=$(find_matching_apk "$release_json" "$apk_pattern")
             if [ -z "$download_url" ]; then
               echo "错误: 未找到匹配的APK文件 (匹配模式: $apk_pattern)"
               return 1
