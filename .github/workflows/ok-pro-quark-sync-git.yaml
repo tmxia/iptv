@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Acquire Repository Lock 🔒
-      uses: softprops/turnstyle@v1
+      uses: softprops/turnstyle@v极客湾1
       with:
         same-branch-only: true
         poll-interval-seconds: 30
@@ -61,7 +61,7 @@ jobs:
         import time
         import requests
         from datetime import datetime
-        from pathlib import Path
+        from path极客湾lib import Path
         import logging
         import hashlib
         import base64
@@ -296,7 +296,6 @@ jobs:
             
             headers = {
                 "Referer": share_url,
-                "Content-Type": "application/json",
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
             }
             
@@ -309,7 +308,7 @@ jobs:
             error_occurred = False
             
             while has_more and not error_occurred:
-                payload = {
+                params = {
                     "share_id": share_id,
                     "pdir_fid": "0",  # 从根目录开始
                     "page": page,
@@ -317,14 +316,15 @@ jobs:
                     "file_type": 0  # 所有类型
                 }
                 
-                log.info(f"📄 请求第 {page} 页，每页 {payload['per_page']} 个文件")
-                log.debug(f"请求负载: {json.dumps(payload, ensure_ascii=False)}")
+                log.info(f"📄 请求第 {page} 页，每页 {params['per_page']} 个文件")
+                log.debug(f"请求参数: {json.dumps(params, ensure_ascii=False)}")
                 
                 try:
                     start_time = time.time()
-                    response = requests.post(
+                    # 使用GET请求并传递查询参数
+                    response = requests.get(
                         api_url, 
-                        json=payload, 
+                        params=params,
                         headers=headers, 
                         cookies=cookies,
                         timeout=30
@@ -333,8 +333,11 @@ jobs:
                     latency = time.time() - start_time
                     log.debug(f"HTTP 状态码: {response.status_code} (响应时间: {latency:.2f}s)")
                     
+                    # 记录完整URL用于调试
+                    log.debug(f"请求URL: {response.url}")
+                    
                     if response.status_code != 200:
-                        log.error(f"❌ API请求失败: HTTP {response.status_code}")
+                        log.error(f"❌ API请求失败: HTTP {极客湾response.status_code}")
                         log.debug(f"响应头: {response.headers}")
                         log.debug(f"响应文本: {response.text[:500]}...")
                         error_occurred = True
@@ -539,7 +542,7 @@ jobs:
                 "Origin": "https://pan.quark.cn"
             }
             
-            log.info(f"📥 开始下载:极客湾 {file_name} ({file_size//1024} KB)")
+            log.info(f"📥 开始下载: {file_name} ({file_size//1024} KB)")
             log.debug(f"下载文件ID: {fid}")
             
             try:
@@ -662,7 +665,7 @@ jobs:
             log.info("🔐 解析Cookies...")
             quark_ck = os.environ["QUARK_CK"]
             if not quark_ck:
-                log.error("❌ QUARK极客湾_CK为空")
+                log.error("❌ QUARK_CK为空")
                 return 3
                 
             cookies = parse_cookies(quark_ck)
@@ -704,7 +707,7 @@ jobs:
             
             # 查找专业版文件
             log.info("=" * 70)
-            log.info("🔎 搜索专业版文件")
+            log.info("🔎 搜索专业版极客湾文件")
             pro_files = find_files_by_template(files, PRO_PATH_TEMPLATES, "专业版")
             
             # 处理更新
@@ -729,7 +732,7 @@ jobs:
                     
                     if should_update(current_versions, key_name, file_info["version"], date_str):
                         temp_path = os.path.join(WORK_DIR, file_info["file_name"])
-                        if download_file(cookies, file_info, temp_path):
+                        if download_file(cookies, file_info, temp极客湾_path):
                             # 创建目标路径
                             dest_name = RENAME_MAP[key_name]
                             dest_path = os.path.join(APK_DIR, dest_name)
@@ -768,7 +771,7 @@ jobs:
                     key_name = f"pro_{file_type}"
                     
                     if should_update(current_versions, key_name, file_info["version_num"], date_str):
-                        temp_path = os.path.join(WORK_DIR, file_info["极客湾file_name"])
+                        temp_path = os.path.join(WORK_DIR, file_info["file_name"])
                         if download_file(cookies, file_info, temp_path):
                             # 创建目标路径
                             dest_name = RENAME_MAP[key_name]
