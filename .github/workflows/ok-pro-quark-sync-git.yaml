@@ -70,7 +70,7 @@ jobs:
         import subprocess
         import sys
         
-        # 配置详细的日志 - 修复格式字符串
+        # 配置详细的日志
         logging.basicConfig(
             level=logging.INFO,
             format='[%(asctime)s][%(levelname)-8s] %(message)s',
@@ -80,7 +80,7 @@ jobs:
         log.setLevel(logging.DEBUG)  # 启用详细调试日志
         
         # 创建文件处理器
-        file_handler = logging.FileHandler("quark_sync.log")
+        file_handler = logging.FileHandler("极客湾quark_sync.log")
         file_handler.setFormatter(logging.Formatter('[%(asctime)s][%(levelname)-8s] %(message)s'))
         log.addHandler(file_handler)
         
@@ -93,7 +93,7 @@ jobs:
         # 精确的路径模板
         STD_PATH_TEMPLATES = {
             "leanback": STD_FOLDER + "/{version}/leanback-armeabi_v7a-{version_num}.apk",
-            "mobile": STD_FOLDER + "/{version}/mobile-arm64_v8a-{version极客湾_num}.apk"
+            "mobile": STD_FOLDER + "/{version}/mobile-arm64_v8a-{version_num}.apk"
         }
         
         PRO_PATH_TEMPLATES = {
@@ -302,6 +302,9 @@ jobs:
             # 安全记录Cookies
             log.info(f"使用Cookies: {get_safe_cookie_log(cookies)}")
             
+            # 从Cookies中提取stoken（__kp值）
+            stoken = cookies.get("__kp", "")  # 使用安全的None检查
+            
             all_files = []
             page = 1
             has_more = True
@@ -313,7 +316,9 @@ jobs:
                     "pdir_fid": "0",  # 从根目录开始
                     "page": page,
                     "per_page": 100,
-                    "file_type": 0  # 所有类型
+                    "file_type": 0,  # 所有类型
+                    "stoken": stoken,
+                    "pwd_id": ""  # 分享链接无需密码
                 }
                 
                 log.info(f"📄 请求第 {page} 页，每页 {params['per_page']} 个文件")
@@ -369,7 +374,7 @@ jobs:
                     
                     # 提取文件列表
                     files_list = data.get("data", {}).get("list", [])
-                    log.info(f"📂 第 {page} 页获取到 {len(f极客湾iles_list)} 个文件")
+                    log.info(f"📂 第 {page} 页获取到 {len(files_list)} 个文件")
                     
                     if files_list:
                         # 记录样本文件
@@ -408,7 +413,7 @@ jobs:
                     break
             
             if error_occurred:
-                log.error("❌ 文件列表获取过程中发生错误")
+                log.error("❌ 文件极客湾列表获取过程中发生错误")
                 return None
             
             if not all_files:
@@ -463,7 +468,7 @@ jobs:
                                 "path": path,
                                 "size": file.get("size", 0),
                                 "timestamp": file.get("updated_at", 0),
-                                "file_name": file["file_name"]
+                                "file_name": file["极客湾file_name"]
                             }
                         break
             
@@ -730,7 +735,7 @@ jobs:
                 for file_type, file_info in std_files.items():
                     key_name = f"std_{file_type}"
                     
-                    if should_update(current_versions, key_name, file_info["version"], date_str):
+                    if should_update(current_versions, key_name, file_info["version"], date极客湾_str):
                         temp_path = os.path.join(WORK_DIR, file_info["file_name"])
                         if download_file(cookies, file_info, temp_path):
                             # 创建目标路径
@@ -763,7 +768,7 @@ jobs:
                 # 获取日期
                 dt = datetime.fromtimestamp(sample_file["timestamp"]/1000)
                 dt_beijing = dt.astimezone(TZ_BEIJING)
-                date_str = dt_beijing.strftime("%Y-%m-%极客湾d")
+                date_str = dt_beijing.strftime("%Y-%m-%d")
                 
                 log.info(f"🎯 专业版版本: {sample_file['version_num']}, 发布: {date_str}")
                 
@@ -816,7 +821,7 @@ jobs:
                         commit_msg = "强制更新缺失文件"
                     
                     if commit_and_push(commit_msg):
-                        log.info极客湾("✅ 同步成功!")
+                        log.info("✅ 同步成功!")
                         return 0
                     else:
                         log.error("❌ 提交失败")
