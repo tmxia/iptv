@@ -1,0 +1,654 @@
+name: QuarkDrive APK Sync
+
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'  # 每3小时运行一次
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Acquire Repository Lock
+      uses: softprops/turnstyle@v1
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libssl-dev
+        pip install requests pycryptodome pytz
+
+    - name: Run Quark Sync
+      env:
+        QUARK_CK: ${{ secrets.QUARK_CK }}
+        SHARE_URL: https://pan.quark.cn/s/6fead79bddaf
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # 创建必要的目录
+        mkdir -p apk temp_apks
+        
+        # 如果版本文件不存在则创建
+        if [ ! -f version.txt ]; then
+          echo '{}' > version.txt
+        fi
+        
+        # 执行Python脚本
+        python - << "EOF"
+        import os
+        import json
+        import re
+        import time
+        import requests
+        import logging
+        import hashlib
+        import base64
+        from Crypto.Cipher import AES
+        from pathlib import Path
+        from datetime import datetime
+        import pytz
+        import subprocess
+        import sys
+        
+        # --- 配置和常量 ---
+        WORK_DIR = "temp_apks"
+        APK_DIR = "apk"
+        TZ_BEIJING = pytz.timezone('Asia/Shanghai')
+        
+        # 路径模板 - 使用正则表达式匹配
+        PATH_TEMPLATES = {
+            "std": {
+                "leanback": r"OK分享/OK影视标准版/(?P<version>[\d.]+)/leanback-armeabi_v7a-(?P<version_num>[\d.]+)\.apk",
+                "mobile": r"OK分享/OK影视标准版/(?P<version>[\d.]+)/mobile-arm64_v8a-(?P<version_num>[\d.]+)\.apk"
+            },
+            "pro": {
+                "leanback": r"OK分享/OK影视Pro/OK影视Pro﹣电视版﹣--(?P<version_num>[\d.]+)\.apk",
+                "mobile": r"OK分享/OK影视Pro/OK影视Pro﹣手机版﹣--(?P<version_num>[\d.]+)\.apk"
+            }
+        }
+        
+        # 目标重命名映射
+        RENAME_MAP = {
+            "std_leanback": "leanback.apk",
+            "std_mobile": "mobile.apk",
+            "pro_leanback": "leanback-pro.apk",
+            "pro_mobile": "mobile-pro.apk"
+        }
+        
+        # --- 日志配置 ---
+        def setup_logger():
+            logger = logging.getLogger("quark_sync")
+            logger.setLevel(logging.DEBUG)
+            
+            # 控制台处理器
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.INFO)
+            console_formatter = logging.Formatter('[%(levelname)-8s] %(message)s')
+            console_handler.setFormatter(console_formatter)
+            
+            # 文件处理器
+            file_handler = logging.FileHandler("quark_sync.log")
+            file_handler.setLevel(logging.DEBUG)
+            file_formatter = logging.Formatter('[%(asctime)s][%(levelname)-8s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+            file_handler.setFormatter(file_formatter)
+            
+            logger.addHandler(console_handler)
+            logger.addHandler(file_handler)
+            
+            return logger
+        
+        log = setup_logger()
+        
+        # --- 核心功能函数 ---
+        def parse_cookies(cookie_str):
+            """解析Cookie字符串为字典"""
+            cookies = {}
+            for item in cookie_str.split(';'):
+                item = item.strip()
+                if not item:
+                    continue
+                if '=' in item:
+                    key, value = item.split('=', 1)
+                    cookies[key.strip()] = value.strip()
+            return cookies
+        
+        def get_safe_cookie_log(cookies):
+            """安全记录Cookies（隐藏敏感信息）"""
+            safe_keys = []
+            sensitive_keys = ['__sdid', 'isg', 'tfstk', 'cookie', 'token', 'key', 'secret']
+            
+            for key in cookies.keys():
+                if any(sk in key.lower() for sk in sensitive_keys):
+                    safe_keys.append(f"{key}=***")
+                else:
+                    safe_keys.append(f"{key}")
+            
+            return ', '.join(safe_keys)
+        
+        def decrypt_download_url(encrypted_url, file_key):
+            """解密夸克网盘下载URL"""
+            try:
+                # 生成AES密钥
+                aes_key = hashlib.md5(file_key.encode()).hexdigest().encode()
+                iv = b"ef0e50a8a48afdac"
+                
+                # 解码base64
+                encrypted_data = base64.b64decode(encrypted_url)
+                
+                # 创建解密器
+                cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+                decrypted = cipher.decrypt(encrypted_data)
+                
+                # 移除PKCS7填充
+                pad = decrypted[-1]
+                if 1 <= pad <= 16:
+                    decrypted = decrypted[:-pad]
+                
+                return decrypted.decode('utf-8')
+            except Exception as e:
+                log.error(f"下载URL解密失败: {str(e)}")
+                return None
+        
+        def get_share_files(share_url, cookies):
+            """获取分享链接下的所有文件"""
+            log.info(f"获取分享文件列表: {share_url}")
+            
+            # 提取分享ID
+            match = re.search(r'pan\.quark\.cn/s/([a-zA-Z0-9]+)', share_url)
+            if match:
+                share_id = match.group(1)
+            else:
+                log.error(f"无法提取分享ID: {share_url}")
+                return None
+            
+            api_url = "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/detail"
+            headers = {
+                "Referer": share_url,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            }
+            
+            all_files = []
+            page = 1
+            has_more = True
+            
+            while has_more:
+                params = {
+                    "share_id": share_id,
+                    "pdir_fid": "0",
+                    "page": page,
+                    "per_page": 100,
+                    "file_type": 0,
+                    "stoken": cookies.get("__kp", ""),
+                    "pwd_id": ""
+                }
+                
+                try:
+                    response = requests.get(
+                        api_url, 
+                        params=params,
+                        headers=headers, 
+                        cookies=cookies,
+                        timeout=30
+                    )
+                    
+                    if response.status_code != 200:
+                        log.error(f"API请求失败: HTTP {response.status_code}")
+                        return None
+                    
+                    data = response.json()
+                    
+                    # 检查API错误码
+                    if data.get("status", {}).get("code") not in (200, None):
+                        log.error(f"API错误: {data.get('status', {}).get('message')}")
+                        return None
+                    
+                    # 提取文件列表
+                    files_list = data.get("data", {}).get("list", [])
+                    all_files.extend(files_list)
+                    
+                    # 检查是否还有更多页面
+                    has_more = data.get("data", {}).get("is_more", 0) == 1
+                    page += 1
+                    
+                    # 避免频繁请求
+                    time.sleep(0.5)
+                    
+                except Exception as e:
+                    log.error(f"获取文件列表失败: {str(e)}")
+                    return None
+            
+            log.info(f"获取到 {len(all_files)} 个文件")
+            return all_files
+        
+        def match_file_path(path, pattern):
+            """使用正则表达式匹配文件路径"""
+            match = re.search(pattern, path)
+            if match:
+                return match.groupdict()
+            return None
+        
+        def compare_versions(v1, v2):
+            """健壮的版本号比较"""
+            def parse_version(v):
+                parts = []
+                for part in v.split('.'):
+                    try:
+                        parts.append(int(part))
+                    except ValueError:
+                        # 处理非数字部分
+                        parts.append(part)
+                return tuple(parts)
+            
+            try:
+                return parse_version(v2) > parse_version(v1)
+            except Exception:
+                # 回退到字符串比较
+                return v2 > v1
+        
+        def should_update(current_versions, file_key, new_version, new_date):
+            """判断是否需要更新"""
+            if file_key not in current_versions:
+                return True
+            
+            current_val = current_versions[file_key]
+            if ',' not in current_val:
+                return True
+            
+            try:
+                current_ver, current_date = current_val.split(',', 1)
+            except ValueError:
+                return True
+            
+            # 版本号比较
+            version_newer = compare_versions(current_ver, new_version)
+            
+            # 相同版本但日期更新
+            same_version_newer = (current_ver == new_version) and (new_date > current_date)
+            
+            return version_newer or same_version_newer
+        
+        def download_file(download_url, save_path):
+            """下载文件带重试机制"""
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    log.info(f"下载尝试 {attempt}/{max_retries}: {save_path}")
+                    with requests.get(download_url, stream=True, timeout=60) as r:
+                        r.raise_for_status()
+                        
+                        # 获取文件大小
+                        file_size = int(r.headers.get('content-length', 0))
+                        log.info(f"文件大小: {file_size/(1024*1024):.2f} MB")
+                        
+                        with open(save_path, 'wb') as f:
+                            downloaded = 0
+                            start_time = time.time()
+                            
+                            for chunk in r.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                                    downloaded += len(chunk)
+                                    
+                                    # 每秒更新一次进度
+                                    if time.time() - start_time > 1:
+                                        percent = (downloaded / file_size * 100) if file_size > 0 else 0
+                                        elapsed = time.time() - start_time
+                                        speed = downloaded / (elapsed * 1024)  # KB/s
+                                        log.info(f"进度: {percent:.1f}% | 速度: {speed:.1f} KB/s")
+                                        start_time = time.time()
+                    
+                    # 验证文件大小
+                    if file_size > 0 and os.path.getsize(save_path) != file_size:
+                        log.warning("文件大小不匹配，重试...")
+                        os.remove(save_path)
+                        continue
+                        
+                    return True
+                except Exception as e:
+                    log.warning(f"下载失败: {str(e)}")
+                    if os.path.exists(save_path):
+                        os.remove(save_path)
+            
+            return False
+        
+        def get_download_url(fid, cookies):
+            """获取文件下载URL"""
+            api_url = f"https://drive-pc.quark.cn/1/clouddrive/file/download?fid={fid}"
+            headers = {
+                "Referer": "https://pan.quark.cn/",
+                "Origin": "https://pan.quark.cn"
+            }
+            
+            try:
+                response = requests.get(
+                    api_url, 
+                    cookies=cookies, 
+                    headers=headers, 
+                    allow_redirects=False,
+                    timeout=20
+                )
+                
+                if response.status_code == 302:
+                    return response.headers.get("Location", "")
+                elif response.status_code == 200:
+                    data = response.json()
+                    return data.get("data", "")
+                else:
+                    log.error(f"无法获取下载URL: HTTP {response.status_code}")
+                    return None
+            except Exception as e:
+                log.error(f"获取下载URL失败: {str(e)}")
+                return None
+        
+        def setup_git():
+            """配置Git环境"""
+            try:
+                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
+                email = f"{actor}@users.noreply.github.com"
+                
+                subprocess.run(["git", "config", "user.name", actor], check=True)
+                subprocess.run(["git", "config", "user.email", email], check=True)
+                
+                # 拉取最新更改防止冲突
+                subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+                
+                return True
+            except Exception as e:
+                log.error(f"Git配置失败: {str(e)}")
+                return False
+        
+        def commit_and_push(message):
+            """提交并推送更改"""
+            try:
+                # 添加APK目录和版本文件
+                subprocess.run(["git", "add", APK_DIR, "version.txt"], check=True)
+                
+                # 检查是否有更改
+                status = subprocess.run(
+                    ["git", "status", "--porcelain"], 
+                    capture_output=True, 
+                    text=True,
+                    check=True
+                )
+                
+                if not status.stdout.strip():
+                    log.info("没有更改需要提交")
+                    return True
+                
+                # 提交更改
+                subprocess.run(["git", "commit", "-m", message], check=True)
+                
+                token = os.environ['GITHUB_TOKEN']
+                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
+                repo_url = f"https://{actor}:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
+                
+                # 重试机制
+                max_attempts = 3
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+                        subprocess.run(["git", "push", repo_url, "HEAD:main"], check=True)
+                        log.info("推送成功")
+                        return True
+                    except subprocess.CalledProcessError as e:
+                        log.warning(f"Git操作失败: {str(e)}")
+                        if attempt < max_attempts:
+                            time.sleep(10)
+                            subprocess.run(["git", "reset", "--hard", "HEAD"], check=True)
+                
+                log.error(f"经过{max_attempts}次尝试后仍无法推送更改")
+                return False
+            except Exception as e:
+                log.error(f"Git提交失败: {str(e)}")
+                return False
+        
+        def load_version_file():
+            """加载版本文件"""
+            version_path = Path("version.txt")
+            versions = {}
+            if version_path.exists():
+                try:
+                    with open(version_path, "r") as f:
+                        versions = json.load(f)
+                except:
+                    log.warning("版本文件格式错误，但不会清空")
+            return versions
+        
+        def save_version_file(versions):
+            """保存版本文件"""
+            with open("version.txt", "w") as f:
+                json.dump(versions, f, indent=2)
+        
+        def main():
+            log.info("=" * 70)
+            log.info("🚀 启动夸克网盘APK同步")
+            log.info("=" * 70)
+            
+            # 检查必要环境变量
+            if not os.environ.get("QUARK_CK"):
+                log.critical("❌ 缺少QUARK_CK环境变量")
+                return 1
+            
+            # 设置Git
+            if not setup_git():
+                log.critical("❌ Git设置失败")
+                return 2
+            
+            # 创建目录
+            os.makedirs(WORK_DIR, exist_ok=True)
+            os.makedirs(APK_DIR, exist_ok=True)
+            
+            # 加载版本文件
+            current_versions = load_version_file()
+            
+            # 解析Cookies
+            quark_ck = os.environ["QUARK_CK"]
+            cookies = parse_cookies(quark_ck)
+            log.debug(f"使用Cookies: {get_safe_cookie_log(cookies)}")
+            
+            # 获取分享文件列表
+            share_url = os.environ.get("SHARE_URL", "https://pan.quark.cn/s/6fead79bddaf")
+            files = get_share_files(share_url, cookies)
+            if not files:
+                log.error("❌ 无法获取文件列表，终止同步")
+                return 3
+            
+            # 匹配目标文件
+            matched_files = {}
+            for file in files:
+                file_path = f"{file.get('path', '')}/{file['file_name']}"
+                
+                # 尝试匹配标准版
+                for file_type, pattern in PATH_TEMPLATES["std"].items():
+                    match = match_file_path(file_path, pattern)
+                    if match:
+                        key = f"std_{file_type}"
+                        file_info = {
+                            **file,
+                            **match,
+                            "type": key
+                        }
+                        # 只保留最新版本
+                        if key not in matched_files or compare_versions(
+                            matched_files[key].get("version_num", "0"), 
+                            file_info.get("version_num", "0")
+                        ):
+                            matched_files[key] = file_info
+                
+                # 尝试匹配专业版
+                for file_type, pattern in PATH_TEMPLATES["pro"].items():
+                    match = match_file_path(file_path, pattern)
+                    if match:
+                        key = f"pro_{file_type}"
+                        file_info = {
+                            **file,
+                            **match,
+                            "type": key
+                        }
+                        if key not in matched_files or compare_versions(
+                            matched_files[key].get("version_num", "0"), 
+                            file_info.get("version_num", "0")
+                        ):
+                            matched_files[key] = file_info
+            
+            # 处理更新
+            needs_update = False
+            update_log = []
+            
+            for key, file_info in matched_files.items():
+                file_key = RENAME_MAP.get(key)
+                if not file_key:
+                    log.warning(f"跳过无效文件类型: {key}")
+                    continue
+                
+                # 获取文件日期
+                timestamp = file_info.get("updated_at", 0) / 1000
+                file_date = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
+                
+                version_num = file_info.get("version_num") or file_info.get("version", "0.0.0")
+                
+                # 检查是否需要更新
+                if should_update(current_versions, file_key, version_num, file_date):
+                    # 获取下载URL
+                    download_url_enc = get_download_url(file_info["fid"], cookies)
+                    if not download_url_enc:
+                        log.error(f"无法获取下载URL: {file_info['file_name']}")
+                        continue
+                    
+                    # 解密URL
+                    download_url = decrypt_download_url(download_url_enc, file_info["hash_name"])
+                    if not download_url:
+                        log.error(f"下载URL解密失败: {file_info['file_name']}")
+                        continue
+                    
+                    # 下载文件
+                    temp_path = os.path.join(WORK_DIR, file_info["file_name"])
+                    if download_file(download_url, temp_path):
+                        # 移动文件到目标位置
+                        dest_path = os.path.join(APK_DIR, file_key)
+                        if os.path.exists(dest_path):
+                            os.remove(dest_path)
+                        os.rename(temp_path, dest_path)
+                        
+                        # 更新版本记录
+                        current_versions[file_key] = f"{version_num},{file_date}"
+                        update_log.append(f"{file_key} (v{version_num})")
+                        needs_update = True
+                        log.info(f"✅ 成功更新: {file_key}")
+                    else:
+                        log.error(f"❌ 下载失败: {file_info['file_name']}")
+                else:
+                    log.info(f"↪️ 跳过: {file_key} (已是最新)")
+            
+            # 保存更新
+            if needs_update:
+                save_version_file(current_versions)
+                commit_msg = "更新APK: " + ", ".join(update_log)
+                if commit_and_push(commit_msg):
+                    log.info("✅ 同步完成并提交到仓库")
+                else:
+                    log.error("❌ 提交到仓库失败")
+                    return 4
+            else:
+                log.info("✅ 所有文件均为最新版本")
+            
+            return 0
+        
+        if __name__ == "__main__":
+            try:
+                exit_code = main()
+                log.info("=" * 70)
+                log.info(f"🏁 工作流结束 (代码: {exit_code})")
+                sys.exit(exit_code)
+            except Exception as e:
+                import traceback
+                log.error(f"❌ 未捕获的异常: {str(e)}")
+                log.error(traceback.format_exc())
+                sys.exit(99)
+        EOF
+
+    - name: Archive logs
+      if: always()
+      run: |
+        timestamp=$(date +%Y%m%d_%H%M%S)
+        gzip quark_sync.log
+        mv quark_sync.log.gz "quark_sync_${timestamp}.log.gz"
+        
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: sync-logs
+        path: quark_sync_*.log.gz
+
+    - name: Release Repository Lock
+      if: always()
+      uses: softprops/turnstyle@v1
+      with:
+        continue-on-error: true
+        action: unlock
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: sync
+    if: always()
+    steps:
+      - name: Clean workspace
+        run: |
+          rm -rf temp_apks
+          git clean -f -d
+          
+      - name: Verify APK files
+        run: |
+          # 检查APK目录下是否有文件
+          if [ -z "$(ls -A apk/)" ]; then
+            echo "❌ APK目录为空，同步可能失败"
+            exit 1
+          fi
+          echo "✅ APK文件验证通过"
+
+    - name: Notify status
+      if: always()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const status = '${{ job.status }}';
+          const runId = '${{ github.run_id }}';
+          const repo = '${{ github.repository }}';
+          const workflow = '${{ github.workflow }}';
+          const runNumber = '${{ github.run_number }}';
+          
+          const message = status === 'success' 
+            ? `✅ 夸克网盘同步成功！工作流运行: [${workflow} #${runNumber}](https://github.com/${repo}/actions/runs/${runId})`
+            : `❌ 夸克网盘同步失败！工作流运行: [${workflow} #${runNumber}](https://github.com/${repo}/actions/runs/${runId})`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: message
+          });
