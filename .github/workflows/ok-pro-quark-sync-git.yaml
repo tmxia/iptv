@@ -268,13 +268,29 @@ jobs:
             """获取分享链接下的所有文件（带详细日志）"""
             log.info(f"⏳ 开始获取分享文件列表: {share_url}")
             
-            # 提取分享ID
-            share_id = share_url.split("/s/")[-1]
-            if not share_id or len(share_id) != 32:
-                log.error(f"❌ 无效的分享URL格式，无法提取share_id: {share_url}")
+            # 改进的分享ID提取 - 支持不同的分享URL格式
+            if "/s/" in share_url:
+                share_id = share_url.split("/s/")[-1].split('/')[0]
+            else:
+                # 处理其他格式的分享链接
+                match = re.search(r'pan\.quark\.cn/s/([a-zA-Z0-9]+)', share_url)
+                if match:
+                    share_id = match.group(1)
+                else:
+                    # 尝试作为纯ID处理
+                    share_id = share_url
+                    log.info(f"假设{share_url}是直接的分享ID")
+            
+            # 移除URL查询参数(如果有)
+            if '?' in share_id:
+                share_id = share_id.split('?')[0]
+            
+            # 验证分享ID格式
+            if not share_id:
+                log.error(f"❌ 提取不到分享ID: {share_url}")
                 return None
             
-            log.info(f"分享ID: {share_id}")
+            log.info(f"分享ID: {share_id} (长度: {len(share_id)})")
             
             api_url = "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/detail"
             
@@ -523,7 +539,7 @@ jobs:
                 "Origin": "https://pan.quark.cn"
             }
             
-            log.info(f"📥 开始下载: {file_name} ({file_size//1024} KB)")
+            log.info(f"📥 开始下载:极客湾 {file_name} ({file_size//1024} KB)")
             log.debug(f"下载文件ID: {fid}")
             
             try:
@@ -537,10 +553,12 @@ jobs:
                 
                 if response.status_code == 302:
                     encrypted_url = response.headers.get("Location", "")
-                elif response.json().get("data"):
-                    encrypted_url = response.json().get("data")
+                elif response.status_code == 200:
+                    data = response.json()
+                    encrypted_url = data.get("data", "")
                 else:
-                    log.error(f"❌ 无法获取下载URL")
+                    log.error(f"❌ 无法获取下载URL: HTTP {response.status_code}")
+                    log.debug(f"响应: {response.text[:200]}")
                     return False
                 
                 if not encrypted_url:
@@ -553,7 +571,7 @@ jobs:
                     log.error(f"❌ 下载URL解密失败")
                     return False
                 
-                log.debug(f"下载URL获取成功")
+                log.debug(f"下载URL获取成功: {download_url[:100]}...")
                 
                 # 创建保存目录
                 save_dir = os.path.dirname(save_path)
@@ -569,7 +587,8 @@ jobs:
                     content_length = int(r.headers.get('content-length', 0))
                     file_size = file_size or content_length
                     
-                    log.info(f"文件大小: {file_size/(1024*1024):.2f} MB")
+                    if file_size > 0:
+                        log.info(f"文件大小: {file_size/(1024*1024):.2f} MB")
                     
                     with open(save_path, 'wb') as f:
                         downloaded = 0
@@ -580,23 +599,24 @@ jobs:
                                 f.write(chunk)
                                 downloaded += len(chunk)
                                 
-                                # 每10%或每秒打印进度
+                                # 每2秒或完成时打印进度
                                 now = time.time()
                                 if now - last_log > 2 or downloaded == file_size:
-                                    percent = downloaded / file_size * 100
-                                    speed = downloaded / (now - start_time) / 1024  # KB/s
+                                    percent = (downloaded / file_size * 100) if file_size > 0 else 0
+                                    elapsed = now - start_time
+                                    speed = (downloaded / elapsed / 1024) if elapsed > 0 else 0  # KB/s
                                     log.info(f"📊 下载中... {percent:.1f}% ({speed:.1f} KB/s)")
                                     last_log = now
                 
                 # 验证文件大小
                 downloaded_size = os.path.getsize(save_path)
-                if downloaded_size != file_size:
+                if file_size > 0 and downloaded_size != file_size:
                     log.error(f"❌ 文件大小不匹配: {downloaded_size} vs {file_size}")
                     os.remove(save_path)
                     return False
                 
                 elapsed = time.time() - start_time
-                speed = downloaded_size / (elapsed * 1024)  # KB/s
+                speed = downloaded_size / (elapsed * 1024) if elapsed > 0 else 0  # KB/s
                 log.info(f"✅ 下载完成! 耗时: {elapsed:.1f}s, 平均速度: {speed:.1f} KB/s")
                 return True
                 
@@ -642,7 +662,7 @@ jobs:
             log.info("🔐 解析Cookies...")
             quark_ck = os.environ["QUARK_CK"]
             if not quark_ck:
-                log.error("❌ QUARK_CK为空")
+                log.error("❌ QUARK极客湾_CK为空")
                 return 3
                 
             cookies = parse_cookies(quark_ck)
@@ -748,7 +768,7 @@ jobs:
                     key_name = f"pro_{file_type}"
                     
                     if should_update(current_versions, key_name, file_info["version_num"], date_str):
-                        temp_path = os.path.join(WORK_DIR, file_info["file_name"])
+                        temp_path = os.path.join(WORK_DIR, file_info["极客湾file_name"])
                         if download_file(cookies, file_info, temp_path):
                             # 创建目标路径
                             dest_name = RENAME_MAP[key_name]
@@ -829,7 +849,7 @@ jobs:
         
     - name: Upload logs
       if: always()
-      uses: actions/upload-artifact@v4  # 更新到 v4
+      uses: actions/upload-artifact@v4
       with:
         name: sync-logs
         path: quark_sync_*.log.gz
