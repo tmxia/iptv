@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Acquire Repository Lock 🔒
-      uses: softprops/turnstyle@v极客湾1
+      uses: softprops/turnstyle@v1  # 修复拼写错误：v1 而不是 v极客湾1
       with:
         same-branch-only: true
         poll-interval-seconds: 30
@@ -26,7 +26,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/check极客湾out@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
@@ -61,7 +61,7 @@ jobs:
         import time
         import requests
         from datetime import datetime
-        from path极客湾lib import Path
+        from pathlib import Path
         import logging
         import hashlib
         import base64
@@ -103,7 +103,7 @@ jobs:
         
         # 目标重命名
         RENAME_MAP = {
-            "std_leanback": "leanback.apk",
+            "std_leanback": "leanback.ap极客湾k",
             "std_mobile": "mobile.apk",
             "pro_leanback": "leanback-pro.apk",
             "pro_mobile": "mobile-pro.apk"
@@ -304,7 +304,7 @@ jobs:
             
             all_files = []
             page = 1
-            has_more = True
+            has极客湾_more = True
             error_occurred = False
             
             while has_more and not error_occurred:
@@ -337,7 +337,7 @@ jobs:
                     log.debug(f"请求URL: {response.url}")
                     
                     if response.status_code != 200:
-                        log.error(f"❌ API请求失败: HTTP {极客湾response.status_code}")
+                        log.error(f"❌ API请求失败: HTTP {response.status_code}")
                         log.debug(f"响应头: {response.headers}")
                         log.debug(f"响应文本: {response.text[:500]}...")
                         error_occurred = True
@@ -510,7 +510,7 @@ jobs:
                 
                 # 新版本号更高
                 if new_ver_tuple > current_ver_tuple:
-                    log.info(f"🆕 新版本: {key} ({current_ver} → {new_version})")
+                    log.info(f极客湾"🆕 新版本: {key} ({current_ver} → {new_version})")
                     return True
                 
                 # 版本相同但日期更新
@@ -707,7 +707,7 @@ jobs:
             
             # 查找专业版文件
             log.info("=" * 70)
-            log.info("🔎 搜索专业版极客湾文件")
+            log.info("🔎 搜索专业版文件")
             pro_files = find_files_by_template(files, PRO_PATH_TEMPLATES, "专业版")
             
             # 处理更新
@@ -732,7 +732,7 @@ jobs:
                     
                     if should_update(current_versions, key_name, file_info["version"], date_str):
                         temp_path = os.path.join(WORK_DIR, file_info["file_name"])
-                        if download_file(cookies, file_info, temp极客湾_path):
+                        if download_file(cookies, file_info, temp_path):
                             # 创建目标路径
                             dest_name = RENAME_MAP[key_name]
                             dest_path = os.path.join(APK_DIR, dest_name)
@@ -773,7 +773,7 @@ jobs:
                     if should_update(current_versions, key_name, file_info["version_num"], date_str):
                         temp_path = os.path.join(WORK_DIR, file_info["file_name"])
                         if download_file(cookies, file_info, temp_path):
-                            # 创建目标路径
+                            # 创建目标极客湾路径
                             dest_name = RENAME_MAP[key_name]
                             dest_path = os.path.join(APK_DIR, dest_name)
                             
