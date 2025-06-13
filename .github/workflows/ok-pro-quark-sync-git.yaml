@@ -183,10 +183,14 @@ jobs:
                 log.error(f"无法提取分享ID: {share_url}")
                 return None
             
-            api_url = "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/detail"
+            # 使用新的API端点 - 解决400错误
+            api_url = "https://drive.quark.cn/1/clouddrive/share/sharepage/detail"
             headers = {
-                "Referer": share_url,
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+                "Referer": "https://pan.quark.cn/",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                "Origin": "https://pan.quark.cn",
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/plain, */*"
             }
             
             all_files = []
@@ -194,27 +198,30 @@ jobs:
             has_more = True
             
             while has_more:
-                params = {
+                # 使用JSON格式的请求体 - 解决400错误
+                payload = {
                     "share_id": share_id,
                     "pdir_fid": "0",
                     "page": page,
                     "per_page": 100,
                     "file_type": 0,
                     "stoken": cookies.get("__kp", ""),
-                    "pwd_id": ""
+                    "pwd_id": "",
+                    "fetch_fids": []
                 }
                 
                 try:
-                    response = requests.get(
-                        api_url, 
-                        params=params,
-                        headers=headers, 
+                    response = requests.post(
+                        api_url,
+                        json=payload,
+                        headers=headers,
                         cookies=cookies,
                         timeout=30
                     )
                     
                     if response.status_code != 200:
                         log.error(f"API请求失败: HTTP {response.status_code}")
+                        log.error(f"响应内容: {response.text[:500]}")
                         return None
                     
                     data = response.json()
@@ -335,10 +342,11 @@ jobs:
         
         def get_download_url(fid, cookies):
             """获取文件下载URL"""
-            api_url = f"https://drive-pc.quark.cn/1/clouddrive/file/download?fid={fid}"
+            api_url = f"https://drive.quark.cn/1/clouddrive/file/download?fid={fid}"
             headers = {
                 "Referer": "https://pan.quark.cn/",
-                "Origin": "https://pan.quark.cn"
+                "Origin": "https://pan.quark.cn",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
             }
             
             try:
@@ -357,6 +365,7 @@ jobs:
                     return data.get("data", "")
                 else:
                     log.error(f"无法获取下载URL: HTTP {response.status_code}")
+                    log.error(f"响应内容: {response.text[:500]}")
                     return None
             except Exception as e:
                 log.error(f"获取下载URL失败: {str(e)}")
@@ -470,7 +479,18 @@ jobs:
             
             # 获取分享文件列表
             share_url = os.environ.get("SHARE_URL", "https://pan.quark.cn/s/6fead79bddaf")
-            files = get_share_files(share_url, cookies)
+            
+            # 重试机制
+            max_attempts = 3
+            files = None
+            for attempt in range(1, max_attempts + 1):
+                log.info(f"尝试获取文件列表 (尝试 {attempt}/{max_attempts})")
+                files = get_share_files(share_url, cookies)
+                if files is not None:
+                    break
+                log.warning(f"获取文件列表失败，等待重试...")
+                time.sleep(5)
+            
             if not files:
                 log.error("❌ 无法获取文件列表，终止同步")
                 return 3
