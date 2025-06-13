@@ -1,0 +1,573 @@
+name: OK APK Sync from QuarkDrive (Enhanced)
+
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'  # 每3小时运行一次
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Acquire Repository Lock 🔒
+      uses: softprops/turnstyle@v1
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip
+        pip install requests pycryptodome pytz
+
+    - name: Run Enhanced Quark Drive Sync
+      env:
+        QUARK_CK: ${{ secrets.QUARK_CK }}  # 将夸克ck存入GitHub Secrets
+        SHARE_URL: https://pan.quark.cn/s/6fead79bddaf
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TARGET_REPO: ${{ github.repository }}
+      run: |
+        python - << "EOF"
+        import os
+        import json
+        import re
+        import time
+        import requests
+        from datetime import datetime
+        from pathlib import Path
+        import logging
+        import hashlib
+        import base64
+        from Crypto.Cipher import AES
+        import pytz
+        
+        # 配置日志
+        logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        log = logging.getLogger("quark_sync")
+        
+        # 配置参数
+        WORK_DIR = "temp_apks"
+        APK_DIR = "apk"
+        PRO_FOLDER = "OK分享/OK影视Pro"
+        STD_FOLDER = "OK分享/OK影视标准版"
+        
+        # 精确的路径模板
+        STD_PATH_TEMPLATES = {
+            "leanback": STD_FOLDER + "/{version}/leanback-armeabi_v7a-{version_num}.apk",
+            "mobile": STD_FOLDER + "/{version}/mobile-arm64_v8a-{version_num}.apk"
+        }
+        
+        PRO_PATH_TEMPLATES = {
+            "leanback": PRO_FOLDER + "/OK影视Pro﹣电视版﹣--{version_num}.apk",
+            "mobile": PRO_FOLDER + "/OK影视Pro﹣手机版﹣--{version_num}.apk"
+        }
+        
+        # 目标重命名
+        RENAME_MAP = {
+            "std_leanback": "leanback.apk",
+            "std_mobile": "mobile.apk",
+            "pro_leanback": "leanback-pro.apk",
+            "pro_mobile": "mobile-pro.apk"
+        }
+        
+        # 北京时区
+        TZ_BEIJING = pytz.timezone('Asia/Shanghai')
+        
+        def setup_git():
+            try:
+                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
+                email = f"{actor}@users.noreply.github.com"
+                
+                subprocess.run(["git", "config", "user.name", actor], check=True)
+                subprocess.run(["git", "config", "user.email", email], check=True)
+                
+                # 拉取最新更改防止冲突
+                subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+                
+                log.info("Git配置完成")
+                return True
+            except Exception as e:
+                log.error(f"Git设置失败: {str(e)}")
+                return False
+        
+        def commit_and_push(message):
+            try:
+                # 只添加APK目录和版本文件
+                subprocess.run(["git", "add", APK_DIR, "version.txt"], check=True)
+                
+                # 检查是否有更改
+                status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+                if not status.stdout.strip():
+                    log.info("没有更改需要提交")
+                    return True
+                
+                # 提交更改
+                subprocess.run(["git", "commit", "-m", message], check=True)
+                
+                token = os.environ['GITHUB_TOKEN']
+                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
+                repo = os.environ['TARGET_REPO']
+                repo_url = f"https://{actor}:{token}@github.com/{repo}.git"
+                
+                # 重试机制
+                max_attempts = 3
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        log.info(f"尝试 {attempt}/{max_attempts}: 推送更改...")
+                        # 在推送前再次拉取最新更改
+                        subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+                        subprocess.run(["git", "push", repo_url, "HEAD:main"], check=True)
+                        log.info("推送成功")
+                        return True
+                    except Exception as e:
+                        log.warning(f"尝试 {attempt} 失败: {str(e)}")
+                        if attempt < max_attempts:
+                            time.sleep(10)
+                
+                log.error(f"经过{max_attempts}次尝试后仍无法推送更改")
+                return False
+            except Exception as e:
+                log.error(f"Git操作失败: {str(e)}")
+                return False
+        
+        def load_version_file():
+            """安全加载版本文件，确保不会清空"""
+            version_path = Path("version.txt")
+            versions = {}
+            if version_path.exists():
+                try:
+                    with open(version_path, "r") as f:
+                        versions = json.load(f)
+                except Exception:
+                    log.warning("版本文件格式错误，但不会清空")
+            return versions
+        
+        def save_version_file(versions):
+            version_path = Path("version.txt")
+            with open(version_path, "w") as f:
+                json.dump(versions, f, indent=2)
+        
+        def parse_cookies(cookie_str):
+            cookies = {}
+            for item in cookie_str.split(';'):
+                item = item.strip()
+                if not item:
+                    continue
+                if '=' in item:
+                    key, value = item.split('=', 1)
+                    cookies[key] = value
+                else:
+                    cookies[item] = None
+            return cookies
+        
+        def decrypt_download_url(encrypted_url, file_key):
+            """解密夸克网盘下载URL"""
+            # 生成AES密钥
+            aes_key = hashlib.md5(file_key.encode()).hexdigest().encode()
+            iv = b"ef0e50a8a48afdac"
+            
+            # 解密
+            cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+            encrypted_url = base64.b64decode(encrypted_url)
+            decrypted = cipher.decrypt(encrypted_url)
+            
+            # 移除PKCS7填充
+            pad = decrypted[-1]
+            if pad < 16:
+                decrypted = decrypted[:-pad]
+            
+            return decrypted.decode('utf-8')
+        
+        def get_all_share_files(share_url, cookies):
+            """获取分享链接下的所有文件"""
+            share_id = share_url.split("/s/")[-1]
+            api_url = "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/detail"
+            
+            headers = {
+                "Referer": share_url,
+                "Content-Type": "application/json"
+            }
+            
+            all_files = []
+            page = 1
+            has_more = True
+            
+            while has_more:
+                payload = {
+                    "share_id": share_id,
+                    "pdir_fid": "",
+                    "page": page,
+                    "per_page": 50,
+                    "file_type": 0
+                }
+                
+                response = requests.post(api_url, json=payload, headers=headers, cookies=cookies)
+                data = response.json()
+                
+                if data.get("data", {}).get("list"):
+                    all_files.extend(data["data"]["list"])
+                
+                has_more = data.get("data", {}).get("is_more", 0) == 1
+                page += 1
+                time.sleep(0.5)
+            
+            return all_files
+        
+        def find_files_by_template(files, templates):
+            """通过精确路径模板查找文件"""
+            found_files = {}
+            
+            for file in files:
+                if not file.get("file_name") or not file.get("updated_at"):
+                    continue
+                
+                path = file.get("path", "") + "/" + file["file_name"]
+                
+                # 尝试匹配标准版模板
+                for file_type, template in templates.items():
+                    # 替换版本占位符为匹配通配符
+                    pattern = re.escape(template).replace(re.escape("{version}"), r"([\d.]+)") \
+                                                .replace(re.escape("{version_num}"), r"([\d.]+)")
+                    
+                    match = re.match(pattern, path)
+                    if match:
+                        version = match.group(1)
+                        # 版本号中的点需要保留为字符串用于匹配
+                        version_num = match.group(2)
+                        
+                        if not version_num.replace(".", "").isdigit():
+                            continue
+                            
+                        if file_type not in found_files or version > found_files[file_type]["version"]:
+                            found_files[file_type] = {
+                                "fid": file["fid"],
+                                "key": file["hash_name"],
+                                "version": version,
+                                "version_num": version_num,
+                                "path": path,
+                                "size": file["size"],
+                                "timestamp": int(file["updated_at"]),
+                                "file_name": file["file_name"]
+                            }
+                        break
+            
+            return found_files
+        
+        def should_update(versions, file_type, new_version, new_date):
+            """判断是否需要更新此文件"""
+            # 文件类型在版本文件中的键名
+            key = RENAME_MAP[file_type]
+            
+            # 如果版本文件中不存在记录，需要更新
+            if key not in versions:
+                log.info(f"新文件: {key}")
+                return True
+            
+            current_val = versions[key]
+            if ',' not in current_val:
+                log.info(f"版本格式错误，需要更新: {key}")
+                return True
+            
+            # 解析当前记录的版本和日期
+            current_ver, current_date = current_val.split(',', 1)
+            
+            # 版本号比较（使用数字分割比较）
+            def version_tuple(v):
+                return tuple(map(int, v.split('.')))
+            
+            try:
+                new_ver_tuple = version_tuple(new_version)
+                current_ver_tuple = version_tuple(current_ver)
+                
+                # 新版本号更高
+                if new_ver_tuple > current_ver_tuple:
+                    log.info(f"新版本: {current_ver} → {new_version} ({key})")
+                    return True
+                
+                # 版本相同但日期更新
+                if new_ver_tuple == current_ver_tuple and new_date > current_date:
+                    log.info(f"相同版本但新构建: {new_version} ({key})")
+                    return True
+                
+                return False
+            except ValueError:
+                log.warning(f"版本号格式无法解析: {new_version} vs {current_ver}")
+                # 如果无法解析版本号，按字符串比较
+                return new_version > current_ver or (new_version == current_ver and new_date > current_date)
+        
+        def download_file(cookies, file_info, save_path):
+            """下载单个文件"""
+            fid = file_info["fid"]
+            file_name = file_info["file_name"]
+            file_key = file_info["key"]
+            
+            # 获取下载链接
+            api_url = f"https://drive-pc.quark.cn/1/clouddrive/file/download?fid={fid}"
+            headers = {
+                "Referer": "https://pan.quark.cn/",
+                "Origin": "https://pan.quark.cn"
+            }
+            
+            response = requests.get(api_url, cookies=cookies, headers=headers, allow_redirects=False)
+            
+            if response.status_code == 302:
+                encrypted_url = response.headers.get("Location", "")
+            elif response.json().get("data"):
+                encrypted_url = response.json().get("data")
+            else:
+                log.error(f"无法获取下载URL: {file_name}")
+                return False
+            
+            # 解密下载URL
+            try:
+                download_url = decrypt_download_url(encrypted_url, file_key)
+            except Exception as e:
+                log.error(f"解密URL失败: {file_name} - {str(e)}")
+                return False
+            
+            # 创建保存目录
+            save_dir = os.path.dirname(save_path)
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            
+            # 下载文件
+            start_time = time.time()
+            try:
+                with requests.get(download_url, stream=True) as r:
+                    r.raise_for_status()
+                    with open(save_path, 'wb') as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+            except Exception as e:
+                log.error(f"下载失败: {file_name} - {str(e)}")
+                return False
+            
+            # 验证文件大小
+            downloaded_size = os.path.getsize(save_path)
+            if downloaded_size != file_info["size"]:
+                log.error(f"文件大小不匹配: {file_name} ({downloaded_size} vs {file_info['size']})")
+                os.remove(save_path)
+                return False
+            
+            elapsed = time.time() - start_time
+            size_mb = downloaded_size / (1024 * 1024)
+            speed = size_mb / elapsed if elapsed > 0 else 0
+            log.info(f"下载完成: {file_name} - {size_mb:.2f} MB, 耗时: {elapsed:.1f}s, 速度: {speed:.2f} MB/s")
+            return True
+        
+        def main():
+            log.info("="*50)
+            log.info("启动夸克网盘APK同步 (增强版)")
+            log.info("="*50)
+            
+            # 检查环境变量
+            if not os.environ.get("QUARK_CK"):
+                log.error("缺少QUARK_CK环境变量")
+                return 1
+            
+            # 设置Git
+            if not setup_git():
+                return 2
+            
+            # 创建临时目录
+            os.makedirs(WORK_DIR, exist_ok=True)
+            os.makedirs(APK_DIR, exist_ok=True)
+            
+            # 加载版本文件 (保护现有内容)
+            current_versions = load_version_file()
+            log.info("当前版本文件内容:\n" + json.dumps(current_versions, indent=2))
+            
+            # 解析Cookie
+            cookies = parse_cookies(os.environ["QUARK_CK"])
+            
+            # 获取所有分享文件
+            share_url = os.environ.get("SHARE_URL", "https://pan.quark.cn/s/6fead79bddaf")
+            log.info(f"获取分享文件列表: {share_url}")
+            files = get_all_share_files(share_url, cookies)
+            
+            if not files:
+                log.error("无法获取文件列表或列表为空")
+                return 3
+            log.info(f"找到 {len(files)} 个文件")
+            
+            # 查找标准版文件
+            log.info("扫描标准版文件...")
+            std_files = find_files_by_template(files, STD_PATH_TEMPLATES)
+            if not std_files:
+                log.error("未找到标准版文件")
+            else:
+                log.info(f"标准版发现: {len(std_files)} 个文件")
+                for name, info in std_files.items():
+                    log.info(f"  {name}: v{info['version']} (文件名: {info['file_name']})")
+            
+            # 查找专业版文件
+            log.info("扫描专业版文件...")
+            pro_files = find_files_by_template(files, PRO_PATH_TEMPLATES)
+            if not pro_files:
+                log.error("未找到专业版文件")
+            else:
+                log.info(f"专业版发现: {len(pro_files)} 个文件")
+                for name, info in pro_files.items():
+                    log.info(f"  {name}: v{info['version_num']} (文件名: {info['file_name']})")
+            
+            # 处理更新
+            needs_update = False
+            update_log = []
+            
+            # 处理标准版
+            if std_files:
+                # 假设标准版的所有文件共享同一版本号和时间戳
+                sample_file = next(iter(std_files.values()))
+                
+                # 获取北京时间
+                dt = datetime.fromtimestamp(sample_file["timestamp"]/1000)
+                dt_beijing = dt.astimezone(TZ_BEIJING)
+                date_str = dt_beijing.strftime("%Y-%m-%d")
+                
+                log.info(f"标准版版本: {sample_file['version']}, 发布时间: {date_str}")
+                
+                for file_type, file_info in std_files.items():
+                    key_name = f"std_{file_type}"
+                    version_key = RENAME_MAP[key_name]
+                    
+                    if should_update(current_versions, key_name, file_info["version"], date_str):
+                        # 下载文件
+                        temp_path = os.path.join(WORK_DIR, file_info["file_name"])
+                        if download_file(cookies, file_info, temp_path):
+                            # 移动并重命名文件
+                            final_path = os.path.join(APK_DIR, RENAME_MAP[key_name])
+                            os.rename(temp_path, final_path)
+                            
+                            # 更新版本记录
+                            current_versions[version_key] = f"{file_info['version']},{date_str}"
+                            update_log.append(f"{version_key} -> v{file_info['version']}")
+                            needs_update = True
+                        else:
+                            log.error(f"下载失败: {version_key}")
+            else:
+                log.warning("跳过标准版，没有找到文件")
+            
+            # 处理专业版
+            if pro_files:
+                # 假设专业版的所有文件共享同一版本号和时间戳
+                sample_file = next(iter(pro_files.values()))
+                
+                # 获取北京时间
+                dt = datetime.fromtimestamp(sample_file["timestamp"]/1000)
+                dt_beijing = dt.astimezone(TZ_BEIJING)
+                date_str = dt_beijing.strftime("%Y-%m-%d")
+                
+                log.info(f"专业版版本: {sample_file['version_num']}, 发布时间: {date_str}")
+                
+                for file_type, file_info in pro_files.items():
+                    key_name = f"pro_{file_type}"
+                    version_key = RENAME_MAP[key_name]
+                    
+                    if should_update(current_versions, key_name, file_info["version_num"], date_str):
+                        # 下载文件
+                        temp_path = os.path.join(WORK_DIR, file_info["file_name"])
+                        if download_file(cookies, file_info, temp_path):
+                            # 移动并重命名文件
+                            final_path = os.path.join(APK_DIR, RENAME_MAP[key_name])
+                            os.rename(temp_path, final_path)
+                            
+                            # 更新版本记录
+                            current_versions[version_key] = f"{file_info['version_num']},{date_str}"
+                            update_log.append(f"{version_key} -> v{file_info['version_num']}")
+                            needs_update = True
+                        else:
+                            log.error(f"下载失败: {version_key}")
+            else:
+                log.warning("跳过专业版，没有找到文件")
+            
+            # 检查强制文件存在
+            if not needs_update:
+                log.info("没有需要更新的APK文件")
+                
+                # 检查是否所有文件都存在
+                for key in RENAME_MAP.values():
+                    file_path = os.path.join(APK_DIR, key)
+                    if not os.path.exists(file_path):
+                        log.error(f"关键文件缺失: {key}")
+                        return 4
+            
+            # 保存版本文件
+            if needs_update:
+                log.info("更新版本文件")
+                save_version_file(current_versions)
+                
+                # 提交更改
+                commit_msg = "更新APK: " + ", ".join(update_log)
+                if commit_and_push(commit_msg):
+                    log.info("同步成功！")
+                    return 0
+                else:
+                    log.error("提交失败")
+                    return 5
+            else:
+                log.info("所有文件均为最新版本")
+                return 0
+        
+        if __name__ == "__main__":
+            import subprocess
+            import sys
+            sys.exit(main())
+        EOF
+
+    - name: Release Repository Lock 🔓
+      if: always()
+      uses: softprops/turnstyle@v1
+      with:
+        continue-on-error: true
+        action: unlock
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const message = `🚨 Quark网盘APK同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: message
+          })
+
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: sync
+    if: always()
+    steps:
+      - name: Clean up workspace
+        run: |
+          # 删除临时工作目录
+          rm -rf temp_apks
+          
+          # 清除未跟踪的文件
+          git clean -f -d
