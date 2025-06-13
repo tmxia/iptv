@@ -177,10 +177,16 @@ jobs:
                 key_url = "https://login.xunlei.com/risk"
                 try:
                     key_res = session.get(key_url, headers=headers, timeout=10)
+                    # 检查响应内容类型
+                    if 'application/json' not in key_res.headers.get('Content-Type', ''):
+                        log.warning(f"密钥接口返回非JSON响应: {key_res.text[:100]}")
+                        raise ValueError("非JSON响应")
+                        
                     key_data = key_res.json()
                     public_key = key_data.get("publickey", "")
                     seq = key_data.get("seq", "")
-                except:
+                except Exception as e:
+                    log.warning(f"获取密钥失败: {str(e)}")
                     # 如果官方接口失效，使用硬编码密钥
                     public_key = "D9C4B5F5E6A7C8B9"
                     seq = str(int(time.time() * 1000))
@@ -189,10 +195,14 @@ jobs:
                 # 2. 密码加密 - 增强兼容性
                 if public_key:
                     # 标准的AES加密
-                    cipher = AES.new(public_key.encode('utf-8'), AES.MODE_ECB)
-                    padded_password = password.ljust(16, '\0')[:16]
-                    encrypted_pwd = cipher.encrypt(padded_password.encode('utf-8'))
-                    encrypted_pwd = encrypted_pwd.hex().upper()
+                    try:
+                        cipher = AES.new(public_key.encode('utf-8'), AES.MODE_ECB)
+                        padded_password = password.ljust(16, '\0')[:16]
+                        encrypted_pwd = cipher.encrypt(padded_password.encode('utf-8'))
+                        encrypted_pwd = encrypted_pwd.hex().upper()
+                    except Exception as e:
+                        log.error(f"密码加密失败: {str(e)}")
+                        encrypted_pwd = hashlib.md5(password.encode()).hexdigest()
                 else:
                     # 无加密方案
                     encrypted_pwd = hashlib.md5(password.encode()).hexdigest()
@@ -212,16 +222,21 @@ jobs:
                 
                 # 4. 发送登录请求
                 response = session.post(login_url, data=login_data, headers=headers)
-                response.raise_for_status()
                 
-                # 5. 验证登录结果
-                login_result = response.json()
+                # 5. 处理可能的非JSON响应
+                try:
+                    login_result = response.json()
+                except json.JSONDecodeError:
+                    log.error(f"登录接口返回非JSON响应: {response.text[:200]}")
+                    return None
+                
+                # 6. 验证登录结果
                 if login_result.get("result") != "0":
                     error_msg = login_result.get("message", "未知错误")
                     log.error(f"❌ 登录失败: {error_msg}")
                     return None
                 
-                # 6. 提取Cookies
+                # 7. 提取Cookies
                 cookies = []
                 for name, value in session.cookies.items():
                     if name in ["sessionid", "userid", "nickname"]:
