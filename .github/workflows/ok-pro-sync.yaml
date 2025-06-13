@@ -1,4 +1,4 @@
-name: OK APK Sync from QuarkDrive (Enhanced)
+name: OK APK Sync from QuarkDrive
 
 concurrency: 
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,8 +30,8 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
-
-    - name: Set up Python
+        
+    - name: Setup Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
@@ -39,12 +39,17 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl unzip
+        sudo apt-get install -y \
+          build-essential \
+          libssl-dev \
+          python3-dev \
+          python3-pip \
+          libffi-dev
         pip install requests pycryptodome pytz
 
-    - name: Run Enhanced Quark Drive Sync
+    - name: Run Quark Drive Sync with Enhanced Logging
       env:
-        QUARK_CK: ${{ secrets.QUARK_CK }}  # 将夸克ck存入GitHub Secrets
+        QUARK_CK: ${{ secrets.QUARK_CK }}
         SHARE_URL: https://pan.quark.cn/s/6fead79bddaf
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         TARGET_REPO: ${{ github.repository }}
@@ -62,10 +67,22 @@ jobs:
         import base64
         from Crypto.Cipher import AES
         import pytz
+        import subprocess
+        import sys
         
-        # 配置日志
-        logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        # 配置详细的日志
+        logging.basicConfig(
+            level=logging.INFO,
+            format='[%(asctime)s][%(levelname)-8s] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
         log = logging.getLogger("quark_sync")
+        log.setLevel(logging.DEBUG)  # 启用详细调试日志
+        
+        # 创建文件处理器
+        file_handler = logging.FileHandler("quark_sync.log")
+        file_handler.setFormatter(logging.Formatter('[%(asctime)s][%(levelname)-8s] %(message)s'))
+        log.addHandler(file_handler)
         
         # 配置参数
         WORK_DIR = "temp_apks"
@@ -97,6 +114,7 @@ jobs:
         
         def setup_git():
             try:
+                log.info(">>> 配置Git环境")
                 actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
                 email = f"{actor}@users.noreply.github.com"
                 
@@ -108,17 +126,29 @@ jobs:
                 
                 log.info("Git配置完成")
                 return True
+            except subprocess.CalledProcessError as e:
+                log.error(f"Git命令执行失败: {str(e)}")
+                log.error(f"命令输出: {e.output if e.output else '无'}")
+                return False
             except Exception as e:
                 log.error(f"Git设置失败: {str(e)}")
                 return False
         
         def commit_and_push(message):
             try:
+                log.info(f">>> 准备提交更新: {message}")
+                
                 # 只添加APK目录和版本文件
                 subprocess.run(["git", "add", APK_DIR, "version.txt"], check=True)
                 
                 # 检查是否有更改
-                status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+                status = subprocess.run(
+                    ["git", "status", "--porcelain"], 
+                    capture_output=True, 
+                    text=True,
+                    check=True
+                )
+                
                 if not status.stdout.strip():
                     log.info("没有更改需要提交")
                     return True
@@ -135,12 +165,20 @@ jobs:
                 max_attempts = 3
                 for attempt in range(1, max_attempts + 1):
                     try:
-                        log.info(f"尝试 {attempt}/{max_attempts}: 推送更改...")
-                        # 在推送前再次拉取最新更改
+                        log.info(f"尝试 {attempt}/{max_attempts}: 拉取远程最新更改并变基...")
                         subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+                        
+                        log.info(f"尝试 {attempt}/{max_attempts}: 推送更改...")
                         subprocess.run(["git", "push", repo_url, "HEAD:main"], check=True)
                         log.info("推送成功")
                         return True
+                    except subprocess.CalledProcessError as e:
+                        log.warning(f"Git操作失败: {str(e)}")
+                        log.warning(f"命令输出: {e.output if e.output else '无'}")
+                        if attempt < max_attempts:
+                            time.sleep(10)
+                            log.info("重试前恢复Git状态...")
+                            subprocess.run(["git", "reset", "--hard", "HEAD"], check=True)
                     except Exception as e:
                         log.warning(f"尝试 {attempt} 失败: {str(e)}")
                         if attempt < max_attempts:
@@ -149,7 +187,7 @@ jobs:
                 log.error(f"经过{max_attempts}次尝试后仍无法推送更改")
                 return False
             except Exception as e:
-                log.error(f"Git操作失败: {str(e)}")
+                log.error(f"Git提交失败: {str(e)}")
                 return False
         
         def load_version_file():
@@ -159,15 +197,22 @@ jobs:
             if version_path.exists():
                 try:
                     with open(version_path, "r") as f:
+                        log.info(f"加载现有版本文件: {version_path}")
                         versions = json.load(f)
-                except Exception:
-                    log.warning("版本文件格式错误，但不会清空")
+                        log.debug(f"版本文件内容:\n{json.dumps(versions, indent=2)}")
+                except json.JSONDecodeError:
+                    log.warning("版本文件格式错误（JSON解析失败），但不会清空")
+                except Exception as e:
+                    log.warning(f"读取版本文件失败: {str(e)}，但不会清空")
+            else:
+                log.info("版本文件不存在，将从零开始初始化")
             return versions
         
         def save_version_file(versions):
             version_path = Path("version.txt")
             with open(version_path, "w") as f:
                 json.dump(versions, f, indent=2)
+            log.info("版本文件已保存")
         
         def parse_cookies(cookie_str):
             cookies = {}
@@ -177,125 +222,268 @@ jobs:
                     continue
                 if '=' in item:
                     key, value = item.split('=', 1)
-                    cookies[key] = value
+                    cookies[key.strip()] = value.strip()
                 else:
                     cookies[item] = None
             return cookies
         
+        def get_safe_cookie_log(cookies):
+            """安全记录Cookies（隐藏敏感信息）"""
+            safe_cookies = []
+            sensitive_keys = ['__sdid', 'isg', 'tfstk', 'cookie', 'token', 'key', 'secret']
+            
+            for key, value in cookies.items():
+                if any(sk in key.lower() for sk in sensitive_keys):
+                    safe_cookies.append(f"{key}=***")
+                else:
+                    safe_cookies.append(f"{key}={value}")
+            
+            return ', '.join(safe_cookies)
+        
         def decrypt_download_url(encrypted_url, file_key):
             """解密夸克网盘下载URL"""
-            # 生成AES密钥
-            aes_key = hashlib.md5(file_key.encode()).hexdigest().encode()
-            iv = b"ef0e50a8a48afdac"
-            
-            # 解密
-            cipher = AES.new(aes_key, AES.MODE_CBC, iv)
-            encrypted_url = base64.b64decode(encrypted_url)
-            decrypted = cipher.decrypt(encrypted_url)
-            
-            # 移除PKCS7填充
-            pad = decrypted[-1]
-            if pad < 16:
-                decrypted = decrypted[:-pad]
-            
-            return decrypted.decode('utf-8')
+            try:
+                # 生成AES密钥
+                aes_key = hashlib.md5(file_key.encode()).hexdigest().encode()
+                iv = b"ef0e50a8a48afdac"
+                
+                # 解码base64
+                encrypted_data = base64.b64decode(encrypted_url)
+                
+                # 创建解密器
+                cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+                decrypted = cipher.decrypt(encrypted_data)
+                
+                # 移除PKCS7填充
+                pad = decrypted[-1]
+                if 1 <= pad <= 16:
+                    decrypted = decrypted[:-pad]
+                
+                return decrypted.decode('utf-8')
+            except Exception as e:
+                log.error(f"下载URL解密失败: {str(e)}")
+                return None
         
         def get_all_share_files(share_url, cookies):
-            """获取分享链接下的所有文件"""
+            """获取分享链接下的所有文件（带详细日志）"""
+            log.info(f"⏳ 开始获取分享文件列表: {share_url}")
+            
+            # 提取分享ID
             share_id = share_url.split("/s/")[-1]
+            if not share_id or len(share_id) != 32:
+                log.error(f"❌ 无效的分享URL格式，无法提取share_id: {share_url}")
+                return None
+            
+            log.info(f"分享ID: {share_id}")
+            
             api_url = "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/detail"
             
             headers = {
                 "Referer": share_url,
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
             }
+            
+            # 安全记录Cookies
+            log.info(f"使用Cookies: {get_safe_cookie_log(cookies)}")
             
             all_files = []
             page = 1
             has_more = True
+            error_occurred = False
             
-            while has_more:
+            while has_more and not error_occurred:
                 payload = {
                     "share_id": share_id,
-                    "pdir_fid": "",
+                    "pdir_fid": "0",  # 从根目录开始
                     "page": page,
-                    "per_page": 50,
-                    "file_type": 0
+                    "per_page": 100,
+                    "file_type": 0  # 所有类型
                 }
                 
-                response = requests.post(api_url, json=payload, headers=headers, cookies=cookies)
-                data = response.json()
+                log.info(f"📄 请求第 {page} 页，每页 {payload['per_page']} 个文件")
+                log.debug(f"请求负载: {json.dumps(payload, ensure_ascii=False)}")
                 
-                if data.get("data", {}).get("list"):
-                    all_files.extend(data["data"]["list"])
-                
-                has_more = data.get("data", {}).get("is_more", 0) == 1
-                page += 1
-                time.sleep(0.5)
+                try:
+                    start_time = time.time()
+                    response = requests.post(
+                        api_url, 
+                        json=payload, 
+                        headers=headers, 
+                        cookies=cookies,
+                        timeout=30
+                    )
+                    
+                    latency = time.time() - start_time
+                    log.debug(f"HTTP 状态码: {response.status_code} (响应时间: {latency:.2f}s)")
+                    
+                    if response.status_code != 200:
+                        log.error(f"❌ API请求失败: HTTP {response.status_code}")
+                        log.debug(f"响应头: {response.headers}")
+                        log.debug(f"响应文本: {response.text[:500]}...")
+                        error_occurred = True
+                        break
+                    
+                    try:
+                        data = response.json()
+                    except json.JSONDecodeError:
+                        log.error(f"❌ JSON解析失败: {response.text[:200]}")
+                        error_occurred = True
+                        break
+                    
+                    # 检查API错误码
+                    api_status = data.get("status", {})
+                    api_code = api_status.get("code")
+                    
+                    if api_code != 200 and api_code != None:
+                        api_msg = api_status.get("message", "未知错误")
+                        log.error(f"❌ API返回错误: {api_code} - {api_msg}")
+                        error_occurred = True
+                        break
+                    
+                    # 检查数据结构
+                    if not isinstance(data.get("data"), dict):
+                        log.error("❌ 无效的API响应结构: 'data'字段缺失或非字典类型")
+                        log.debug(f"完整响应: {json.dumps(data, ensure_ascii=False)[:500]}...")
+                        error_occurred = True
+                        break
+                    
+                    # 提取文件列表
+                    files_list = data.get("data", {}).get("list", [])
+                    log.info(f"📂 第 {page} 页获取到 {len(files_list)} 个文件")
+                    
+                    if files_list:
+                        # 记录样本文件
+                        sample_files = [f"{f.get('file_name', '无名文件')[:20]} ({f.get('size', 0)//1024}KB)" 
+                                      for f in files_list[:3]]
+                        if len(files_list) > 3:
+                            sample_files.append(f"...等 {len(files_list)} 个文件")
+                        
+                        log.info(f"📝 文件样本: {', '.join(sample_files)}")
+                        
+                        all_files.extend(files_list)
+                    
+                    # 检查是否还有更多页面
+                    has_more = data.get("data", {}).get("is_more", 0) == 1
+                    page += 1
+                    
+                    # 避免频繁请求
+                    time.sleep(0.5)
+                    
+                    # 安全限制: 最多10页
+                    if page > 10:
+                        log.warning("⚠️ 达到分页限制(10页)，停止获取更多文件")
+                        break
+                    
+                except requests.exceptions.Timeout:
+                    log.error("⌛ API请求超时")
+                    error_occurred = True
+                    break
+                except requests.exceptions.RequestException as re:
+                    log.error(f"🌐 网络请求异常: {str(re)}")
+                    error_occurred = True
+                    break
+                except Exception as e:
+                    log.error(f"❌ 处理分页请求时出错: {str(e)}")
+                    error_occurred = True
+                    break
             
+            if error_occurred:
+                log.error("❌ 文件列表获取过程中发生错误")
+                return None
+            
+            if not all_files:
+                log.warning("⚠️ 获取到的文件列表为空")
+            else:
+                log.info(f"✅ 总共获取到 {len(all_files)} 个文件")
+                
             return all_files
         
-        def find_files_by_template(files, templates):
+        def find_files_by_template(files, templates, category):
             """通过精确路径模板查找文件"""
             found_files = {}
             
+            if not files:
+                log.warning(f"⚠️ {category}: 未提供文件列表")
+                return found_files
+            
             for file in files:
-                if not file.get("file_name") or not file.get("updated_at"):
+                if not file.get("file_name") or not file.get("path"):
+                    log.debug("跳过无文件名或路径的文件")
                     continue
                 
                 path = file.get("path", "") + "/" + file["file_name"]
                 
-                # 尝试匹配标准版模板
+                # 尝试匹配模板
                 for file_type, template in templates.items():
-                    # 替换版本占位符为匹配通配符
-                    pattern = re.escape(template).replace(re.escape("{version}"), r"([\d.]+)") \
-                                                .replace(re.escape("{version_num}"), r"([\d.]+)")
+                    # 生成正则表达式模式
+                    pattern = re.escape(template)
+                    pattern = pattern.replace(r"\{version\}", r"([\d.]+)")
+                    pattern = pattern.replace(r"\{version_num\}", r"([\d.]+)")
+                    pattern = r"^" + pattern + r"$"
                     
+                    # 匹配路径
                     match = re.match(pattern, path)
                     if match:
                         version = match.group(1)
-                        # 版本号中的点需要保留为字符串用于匹配
                         version_num = match.group(2)
                         
+                        log.debug(f"✅ 匹配模板 '{template}': 文件 '{file['file_name']}'")
+                        
                         if not version_num.replace(".", "").isdigit():
+                            log.warning(f"⚠️ 无效版本号: {version_num} (文件: {file['file_name']})")
                             continue
-                            
-                        if file_type not in found_files or version > found_files[file_type]["version"]:
+                        
+                        # 更新文件记录
+                        if file_type not in found_files or version_num > found_files[file_type]["version_num"]:
                             found_files[file_type] = {
                                 "fid": file["fid"],
                                 "key": file["hash_name"],
                                 "version": version,
                                 "version_num": version_num,
                                 "path": path,
-                                "size": file["size"],
-                                "timestamp": int(file["updated_at"]),
+                                "size": file.get("size", 0),
+                                "timestamp": file.get("updated_at", 0),
                                 "file_name": file["file_name"]
                             }
                         break
+            
+            if not found_files:
+                log.warning(f"⚠️ {category}: 未找到匹配模板的文件")
             
             return found_files
         
         def should_update(versions, file_type, new_version, new_date):
             """判断是否需要更新此文件"""
             # 文件类型在版本文件中的键名
-            key = RENAME_MAP[file_type]
+            key = RENAME_MAP.get(file_type)
+            if not key:
+                log.error(f"❌ 无效的文件类型标识: {file_type}")
+                return False
             
             # 如果版本文件中不存在记录，需要更新
             if key not in versions:
-                log.info(f"新文件: {key}")
+                log.info(f"📋 新文件: {key} (v{new_version})")
                 return True
             
             current_val = versions[key]
             if ',' not in current_val:
-                log.info(f"版本格式错误，需要更新: {key}")
+                log.warning(f"📋 版本格式错误: {current_val}，强制更新 {key}")
                 return True
             
             # 解析当前记录的版本和日期
-            current_ver, current_date = current_val.split(',', 1)
+            try:
+                current_ver, current_date = current_val.split(',', 1)
+            except ValueError:
+                log.warning(f"📋 版本格式解析失败: {current_val}，强制更新 {key}")
+                return True
             
-            # 版本号比较（使用数字分割比较）
+            log.debug(f"📋 {key}: 当前版本 = {current_ver}, 当前日期 = {current_date}")
+            log.debug(f"📋 {key}: 新的版本 = {new_version}, 新的日期 = {new_date}")
+            
+            # 版本号比较
             def version_tuple(v):
-                return tuple(map(int, v.split('.')))
+                return tuple(map(int, re.findall(r'\d+', v)))
             
             try:
                 new_ver_tuple = version_tuple(new_version)
@@ -303,25 +491,30 @@ jobs:
                 
                 # 新版本号更高
                 if new_ver_tuple > current_ver_tuple:
-                    log.info(f"新版本: {current_ver} → {new_version} ({key})")
+                    log.info(f"🆕 新版本: {key} ({current_ver} → {new_version})")
                     return True
                 
                 # 版本相同但日期更新
                 if new_ver_tuple == current_ver_tuple and new_date > current_date:
-                    log.info(f"相同版本但新构建: {new_version} ({key})")
+                    log.info(f"🆕 相同版本但新构建: {key} (版本 {new_version}, 新日期 {new_date})")
                     return True
                 
+                log.debug(f"📋 {key}: 无需更新 (版本相同 {current_ver})")
                 return False
-            except ValueError:
-                log.warning(f"版本号格式无法解析: {new_version} vs {current_ver}")
+            except Exception as e:
+                log.warning(f"📋 版本号比较出错: {str(e)}")
                 # 如果无法解析版本号，按字符串比较
-                return new_version > current_ver or (new_version == current_ver and new_date > current_date)
+                is_new = (new_version > current_ver) or (new_version == current_ver and new_date > current_date)
+                if is_new:
+                    log.info(f"🆕 新版本: {key} (字符串比较: {current_ver} → {new_version})")
+                return is_new
         
         def download_file(cookies, file_info, save_path):
             """下载单个文件"""
             fid = file_info["fid"]
             file_name = file_info["file_name"]
             file_key = file_info["key"]
+            file_size = file_info.get("size", 0)
             
             # 获取下载链接
             api_url = f"https://drive-pc.quark.cn/1/clouddrive/file/download?fid={fid}"
@@ -330,212 +523,316 @@ jobs:
                 "Origin": "https://pan.quark.cn"
             }
             
-            response = requests.get(api_url, cookies=cookies, headers=headers, allow_redirects=False)
+            log.info(f"📥 开始下载: {file_name} ({file_size//1024} KB)")
+            log.debug(f"下载文件ID: {fid}")
             
-            if response.status_code == 302:
-                encrypted_url = response.headers.get("Location", "")
-            elif response.json().get("data"):
-                encrypted_url = response.json().get("data")
-            else:
-                log.error(f"无法获取下载URL: {file_name}")
-                return False
-            
-            # 解密下载URL
             try:
+                response = requests.get(
+                    api_url, 
+                    cookies=cookies, 
+                    headers=headers, 
+                    allow_redirects=False,
+                    timeout=20
+                )
+                
+                if response.status_code == 302:
+                    encrypted_url = response.headers.get("Location", "")
+                elif response.json().get("data"):
+                    encrypted_url = response.json().get("data")
+                else:
+                    log.error(f"❌ 无法获取下载URL")
+                    return False
+                
+                if not encrypted_url:
+                    log.error(f"❌ 未找到下载URL")
+                    return False
+                
+                # 解密下载URL
                 download_url = decrypt_download_url(encrypted_url, file_key)
-            except Exception as e:
-                log.error(f"解密URL失败: {file_name} - {str(e)}")
-                return False
-            
-            # 创建保存目录
-            save_dir = os.path.dirname(save_path)
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
-            
-            # 下载文件
-            start_time = time.time()
-            try:
-                with requests.get(download_url, stream=True) as r:
+                if not download_url:
+                    log.error(f"❌ 下载URL解密失败")
+                    return False
+                
+                log.debug(f"下载URL获取成功")
+                
+                # 创建保存目录
+                save_dir = os.path.dirname(save_path)
+                if not os.path.exists(save_dir):
+                    os.makedirs(save_dir)
+                
+                # 下载文件
+                start_time = time.time()
+                with requests.get(download_url, stream=True, timeout=60) as r:
                     r.raise_for_status()
+                    
+                    # 获取实际文件大小
+                    content_length = int(r.headers.get('content-length', 0))
+                    file_size = file_size or content_length
+                    
+                    log.info(f"文件大小: {file_size/(1024*1024):.2f} MB")
+                    
                     with open(save_path, 'wb') as f:
+                        downloaded = 0
+                        last_log = time.time()
+                        
                         for chunk in r.iter_content(chunk_size=8192):
                             if chunk:
                                 f.write(chunk)
+                                downloaded += len(chunk)
+                                
+                                # 每10%或每秒打印进度
+                                now = time.time()
+                                if now - last_log > 2 or downloaded == file_size:
+                                    percent = downloaded / file_size * 100
+                                    speed = downloaded / (now - start_time) / 1024  # KB/s
+                                    log.info(f"📊 下载中... {percent:.1f}% ({speed:.1f} KB/s)")
+                                    last_log = now
+                
+                # 验证文件大小
+                downloaded_size = os.path.getsize(save_path)
+                if downloaded_size != file_size:
+                    log.error(f"❌ 文件大小不匹配: {downloaded_size} vs {file_size}")
+                    os.remove(save_path)
+                    return False
+                
+                elapsed = time.time() - start_time
+                speed = downloaded_size / (elapsed * 1024)  # KB/s
+                log.info(f"✅ 下载完成! 耗时: {elapsed:.1f}s, 平均速度: {speed:.1f} KB/s")
+                return True
+                
+            except requests.exceptions.RequestException as e:
+                log.error(f"🌐 下载请求失败: {str(e)}")
+                return False
             except Exception as e:
-                log.error(f"下载失败: {file_name} - {str(e)}")
+                log.error(f"❌ 下载过程中出错: {str(e)}")
                 return False
-            
-            # 验证文件大小
-            downloaded_size = os.path.getsize(save_path)
-            if downloaded_size != file_info["size"]:
-                log.error(f"文件大小不匹配: {file_name} ({downloaded_size} vs {file_info['size']})")
-                os.remove(save_path)
-                return False
-            
-            elapsed = time.time() - start_time
-            size_mb = downloaded_size / (1024 * 1024)
-            speed = size_mb / elapsed if elapsed > 0 else 0
-            log.info(f"下载完成: {file_name} - {size_mb:.2f} MB, 耗时: {elapsed:.1f}s, 速度: {speed:.2f} MB/s")
-            return True
         
         def main():
-            log.info("="*50)
-            log.info("启动夸克网盘APK同步 (增强版)")
-            log.info("="*50)
+            log.info("=" * 70)
+            log.info("🚀 启动夸克网盘APK同步工作流")
+            log.info("=" * 70)
             
-            # 检查环境变量
+            # 记录环境信息
+            log.info(f"工作目录: {os.getcwd()}")
+            log.info(f"Python版本: {sys.version}")
+            log.info(f"操作系统: {os.name}")
+            
+            # 检查必要环境变量
             if not os.environ.get("QUARK_CK"):
-                log.error("缺少QUARK_CK环境变量")
+                log.critical("❌ 缺少QUARK_CK环境变量")
                 return 1
-            
+                
+            if not os.environ.get("GITHUB_TOKEN"):
+                log.warning("⚠️ GITHUB_TOKEN未提供，某些Git操作可能受限")
+                
             # 设置Git
             if not setup_git():
+                log.critical("❌ Git设置失败，无法继续")
                 return 2
             
             # 创建临时目录
+            log.info(f"创建临时目录: {WORK_DIR}")
             os.makedirs(WORK_DIR, exist_ok=True)
             os.makedirs(APK_DIR, exist_ok=True)
             
-            # 加载版本文件 (保护现有内容)
+            # 安全加载版本文件
             current_versions = load_version_file()
-            log.info("当前版本文件内容:\n" + json.dumps(current_versions, indent=2))
             
-            # 解析Cookie
-            cookies = parse_cookies(os.environ["QUARK_CK"])
+            # 解析Cookies
+            log.info("🔐 解析Cookies...")
+            quark_ck = os.environ["QUARK_CK"]
+            if not quark_ck:
+                log.error("❌ QUARK_CK为空")
+                return 3
+                
+            cookies = parse_cookies(quark_ck)
             
             # 获取所有分享文件
             share_url = os.environ.get("SHARE_URL", "https://pan.quark.cn/s/6fead79bddaf")
-            log.info(f"获取分享文件列表: {share_url}")
-            files = get_all_share_files(share_url, cookies)
+            log.info(f"🔍 分享链接: {share_url}")
             
+            # 重试机制获取文件列表
+            max_attempts = 3
+            files = None
+            for attempt in range(1, max_attempts + 1):
+                log.info(f"🔁 尝试获取分享文件列表 (尝试 {attempt}/{max_attempts})")
+                files = get_all_share_files(share_url, cookies)
+                
+                if files is not None:  # 注意: None表示错误，[]表示空列表
+                    if files:
+                        log.info(f"✅ 成功获取文件列表: {len(files)}个文件")
+                        break
+                    else:
+                        log.warning("⚠️ 文件列表为空")
+                else:
+                    log.warning("⚠️ 文件列表获取失败")
+                
+                if attempt < max_attempts:
+                    wait_time = 10 * attempt
+                    log.info(f"⏳ 等待{wait_time}秒后重试...")
+                    time.sleep(wait_time)
+            
+            # 检查结果
             if not files:
-                log.error("无法获取文件列表或列表为空")
+                log.critical("❌ 无法获取有效的文件列表，终止同步")
                 return 3
-            log.info(f"找到 {len(files)} 个文件")
             
             # 查找标准版文件
-            log.info("扫描标准版文件...")
-            std_files = find_files_by_template(files, STD_PATH_TEMPLATES)
-            if not std_files:
-                log.error("未找到标准版文件")
-            else:
-                log.info(f"标准版发现: {len(std_files)} 个文件")
-                for name, info in std_files.items():
-                    log.info(f"  {name}: v{info['version']} (文件名: {info['file_name']})")
+            log.info("=" * 70)
+            log.info("🔎 搜索标准版文件")
+            std_files = find_files_by_template(files, STD_PATH_TEMPLATES, "标准版")
             
             # 查找专业版文件
-            log.info("扫描专业版文件...")
-            pro_files = find_files_by_template(files, PRO_PATH_TEMPLATES)
-            if not pro_files:
-                log.error("未找到专业版文件")
-            else:
-                log.info(f"专业版发现: {len(pro_files)} 个文件")
-                for name, info in pro_files.items():
-                    log.info(f"  {name}: v{info['version_num']} (文件名: {info['file_name']})")
+            log.info("=" * 70)
+            log.info("🔎 搜索专业版文件")
+            pro_files = find_files_by_template(files, PRO_PATH_TEMPLATES, "专业版")
             
             # 处理更新
+            log.info("=" * 70)
+            log.info("🔄 开始处理更新")
             needs_update = False
             update_log = []
             
             # 处理标准版
             if std_files:
-                # 假设标准版的所有文件共享同一版本号和时间戳
                 sample_file = next(iter(std_files.values()))
                 
-                # 获取北京时间
+                # 获取日期
                 dt = datetime.fromtimestamp(sample_file["timestamp"]/1000)
                 dt_beijing = dt.astimezone(TZ_BEIJING)
                 date_str = dt_beijing.strftime("%Y-%m-%d")
                 
-                log.info(f"标准版版本: {sample_file['version']}, 发布时间: {date_str}")
+                log.info(f"🎯 标准版版本: {sample_file['version']}, 发布: {date_str}")
                 
                 for file_type, file_info in std_files.items():
                     key_name = f"std_{file_type}"
-                    version_key = RENAME_MAP[key_name]
                     
                     if should_update(current_versions, key_name, file_info["version"], date_str):
-                        # 下载文件
                         temp_path = os.path.join(WORK_DIR, file_info["file_name"])
                         if download_file(cookies, file_info, temp_path):
-                            # 移动并重命名文件
-                            final_path = os.path.join(APK_DIR, RENAME_MAP[key_name])
-                            os.rename(temp_path, final_path)
+                            # 创建目标路径
+                            dest_name = RENAME_MAP[key_name]
+                            dest_path = os.path.join(APK_DIR, dest_name)
+                            
+                            # 删除旧文件
+                            if os.path.exists(dest_path):
+                                os.remove(dest_path)
+                            
+                            # 移动文件
+                            os.rename(temp_path, dest_path)
+                            log.info(f"🆕 文件已保存为: {dest_name}")
                             
                             # 更新版本记录
-                            current_versions[version_key] = f"{file_info['version']},{date_str}"
-                            update_log.append(f"{version_key} -> v{file_info['version']}")
+                            current_versions[RENAME_MAP[key_name]] = f"{file_info['version']},{date_str}"
+                            update_log.append(f"{dest_name} (v{file_info['version']})")
                             needs_update = True
                         else:
-                            log.error(f"下载失败: {version_key}")
+                            log.error(f"❌ 下载失败: {RENAME_MAP[key_name]}")
+                    else:
+                        log.debug(f"↪️ 跳过: {RENAME_MAP[key_name]} (无需更新)")
             else:
-                log.warning("跳过标准版，没有找到文件")
-            
+                log.warning("⚠️ 跳过标准版处理")
+                
             # 处理专业版
             if pro_files:
-                # 假设专业版的所有文件共享同一版本号和时间戳
                 sample_file = next(iter(pro_files.values()))
                 
-                # 获取北京时间
+                # 获取日期
                 dt = datetime.fromtimestamp(sample_file["timestamp"]/1000)
                 dt_beijing = dt.astimezone(TZ_BEIJING)
                 date_str = dt_beijing.strftime("%Y-%m-%d")
                 
-                log.info(f"专业版版本: {sample_file['version_num']}, 发布时间: {date_str}")
+                log.info(f"🎯 专业版版本: {sample_file['version_num']}, 发布: {date_str}")
                 
                 for file_type, file_info in pro_files.items():
                     key_name = f"pro_{file_type}"
-                    version_key = RENAME_MAP[key_name]
                     
                     if should_update(current_versions, key_name, file_info["version_num"], date_str):
-                        # 下载文件
                         temp_path = os.path.join(WORK_DIR, file_info["file_name"])
                         if download_file(cookies, file_info, temp_path):
-                            # 移动并重命名文件
-                            final_path = os.path.join(APK_DIR, RENAME_MAP[key_name])
-                            os.rename(temp_path, final_path)
+                            # 创建目标路径
+                            dest_name = RENAME_MAP[key_name]
+                            dest_path = os.path.join(APK_DIR, dest_name)
+                            
+                            # 删除旧文件
+                            if os.path.exists(dest_path):
+                                os.remove(dest_path)
+                            
+                            # 移动文件
+                            os.rename(temp_path, dest_path)
+                            log.info(f"🆕 文件已保存为: {dest_name}")
                             
                             # 更新版本记录
-                            current_versions[version_key] = f"{file_info['version_num']},{date_str}"
-                            update_log.append(f"{version_key} -> v{file_info['version_num']}")
+                            current_versions[RENAME_MAP[key_name]] = f"{file_info['version_num']},{date_str}"
+                            update_log.append(f"{dest_name} (v{file_info['version_num']})")
                             needs_update = True
                         else:
-                            log.error(f"下载失败: {version_key}")
+                            log.error(f"❌ 下载失败: {RENAME_MAP[key_name]}")
+                    else:
+                        log.debug(f"↪️ 跳过: {RENAME_MAP[key_name]} (无需更新)")
             else:
-                log.warning("跳过专业版，没有找到文件")
+                log.warning("⚠️ 跳过专业版处理")
             
-            # 检查强制文件存在
-            if not needs_update:
-                log.info("没有需要更新的APK文件")
-                
-                # 检查是否所有文件都存在
-                for key in RENAME_MAP.values():
-                    file_path = os.path.join(APK_DIR, key)
-                    if not os.path.exists(file_path):
-                        log.error(f"关键文件缺失: {key}")
+            # 验证结果
+            all_files_ok = True
+            for key, file_name in RENAME_MAP.items():
+                apk_path = os.path.join(APK_DIR, file_name)
+                if not os.path.exists(apk_path):
+                    log.error(f"❌ 关键文件缺失: {file_name}")
+                    all_files_ok = False
+            
+            # 如果有更新或文件缺失
+            if needs_update or not all_files_ok:
+                if needs_update:
+                    log.info("💾 保存版本文件")
+                    save_version_file(current_versions)
+                    
+                    if update_log:
+                        commit_msg = "更新APK: " + ", ".join(update_log)
+                    else:
+                        commit_msg = "强制更新缺失文件"
+                    
+                    if commit_and_push(commit_msg):
+                        log.info("✅ 同步成功!")
+                        return 0
+                    else:
+                        log.error("❌ 提交失败")
                         return 4
-            
-            # 保存版本文件
-            if needs_update:
-                log.info("更新版本文件")
-                save_version_file(current_versions)
-                
-                # 提交更改
-                commit_msg = "更新APK: " + ", ".join(update_log)
-                if commit_and_push(commit_msg):
-                    log.info("同步成功！")
-                    return 0
                 else:
-                    log.error("提交失败")
+                    log.error("❌ 需要更新但无法完成操作")
                     return 5
             else:
-                log.info("所有文件均为最新版本")
+                log.info("✅ 所有文件均为最新版本")
                 return 0
         
         if __name__ == "__main__":
-            import subprocess
-            import sys
-            sys.exit(main())
+            try:
+                exit_code = main()
+                log.info("=" * 70)
+                log.info(f"🏁 工作流结束 (代码: {exit_code})")
+                log.info("=" * 70)
+                sys.exit(exit_code)
+            except Exception as e:
+                import traceback
+                log.error(f"❌ 未捕获的异常: {str(e)}")
+                log.error(traceback.format_exc())
+                sys.exit(99)
         EOF
+
+    - name: Archive log file
+      if: always()
+      run: |
+        echo "Archive sync log"
+        timestamp=$(date +%Y%m%d_%H%M%S)
+        cp quark_sync.log "quark_sync_${timestamp}.log"
+        gzip "quark_sync_${timestamp}.log"
+        
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: sync-logs
+        path: quark_sync_*.log.gz
 
     - name: Release Repository Lock 🔓
       if: always()
@@ -571,3 +868,6 @@ jobs:
           
           # 清除未跟踪的文件
           git clean -f -d
+          
+          # 保留日志文件
+          rm -f quark_sync.log
