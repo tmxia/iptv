@@ -163,65 +163,77 @@ jobs:
             """模拟迅雷账号登录，获取Cookie"""
             try:
                 log.info("🔐 正在登录迅雷账号...")
+                session = requests.Session()
                 
-                # 获取登录加密密钥
-                key_url = "https://login.xunlei.com/risk"
+                # 添加浏览器级User-Agent
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                    "Referer": "https://pan.xunlei.com/"
+                    "Referer": "https://pan.xunlei.com/",
+                    "Origin": "https://pan.xunlei.com",
+                    "X-Requested-With": "XMLHttpRequest"
                 }
-                key_res = requests.get(key_url, headers=headers)
-                key_data = key_res.json()
-                public_key = key_data["publickey"]
-                seq = key_data["seq"]
                 
-                # 加密密码
-                cipher = AES.new(public_key.encode('utf-8'), AES.MODE_ECB)
-                padded_password = password + (16 - len(password) % 16) * '\0'
-                encrypted_pwd = cipher.encrypt(padded_password.encode('utf-8'))
-                encrypted_pwd = encrypted_pwd.hex().upper()
+                # 1. 获取动态密钥 - 使用备用方案
+                key_url = "https://login.xunlei.com/risk"
+                try:
+                    key_res = session.get(key_url, headers=headers, timeout=10)
+                    key_data = key_res.json()
+                    public_key = key_data.get("publickey", "")
+                    seq = key_data.get("seq", "")
+                except:
+                    # 如果官方接口失效，使用硬编码密钥
+                    public_key = "D9C4B5F5E6A7C8B9"
+                    seq = str(int(time.time() * 1000))
+                    log.warning("⚠️ 使用备用加密密钥")
                 
-                # 构造登录请求
+                # 2. 密码加密 - 增强兼容性
+                if public_key:
+                    # 标准的AES加密
+                    cipher = AES.new(public_key.encode('utf-8'), AES.MODE_ECB)
+                    padded_password = password.ljust(16, '\0')[:16]
+                    encrypted_pwd = cipher.encrypt(padded_password.encode('utf-8'))
+                    encrypted_pwd = encrypted_pwd.hex().upper()
+                else:
+                    # 无加密方案
+                    encrypted_pwd = hashlib.md5(password.encode()).hexdigest()
+                
+                # 3. 构造登录请求
                 login_url = "https://login.xunlei.com/sec2login/"
                 login_data = {
                     "userid": username,
                     "pwd": encrypted_pwd,
-                    "rsa_pwd": "",  # 留空使用AES加密结果
                     "login_enable": "0",
-                    "business_type": "113",
+                    "business_type": "108",  # 108是网页版业务线
                     "vcode": "",
                     "seq": seq,
                     "session_type": "simple",
                     "captcha_code": ""
                 }
                 
-                # 发送登录请求
-                session = requests.Session()
+                # 4. 发送登录请求
                 response = session.post(login_url, data=login_data, headers=headers)
+                response.raise_for_status()
                 
-                if response.status_code != 200:
-                    log.error(f"登录失败: HTTP {response.status_code}")
-                    return None
-                
-                # 检查登录结果
+                # 5. 验证登录结果
                 login_result = response.json()
-                if login_result.get("message") != "success":
-                    log.error(f"登录失败: {login_result.get('message')}")
+                if login_result.get("result") != "0":
+                    error_msg = login_result.get("message", "未知错误")
+                    log.error(f"❌ 登录失败: {error_msg}")
                     return None
                 
-                # 提取Cookies
-                cookies = "; ".join([f"{name}={value}" for name, value in session.cookies.items()])
+                # 6. 提取Cookies
+                cookies = []
+                for name, value in session.cookies.items():
+                    if name in ["sessionid", "userid", "nickname"]:
+                        cookies.append(f"{name}={value}")
+                
+                cookie_str = "; ".join(cookies)
                 log.info("✅ 登录成功，获取到Cookie")
-                return cookies
+                return cookie_str
                 
             except Exception as e:
-                log.error(f"登录过程中出错: {str(e)}")
+                log.error(f"❌ 登录过程中出错: {str(e)}")
                 return None
-        
-        def decrypt_download_link(encrypted_url):
-            """解密迅雷下载链接（如果需要）"""
-            # 通常迅雷的下载链接不需要解密，但如果加密可以在这里处理
-            return encrypted_url
         
         def get_share_file_list(share_url, share_password, cookies):
             """获取分享链接下的文件列表"""
@@ -241,7 +253,8 @@ jobs:
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
                 "Cookie": cookies,
-                "Referer": "https://pan.xunlei.com/"
+                "Referer": "https://pan.xunlei.com/",
+                "X-Requested-With": "XMLHttpRequest"
             }
             
             # 构造API参数
@@ -266,15 +279,10 @@ jobs:
                 # 提取文件信息
                 files = []
                 for file in data["data"]:
-                    download_url = decrypt_download_link(file["download_url"])
-                    if not download_url:
-                        log.warning(f"无法解析下载链接: {file['name']}")
-                        continue
-                        
                     files.append({
                         "name": file["name"],
                         "size": file["size"],
-                        "download_url": download_url,
+                        "download_url": file["download_url"],
                         "sha1": file["hash"]
                     })
                 
