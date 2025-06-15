@@ -30,6 +30,14 @@ jobs:
         git config --global user.email "actions@github.com"
         git config pull.rebase true  # 配置rebase策略
         
+    # 在开始同步前获取仓库锁 - 关键修复位置
+    - name: Acquire Repository Lock 🔒
+      uses: softprops/turnstyle@v1
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200  # 20分钟超时
+        
     - name: Run sync script
       env:
         SOURCE_REPO: "risin42/NagramX"
@@ -324,22 +332,10 @@ jobs:
             sys.exit(asyncio.run(main()))
         EOF
 
-    # 添加仓库锁机制防止并发冲突
-    - name: Acquire Repository Lock 🔒
-      uses: softprops/turnstyle@v1
-      with:
-        same-branch-only: true
-        poll-interval-seconds: 30
-        abort-after-seconds: 1200  # 20分钟超时
-        
     - name: Commit and Push Changes
       run: |
         # 设置远程URL
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-        
-        # 拉取远程最新更改并rebase
-        echo "拉取远程最新更改并rebase..."
-        git pull --rebase
         
         # 检查是否有文件变更
         if git diff-index --quiet HEAD --; then
