@@ -354,6 +354,16 @@ jobs:
         # 推送更改
         echo "推送更改..."
         git push origin HEAD:${{ github.ref }}
+        
+    # 添加解锁步骤 - 确保无论成功失败都释放锁
+    - name: Release Repository Lock 🔓
+      if: always()  # 无论前面步骤成功与否都执行
+      uses: softprops/turnstyle@v1
+      with:
+        continue-on-error: true  # 即使解锁失败也不中断工作流
+        action: unlock  # 指定解锁操作
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # 清理旧的工作流运行记录
   cleanup_self:
