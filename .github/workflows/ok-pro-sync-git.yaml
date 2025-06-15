@@ -181,30 +181,12 @@ jobs:
                             return {}, True
                         
                         try:
-                            # 尝试解析JSON格式
+                            # 只支持JSON格式解析
                             versions = json.loads(content)
                             log.info(f"成功读取版本文件: 包含 {len(versions)} 个APK记录")
                             return versions, True
                         except json.JSONDecodeError:
-                            # 兼容旧版文本格式: "文件名,版本号,日期"
-                            log.warning("版本文件格式异常，尝试兼容解析")
-                            versions = {}
-                            for line in content.splitlines():
-                                line = line.strip()
-                                if not line:
-                                    continue
-                                if ',' in line:
-                                    parts = line.split(',')
-                                    if len(parts) >= 2:
-                                        filename = parts[0].strip()
-                                        version = parts[1].strip()
-                                        # 如果只有两个部分，日期设为默认值
-                                        date = parts[2].strip() if len(parts) >= 3 else "1970-01-01"
-                                        versions[filename] = f"{version},{date}"
-                                        log.info(f"兼容解析: {filename} -> 版本: {version}, 日期: {date}")
-                            if versions:
-                                log.info(f"兼容解析成功: 找到 {len(versions)} 个记录")
-                                return versions, True
+                            log.error("版本文件格式错误，必须是JSON格式")
                             return {}, True
                 except Exception as e:
                     log.error(f"读取版本文件失败: {str(e)}")
@@ -274,7 +256,7 @@ jobs:
                 "date_iso": date_iso
             }
         
-        def should_download_apk(filename, msg, current_versions, version_file_exists):
+        def should_download_apk(filename, msg_date, current_versions, version_file_exists):
             """智能判断是否需要下载APK"""
             # 如果版本文件不存在，总是需要下载
             if not version_file_exists:
@@ -297,7 +279,7 @@ jobs:
             
             # 将消息日期转换为UTC+8日期字符串（YYYY-MM-DD）
             utc8 = pytz.timezone('Asia/Shanghai')
-            msg_date_utc8 = msg.date.astimezone(utc8)
+            msg_date_utc8 = msg_date.astimezone(utc8)
             msg_date_str = msg_date_utc8.strftime("%Y-%m-%d")
             
             # 比较日期
@@ -308,21 +290,6 @@ jobs:
             if msg_date_str > current_date_str:
                 log.info(f"[{filename}] 发现新发布版本")
                 return True
-            
-            # 需要下载的情况：日期相同但版本不同（防止同一天多个版本）
-            if msg_date_str == current_date_str:
-                # 尝试从消息文本中提取版本号
-                msg_version = None
-                if msg.text:
-                    match = re.search(r'[vV]?(\d+\.\d+\.\d+)', msg.text)
-                    if match:
-                        msg_version = 'v' + match.group(1)
-                        log.info(f"[{filename}] 从消息文本提取版本: {msg_version}")
-                
-                # 如果提取的版本号与当前不同，需要下载
-                if msg_version and msg_version != current_version:
-                    log.info(f"[{filename}] 同一天有新版本: {current_version} → {msg_version}")
-                    return True
             
             log.info(f"[{filename}] 无新版本可用")
             return False
@@ -357,7 +324,7 @@ jobs:
             # 处理每个APK文件
             for filename, msg in latest_msgs.items():
                 # 检查是否需要下载
-                if not should_download_apk(filename, msg, current_versions, version_file_exists):
+                if not should_download_apk(filename, msg.date, current_versions, version_file_exists):
                     continue
                 
                 # 下载APK
