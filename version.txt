@@ -20,5 +20,7 @@
   "hiddify-beta.apk": "v2.5.7,2024-10-03",
   "termux.apk": "v0.118.3,2025-05-22",
   "termux-beta.apk": "v0.119.0,2025-05-22",
-  "nagramx-beta.apk": "v11.12.0-19b801a,2025-06-08"
+  "nagramx-beta.apk": "v11.12.0-19b801a,2025-06-08",
+  "leanback-pro.apk": "v3.3.5,2025-06-15",
+  "mobile-pro.apk": "v3.3.5,2025-06-15"
 }
