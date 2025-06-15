@@ -1,13 +1,8 @@
-name: OpenWrt Kernel Sync from TELEGRAM
-
-concurrency: 
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+name: NagramX Sync from Source Repository
 
 on:
   schedule:
-    - cron: '0 18 * * 1' # 周一凌晨2点（北京时间）  
-    - cron: '0 11 * * 1' # 周一下午7点（北京时间）
+    - cron: '0 */24 * * *'  # 每24小时运行一次
   workflow_dispatch:
 
 permissions:
@@ -18,82 +13,175 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    - name: Acquire Repository Lock 🔒
-      uses: softprops/turnstyle@v1
+    - name: Checkout current repository
+      uses: actions/checkout@v3
       with:
-        same-branch-only: true
-        poll-interval-seconds: 30
-        abort-after-seconds: 1200  # 20分钟超时
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+        ref: main  # 明确指定分支
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl unzip zip
-        pip install telethon requests pytz
+        sudo apt-get install -y jq curl
+        
+    - name: Configure Git
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git config pull.rebase true  # 配置rebase策略
+        
+    - name: Run sync script
+      env:
+        SOURCE_REPO: "risin42/NagramX"
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        APK_PATTERN: "arm64-v8a.apk"
+        ANDROID_TARGET_NAME: "nagramx.apk"
+      run: |
+        # 目标文件路径
+        ANDROID_TARGET_PATH="apk/$ANDROID_TARGET_NAME"
+        
+        # 创建临时工作目录
+        WORK_DIR=$(mktemp -d)
+        echo "创建临时目录: $WORK_DIR"
+        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-    - name: Run Kernel Sync
+        # 获取所有发布版（只取稳定版）
+        echo "获取稳定版本信息..."
+        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
+        if [ $? -ne 0 ]; then
+          echo "错误: 无法获取发布信息"
+          exit 1
+        fi
+
+        # 提取最新稳定版（过滤掉预发布版）
+        LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]')
+        if [ -z "$LATEST_STABLE_RELEASE" ] || [ "$LATEST_STABLE_RELEASE" = "null" ]; then
+          echo "错误: 未找到稳定版本"
+          exit 1
+        fi
+        
+        # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
+        STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
+        RELEASE_DATE=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
+        
+        # 关键修复：从发布标题中提取完整版本号并添加 'v' 前缀
+        RAW_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.name' | grep -oP '(\d+\.)+\d+' | head -1)
+        if [ -z "$RAW_VERSION" ]; then
+          # 如果无法从标题提取，则使用标签名作为备选
+          RAW_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        fi
+        
+        # 确保版本号以 'v' 开头
+        if [[ ! "$RAW_VERSION" =~ ^v ]]; then
+          STABLE_VERSION="v$RAW_VERSION"
+        else
+          STABLE_VERSION="$RAW_VERSION"
+        fi
+        
+        echo "源仓库最新稳定版: $STABLE_VERSION (发布于: $RELEASE_DATE)"
+
+        # 检查本地版本文件
+        if [ ! -f "version.txt" ]; then
+          echo "{}" > version.txt
+        fi
+        
+        # 读取当前版本信息
+        CURRENT_VERSION_JSON=$(cat version.txt)
+        
+        # 解析当前版本和日期
+        CURRENT_ANDROID_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$ANDROID_TARGET_NAME\"")
+        
+        # 分离版本和日期
+        CURRENT_ANDROID_VERSION=""
+        CURRENT_ANDROID_DATE=""
+        if [ "$CURRENT_ANDROID_FULL" != "null" ] && [[ "$CURRENT_ANDROID_FULL" == *,* ]]; then
+          CURRENT_ANDROID_VERSION=$(echo "$CURRENT_ANDROID_FULL" | cut -d, -f1)
+          CURRENT_ANDROID_DATE=$(echo "$CURRENT_ANDROID_FULL" | cut -d, -f2)
+        fi
+        
+        echo "当前Android版本: ${CURRENT_ANDROID_VERSION:-无} (日期: ${CURRENT_ANDROID_DATE:-无})"
+
+        # 检查是否需要更新
+        need_update=false
+        
+        # 检查Android版本和文件
+        if [ "$STABLE_VERSION" != "$CURRENT_ANDROID_VERSION" ] || [ ! -f "$ANDROID_TARGET_PATH" ]; then
+          echo "Android需要更新: 版本不匹配或文件不存在"
+          need_update=true
+        fi
+        
+        if [ "$need_update" = false ]; then
+          echo "版本相同且文件存在，无需更新"
+          # 继续执行后续步骤（测试版同步）
+        else
+          # 下载新版本文件
+          echo "下载新版本文件..."
+          
+          # 查找Android APK文件
+          apk_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
+          if [ -z "$apk_download_url" ]; then
+            echo "错误: 未找到匹配的Android APK文件"
+            exit 1
+          fi
+          
+          # 确保apk目录存在
+          mkdir -p apk
+          
+          # 下载Android APK
+          apk_source_name=$(basename "$apk_download_url")
+          echo "下载Android APK: $apk_source_name"
+          curl -sL "$apk_download_url" -o "$WORK_DIR/$apk_source_name"
+          if [ ! -f "$WORK_DIR/$apk_source_name" ]; then
+            echo "错误: Android APK下载失败"
+            exit 1
+          fi
+          
+          # 重命名并移动到目标位置
+          mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH"
+          echo "文件已保存到: $ANDROID_TARGET_PATH"
+
+          # 更新版本文件（保留其他键值，添加日期）
+          UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
+            --arg android_key "$ANDROID_TARGET_NAME" \
+            --arg android_value "$STABLE_VERSION,$RELEASE_DATE" \
+            '.[$android_key] = $android_value')
+            
+          echo "$UPDATED_VERSION_JSON" > version.txt
+        fi
+
+    - name: Set up Python for Beta Sync
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Python dependencies for Beta Sync
+      run: |
+        pip install telethon pytz
+
+    - name: Sync Beta from Telegram
       env:
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
-        TELEGRAM_CHANNEL: "openwrt_flippy"
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        TARGET_REPO: ${{ github.repository }}
+        TELEGRAM_CHANNEL: "NagramX"
+        BETA_TARGET_NAME: "nagramx-beta.apk"
       run: |
         python - << "EOF"
         import os
         import json
         import sys
-        import subprocess
-        import shutil
-        import time
         import re
+        import time
         import logging
-        import zipfile
-        from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         from telethon.tl.types import DocumentAttributeFilename
         import pytz
         
         # 配置参数
-        KERNEL_GROUPS = {
-            "openwrt_flippy6.1": [
-                "dtb-rockchip-6.1.*-flippy-93+*.tar.gz",
-                "dtb-amlogic-6.1.*-flippy-93+*.tar.gz",
-                "boot-6.1.*-flippy-93+*.tar.gz",
-                "modules-6.1.*-flippy-93+*.tar.gz",
-                "header-6.1.*-flippy-93+*.tar.gz",
-                "dtb-allwinner-6.1.*-flippy-93+*.tar.gz"
-            ],
-            "openwrt_flippy6.12": [
-                "dtb-amlogic-6.12.*-flippy-93+*.tar.gz",
-                "dtb-rockchip-6.12.*-flippy-93+*.tar.gz",
-                "boot-6.12.*-flippy-93+*.tar.gz",
-                "dtb-allwinner-6.12.*-flippy-93+*.tar.gz",
-                "header-6.12.*-flippy-93+*.tar.gz",
-                "modules-6.12.*-flippy-93+*.tar.gz"
-            ]
-        }
-        KERNEL_DIR = "kernels"
-        KERNEL_VERSION_FILE = "kernel_versions.json"  # 专用内核版本文件
-        
-        # 环境变量
-        WORK_DIR = os.path.join(os.getcwd(), "temp_kernels")
-        GIT_DIR = os.getcwd()
+        BETA_TARGET_NAME = os.environ.get("BETA_TARGET_NAME", "nagramx-beta.apk")
+        APK_DIR = "apk"
+        WORK_DIR = os.path.join(os.getcwd(), "temp_beta_apk")
         os.makedirs(WORK_DIR, exist_ok=True)
         
         # 配置日志
@@ -104,271 +192,75 @@ jobs:
         )
         log = logging.getLogger()
         
-        def setup_git():
-            try:
-                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
-                email = os.environ.get('GITHUB_EMAIL', f'{actor}@users.noreply.github.com')
-                
-                subprocess.run(["git", "config", "user.name", actor], cwd=GIT_DIR, check=True)
-                subprocess.run(["git", "config", "user.email", email], cwd=GIT_DIR, check=True)
-                
-                # 拉取最新更改
-                log.info("拉取远程最新更改...")
-                subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=GIT_DIR, check=True)
-                
-                log.info("Git配置完成")
-                return True
-            except Exception as e:
-                log.error(f"Git设置失败: {str(e)}")
-                return False
+        def parse_beta_version(filename):
+            """从文件名解析测试版版本号"""
+            pattern = r'NagramX-v(\d+\.\d+\.\d+)(?:-([a-f0-9]+))?\((\d+)\)-arm64-v8a\.apk'
+            match = re.search(pattern, filename)
+            if match:
+                main_ver = match.group(1)
+                commit_ver = match.group(2) or ""
+                build_num = match.group(3)
+                if commit_ver:
+                    return f"v{main_ver}-{commit_ver}"
+                return f"v{main_ver}-{build_num}"
+            return None
         
-        def commit_and_push(message):
+        async def get_latest_beta_apk(client, channel_name):
+            """获取最新的测试版APK文件"""
             try:
-                # 添加内核目录和版本文件
-                subprocess.run(["git", "add", KERNEL_DIR, KERNEL_VERSION_FILE], cwd=GIT_DIR, check=True)
+                log.info(f"连接Telegram频道: {channel_name}")
+                entity = await client.get_entity(channel_name)
                 
-                # 检查是否有更改
-                status = subprocess.run(["git", "status", "--porcelain"], cwd=GIT_DIR, capture_output=True, text=True)
-                if not status.stdout.strip():
-                    log.info("没有更改需要提交")
-                    return True
+                latest_apk = None
                 
-                # 提交更改
-                subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
-                
-                token = os.environ['GITHUB_TOKEN']
-                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
-                repo = os.environ['TARGET_REPO']
-                repo_url = f"https://{actor}:{token}@github.com/{repo}.git"
-                
-                # 重试机制
-                max_attempts = 3
-                for attempt in range(1, max_attempts + 1):
-                    try:
-                        log.info(f"尝试 {attempt}/{max_attempts}: 拉取远程最新更改并变基...")
-                        subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=GIT_DIR, check=True)
-                        
-                        log.info(f"尝试 {attempt}/{max_attempts}: 推送更改...")
-                        subprocess.run(
-                            ["git", "push", repo_url, "HEAD:main"],
-                            cwd=GIT_DIR,
-                            check=True
-                        )
-                        log.info("推送成功")
-                        return True
-                    except subprocess.CalledProcessError as e:
-                        log.warning(f"尝试 {attempt} 失败: {str(e)}")
-                        if attempt < max_attempts:
-                            log.info("等待10秒后重试...")
-                            time.sleep(10)
-                        else:
-                            log.error(f"经过{max_attempts}次尝试后仍无法推送更改")
-                            return False
+                # 获取最新的20条消息
+                async for message in client.iter_messages(entity, limit=20):
+                    if message.media and hasattr(message.media, "document"):
+                        for attr in message.media.document.attributes:
+                            if isinstance(attr, DocumentAttributeFilename):
+                                filename = attr.file_name
+                                if filename.endswith("-arm64-v8a.apk") and "NagramX-v" in filename:
+                                    version = parse_beta_version(filename)
+                                    if not version:
+                                        continue
+                                    if not latest_apk or message.date > latest_apk['message'].date:
+                                        latest_apk = {
+                                            "message": message,
+                                            "filename": filename,
+                                            "version": version
+                                        }
+                return latest_apk
             except Exception as e:
-                log.error(f"Git操作失败: {str(e)}")
-                return False
+                log.error(f"获取消息失败: {str(e)}")
+                return None
         
-        def get_kernel_versions():
-            """获取内核版本信息"""
-            version_path = os.path.join(GIT_DIR, KERNEL_VERSION_FILE)
+        async def download_apk(client, message, filename):
+            """下载APK文件到临时目录"""
+            download_path = os.path.join(WORK_DIR, filename)
+            log.info(f"下载APK: {filename}")
+            await client.download_media(message, file=download_path)
+            return download_path
+        
+        def get_current_versions():
+            """获取当前版本信息"""
+            version_path = os.path.join(os.getcwd(), "version.txt")
             if os.path.exists(version_path):
                 try:
                     with open(version_path, "r") as f:
                         return json.load(f)
-                except json.JSONDecodeError:
-                    log.warning("内核版本文件格式错误，重新初始化")
-                except Exception as e:
-                    log.warning(f"读取内核版本文件失败: {str(e)}")
-            # 返回默认空版本
-            return {group: {"version": "", "date": ""} for group in KERNEL_GROUPS}
+                except:
+                    return {}
+            return {}
         
-        def save_kernel_versions(versions):
-            version_path = os.path.join(GIT_DIR, KERNEL_VERSION_FILE)
-            with open(version_path, "w") as f:
-                json.dump(versions, f, indent=2)
-        
-        def pattern_match(filename, pattern):
-            """使用正则表达式检查文件名是否匹配模式"""
-            pattern_regex = pattern.replace('.', r'\.').replace('*', r'.*')
-            return re.fullmatch(pattern_regex, filename) is not None
-        
-        def find_matching_group(filename):
-            """查找文件名匹配的内核组"""
-            for group, patterns in KERNEL_GROUPS.items():
-                for pattern in patterns:
-                    if pattern_match(filename, pattern):
-                        return group
-            return None
-        
-        def extract_version_from_filename(filename):
-            """从文件名中提取完整版本标识"""
-            # 提取完整的版本字符串 (e.g. 6.1.141-flippy-93+o)
-            match = re.search(r'(\d+\.\d+\.\d+-flippy-\d+\+[a-z]*)', filename)
-            return match.group(1) if match else None
-        
-        async def download_file(client, message, filename, download_path):
-            total_size = message.document.size
-            await client.download_media(message, file=download_path)
-            return True
-        
-        def get_latest_date(messages):
-            """获取一组消息中的最新日期"""
-            latest_date = None
-            for msg in messages:
-                if latest_date is None or msg.date > latest_date:
-                    latest_date = msg.date
-            return latest_date
-        
-        async def process_group(client, group_name, version, files_to_download, group_dir):
-            """处理完整的内核组"""
-            # 获取组内所有消息的最新日期
-            all_messages = [msg for _, msg in files_to_download]
-            latest_date = get_latest_date(all_messages)
-            
-            # 转换为UTC+8时区
-            utc8 = pytz.timezone('Asia/Shanghai')
-            date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
-            
-            log.info(f"开始下载内核组: {group_name} 版本 {version} (共 {len(files_to_download)} 个文件)")
-            os.makedirs(group_dir, exist_ok=True)
-            
-            # 下载组内所有文件
-            for filename, msg in files_to_download:
-                download_path = os.path.join(group_dir, filename)
-                await download_file(client, msg, filename, download_path)
-            
-            log.info(f"下载完成: {group_name} 版本 {version}")
-            
-            # 创建ZIP文件
-            zip_filename = f"{group_name}_{version}.zip"
-            zip_path = os.path.join(WORK_DIR, zip_filename)
-            log.info(f"创建ZIP文件: {zip_filename}")
-            with zipfile.ZipFile(zip_path, 'w') as zipf:
-                for root, _, files in os.walk(group_dir):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        zipf.write(file_path, os.path.basename(file_path))
-            
-            log.info(f"ZIP文件创建完成: {zip_filename}")
-            return zip_path, date_utc8
-        
-        async def find_new_kernels(client, kernel_versions):
-            log.info("连接Telegram...")
-            await client.connect()
-            if not await client.is_user_authorized():
-                log.error("错误: Telegram会话无效")
-                return None
-            
-            channel = os.environ.get('TELEGRAM_CHANNEL', 'openwrt_flippy')
-            log.info(f"扫描频道: {channel} (最近50条消息)")
-            entity = await client.get_entity(channel)
-            
-            updates = {}
-            
-            # 存储找到的文件 {group: {version: {filename: message}}}
-            found_groups = {group: {} for group in KERNEL_GROUPS.keys()}
-            
-            # 获取频道中最新的50条消息
-            async for msg in client.iter_messages(entity, limit=50):
-                if msg.media and hasattr(msg.media, "document"):
-                    for attr in msg.media.document.attributes:
-                        if isinstance(attr, DocumentAttributeFilename):
-                            filename = attr.file_name
-                            group = find_matching_group(filename)
-                            if group:
-                                version = extract_version_from_filename(filename)
-                                if not version:
-                                    continue
-                                
-                                # 存储文件信息
-                                if version not in found_groups[group]:
-                                    found_groups[group][version] = {}
-                                
-                                found_groups[group][version][filename] = msg
-            
-            # 检查每个组的完整性
-            for group, versions in found_groups.items():
-                # 按版本号排序（从新到旧）
-                if not versions:
-                    continue
-                    
-                sorted_versions = sorted(versions.keys(), reverse=True)
-                for version in sorted_versions:
-                    files = versions[version]
-                    # 检查是否包含所有必需的文件
-                    required_files = set(KERNEL_GROUPS[group])
-                    existing_files = set(files.keys())
-                    
-                    # 检查每个必需文件模式是否至少有一个匹配的文件
-                    group_complete = True
-                    for pattern in required_files:
-                        if not any(pattern_match(f, pattern) for f in existing_files):
-                            group_complete = False
-                            break
-                    
-                    if group_complete:
-                        log.info(f"发现完整内核组: {group} 版本 {version}")
-                        
-                        # 获取当前版本信息
-                        current_version = kernel_versions[group]["version"]
-                        current_date = kernel_versions[group]["date"]
-                        
-                        # 获取组内所有消息的最新日期
-                        all_messages = list(files.values())
-                        latest_date = get_latest_date(all_messages)
-                        
-                        # 转换为日期字符串（YYYY-MM-DD）
-                        utc8 = pytz.timezone('Asia/Shanghai')
-                        date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
-                        
-                        # 检查是否需要更新
-                        version_updated = False
-                        if not current_version:
-                            version_updated = True
-                            log.info(f"新内核组: {group} (首次添加)")
-                        elif version != current_version:
-                            version_updated = True
-                            log.info(f"发现新版本: {version} (当前: {current_version})")
-                        elif date_utc8 > current_date:
-                            version_updated = True
-                            log.info(f"相同版本但更新日期: {date_utc8} > {current_date}")
-                        
-                        if version_updated:
-                            # 准备下载文件
-                            files_to_download = [(f, msg) for f, msg in files.items()]
-                            group_dir = os.path.join(WORK_DIR, f"group_{group}_{version}")
-                            
-                            zip_path, zip_date = await process_group(client, group, version, files_to_download, group_dir)
-                            updates[group] = {
-                                "version": version,
-                                "date": zip_date,
-                                "zip_path": zip_path
-                            }
-                        
-                        # 只处理最新版本，跳过旧版本
-                        break
-            
-            return updates if updates else None
-        
-        def main():
-            log.info("="*50)
-            log.info("OpenWrt 内核同步工具启动")
-            log.info("="*50)
-            
+        async def main():
             # 验证环境变量
-            required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GITHUB_TOKEN']
-            missing = [var for var in required if not os.environ.get(var)]
+            required_env = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION']
+            missing = [var for var in required_env if not os.environ.get(var)]
             if missing:
-                log.error(f"错误: 缺少环境变量: {', '.join(missing)}")
+                log.error(f"缺少环境变量: {', '.join(missing)}")
                 return 1
             
-            if not setup_git():
-                return 2
-            
-            # 1. 获取内核版本信息
-            kernel_versions = get_kernel_versions()
-            log.info(f"当前内核版本信息: {json.dumps(kernel_versions, indent=2)}")
-            
+            # 连接Telegram
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
                 int(os.environ['TELEGRAM_API_ID']),
@@ -376,104 +268,94 @@ jobs:
             )
             
             try:
-                with client:
-                    # 2. 连接Telegram查找新内核
-                    new_kernels = client.loop.run_until_complete(
-                        find_new_kernels(client, kernel_versions))
+                await client.start()
+                channel_name = os.environ.get('TELEGRAM_CHANNEL', 'NagramX')
+                
+                # 获取最新的测试版APK
+                beta_apk = await get_latest_beta_apk(client, channel_name)
+                if not beta_apk:
+                    log.info("未找到测试版APK")
+                    return 0
+                
+                log.info(f"找到测试版: {beta_apk['filename']}, 版本: {beta_apk['version']}")
+                
+                # 转换日期为北京时间
+                utc8 = pytz.timezone('Asia/Shanghai')
+                release_date = beta_apk['message'].date.astimezone(utc8)
+                date_str = release_date.strftime('%Y-%m-%d')
+                
+                # 检查目标路径
+                target_path = os.path.join(APK_DIR, BETA_TARGET_NAME)
+                current_versions = get_current_versions()
+                current_beta = current_versions.get(BETA_TARGET_NAME, "")
+                current_beta_ver = current_beta.split(',')[0] if current_beta else ""
+                
+                # 检查是否需要更新
+                if current_beta_ver == beta_apk['version'] and os.path.exists(target_path):
+                    log.info(f"测试版已是最新版本: {beta_apk['version']}")
+                    return 0
+                
+                # 下载APK
+                apk_path = await download_apk(client, beta_apk['message'], beta_apk['filename'])
+                if not os.path.exists(apk_path):
+                    log.error("下载失败")
+                    return 1
+                
+                # 确保目录存在并移动文件
+                os.makedirs(APK_DIR, exist_ok=True)
+                os.rename(apk_path, target_path)
+                log.info(f"文件保存到: {target_path}")
+                
+                # 更新版本文件
+                current_versions[BETA_TARGET_NAME] = f"{beta_apk['version']},{date_str}"
+                with open("version.txt", "w") as f:
+                    json.dump(current_versions, f, indent=2)
+                log.info("版本文件已更新")
+                return 0
+                
             except Exception as e:
-                log.error(f"Telegram错误: {str(e)}")
-                return 3
-            
-            updated = False
-            
-            if new_kernels:
-                # 3. 处理新内核
-                target_dir = os.path.join(GIT_DIR, KERNEL_DIR)
-                os.makedirs(target_dir, exist_ok=True)
-                
-                for group, data in new_kernels.items():
-                    # 复制ZIP文件到仓库
-                    target_path = os.path.join(target_dir, os.path.basename(data["zip_path"]))
-                    shutil.copy2(data["zip_path"], target_path)
-                    
-                    # 更新版本信息
-                    kernel_versions[group] = {
-                        "version": data["version"],
-                        "date": data["date"]
-                    }
-                    log.info(f"已更新: {group} (版本: {data['version']}, 日期: {data['date']})")
-                    updated = True
-                
-                # 保存内核版本信息
-                save_kernel_versions(kernel_versions)
-                
-                # 生成提交信息
-                group_versions = []
-                for group, data in new_kernels.items():
-                    group_versions.append(f"{group}@{data['version']}")
-                
-                commit_msg = f"更新OpenWrt内核: {', '.join(group_versions)}"
-                if commit_and_push(commit_msg):
-                    log.info(f"同步成功! 更新了 {len(new_kernels)} 个内核组")
-                else:
-                    log.error("提交失败")
-                    return 4
-            else:
-                log.info("没有需要更新的内核文件")
-            
-            # 清理临时目录
-            if os.path.exists(WORK_DIR):
-                shutil.rmtree(WORK_DIR)
-                log.info("临时目录已清理")
-            
-            log.info("="*50)
-            log.info("同步任务完成")
-            log.info("="*50)
-            return 0
+                log.error(f"处理出错: {str(e)}")
+                return 1
+            finally:
+                await client.disconnect()
         
         if __name__ == "__main__":
-            sys.exit(main())
+            import asyncio
+            sys.exit(asyncio.run(main()))
         EOF
 
-    - name: Release Repository Lock 🔓
-      if: always()
+    # 添加仓库锁机制防止并发冲突
+    - name: Acquire Repository Lock 🔒
       uses: softprops/turnstyle@v1
       with:
-        continue-on-error: true
-        action: unlock
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200  # 20分钟超时
+        
+    - name: Commit and Push Changes
+      run: |
+        # 设置远程URL
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        
+        # 拉取远程最新更改并rebase
+        echo "拉取远程最新更改并rebase..."
+        git pull --rebase
+        
+        # 检查是否有文件变更
+        if git diff-index --quiet HEAD --; then
+          echo "没有需要提交的更改"
+          exit 0
+        fi
 
-    - name: Notify on failure
-      if: failure()
-      uses: actions/github-script@v6
-      with:
-        script: |
-          try {
-            const issue_number = context.issue.number;
-            if (issue_number) {
-              const message = `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
-              await github.rest.issues.createComment({
-                issue_number: issue_number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: message
-              });
-            } else {
-              // 当没有issue上下文时，创建新issue
-              const issue = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: `工作流失败通知 - ${{ github.workflow }} #${{ github.run_number }}`,
-                body: `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
-              });
-              console.log(`创建了新issue: ${issue.data.html_url}`);
-            }
-          } catch (error) {
-            console.error('通知失败:', error);
-            core.error(`🚨 OpenWrt内核同步失败！详情请查看运行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`);
-          }
+        # 添加变更并提交
+        git add apk/ version.txt
+        git commit -m "同步NagramX更新 [${{ github.run_id }}]"
+        
+        # 推送更改
+        echo "推送更改..."
+        git push origin HEAD:${{ github.ref }}
 
+  # 清理旧的工作流运行记录
   cleanup_self:
     name: Cleanup Self Workflow History
     runs-on: ubuntu-latest
@@ -489,5 +371,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "OpenWrt Kernel Sync from TELEGRAM"
+          delete_workflow_pattern: "NagramX Sync from Source Repository"
           repository: ${{ github.repository }}
