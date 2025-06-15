@@ -17,6 +17,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         fetch-depth: 0
+        ref: main  # 明确指定分支
 
     - name: Install dependencies
       run: |
@@ -27,6 +28,7 @@ jobs:
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
+        git config pull.rebase true  # 配置rebase策略
         
     - name: Run sync script
       env:
@@ -322,19 +324,38 @@ jobs:
             sys.exit(asyncio.run(main()))
         EOF
 
-    - name: Commit changes
+    # 添加仓库锁机制防止并发冲突
+    - name: Acquire Repository Lock 🔒
+      uses: softprops/turnstyle@v1
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200  # 20分钟超时
+        
+    - name: Commit and Push Changes
       run: |
+        # 设置远程URL
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        
+        # 拉取远程最新更改并rebase
+        echo "拉取远程最新更改并rebase..."
+        git pull --rebase
+        
+        # 检查是否有文件变更
         if git diff-index --quiet HEAD --; then
           echo "没有需要提交的更改"
           exit 0
         fi
 
+        # 添加变更并提交
         git add apk/ version.txt
-        git commit -m "同步NagramX更新"
+        git commit -m "同步NagramX更新 [${{ github.run_id }}]"
         
-        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        # 推送更改
+        echo "推送更改..."
         git push origin HEAD:${{ github.ref }}
 
+  # 清理旧的工作流运行记录
   cleanup_self:
     name: Cleanup Self Workflow History
     runs-on: ubuntu-latest
