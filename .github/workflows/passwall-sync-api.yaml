@@ -238,7 +238,7 @@ EOF
           fi
           
           # 使用文件方式处理大JSON
-          local json_file="$WORK_DIR/upload.json"
+          local json_file="$WORK_DIR/upload_$(basename "$target_path").json"
           local content_base64=$(base64 -w0 "$file_path")
           local commit_msg="更新Passwall包: $target_path"
           
