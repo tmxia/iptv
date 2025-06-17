@@ -133,13 +133,13 @@ jobs:
               echo "| 内核名称 | 文件大小(M) | 版本号 | 更新日期 |"
               echo "|----------|------------|--------|----------|"
               
-              # 处理内核版本
-              jq -r 'keys[]' kernel_versions.json | while read -r kernel_key; do
+              # 处理内核版本 - 按更新日期降序排列
+              jq -r 'to_entries | sort_by(.value.date) | reverse | .[] | .key' kernel_versions.json | while read -r kernel_key; do
                 # 获取版本信息
                 version=$(jq -r ".\"$kernel_key\".version" kernel_versions.json)
                 date=$(jq -r ".\"$kernel_key\".date" kernel_versions.json)
                 
-                # 构建实际文件名（根据提供的格式）
+                # 构建实际文件名
                 file_name="${kernel_key}_${version}.zip"
                 
                 # 获取文件大小（MB）
@@ -151,7 +151,7 @@ jobs:
                   file_size="N/A"
                 fi
                 
-                # 美化内核名称（移除前缀并格式化）
+                # 美化内核名称
                 kernel_name=$(echo "$kernel_key" | sed 's/openwrt_flippy//; s/6\.1/6.1/; s/6\.6/6.6/; s/6\.12/6.12/')
                 kernel_name="OpenWrt $kernel_name"
                 
@@ -164,7 +164,7 @@ jobs:
             
           } > README.md
           
-          echo "Generated new README.md with APK and Kernel tables"
+          echo "Generated new README.md with APK and Kernel tables (sorted by date)"
 
       - name: 提交更改
         run: |
