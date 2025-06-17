@@ -2,7 +2,7 @@ name: Passwall Packages Sync from Source Repository
 
 on:
   schedule:
-    - cron: '0 */24 * * *'  # 每24小时运行一次
+    - cron: '0 */8 * * *'  # 每8小时运行一次
   workflow_dispatch:
 
 permissions:
@@ -297,7 +297,7 @@ EOF
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 3
-          retain_days: 7
+          keep_minimum_runs: 0
+          retain_days: 0
           delete_workflow_pattern: "Passwall Packages Sync from Source Repository"
           repository: ${{ github.repository }}
