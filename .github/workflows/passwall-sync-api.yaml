@@ -26,19 +26,16 @@ jobs:
         SOURCE_REPO: "xiaorouji/openwrt-passwall"
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # 目标文件名 - 全部放在apk目录下
         V19_ZIP_TARGET: "19.07_luci-passwall.zip"
         V24_ZIP_TARGET: "24.10_luci-passwall.zip"
         V19_ZIP_PATH: "apk/19.07_luci-passwall.zip"
         V24_ZIP_PATH: "apk/24.10_luci-passwall.zip"
       run: |
-        # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
         mkdir -p "$WORK_DIR/v19" "$WORK_DIR/v24"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 验证令牌访问权限
         echo "验证GitHub令牌权限..."
         RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" \
                   "https://api.github.com/repos/$TARGET_REPO")
@@ -47,7 +44,6 @@ jobs:
           exit 1
         fi
 
-        # 获取最新稳定版发布信息
         echo "获取最新稳定版发布信息..."
         RELEASE_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases/latest")
         if [ $? -ne 0 ] || [ "$(echo "$RELEASE_JSON" | jq -r '.message')" = "Not Found" ]; then
@@ -55,18 +51,15 @@ jobs:
           exit 1
         fi
 
-        # 提取版本信息
         TAG_NAME=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
         PUBLISHED_AT=$(echo "$RELEASE_JSON" | jq -r '.published_at')
         RELEASE_DATE=$(TZ=UTC date -d "$PUBLISHED_AT" +'%Y-%m-%d')
         echo "最新稳定版: $TAG_NAME (发布于: $RELEASE_DATE)"
 
-        # 获取目标仓库当前版本文件
         echo "获取目标仓库当前版本文件..."
         TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-        
-        # 解析当前版本数据
+
         if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
           VERSION_CONTENT=$(echo "$TARGET_VERSION_JSON" | jq -r '.content' | base64 -d)
           echo "当前版本文件内容:"
