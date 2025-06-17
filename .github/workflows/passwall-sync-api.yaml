@@ -176,12 +176,10 @@ jobs:
         echo "更新版本数据..."
         echo "$CURRENT_VERSION_DATA" > "$WORK_DIR/current_version.json"
         
-        # 创建jq更新脚本
-        cat > "$WORK_DIR/update_version.jq" << 'EOF'
-        . as $current |
-        if $update_v19 then $current | .[$v19_key] = $v19_value else $current end |
-        if $update_v24 then . | .[$v24_key] = $v24_value else . end
-EOF
+        # 创建jq更新脚本 - FIXED: 使用echo代替here-doc
+        echo '. as $current |' > "$WORK_DIR/update_version.jq"
+        echo 'if $update_v19 then $current | .[$v19_key] = $v19_value else $current end |' >> "$WORK_DIR/update_version.jq"
+        echo 'if $update_v24 then . | .[$v24_key] = $v24_value else . end' >> "$WORK_DIR/update_version.jq"
         
         # 执行jq更新
         NEW_VERSION_DATA=$(jq -f "$WORK_DIR/update_version.jq" \
