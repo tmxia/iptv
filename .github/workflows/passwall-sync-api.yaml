@@ -26,7 +26,6 @@ jobs:
         SOURCE_REPO: "xiaorouji/openwrt-passwall"
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # 目标文件名定义
         V19_ZIP_TARGET: "19.07_luci-passwall.zip"
         V24_ZIP_TARGET: "24.10_luci-passwall.zip"
         V19_ZIP_PATH: "apk/19.07_luci-passwall.zip"
@@ -83,8 +82,8 @@ jobs:
 
         # 函数：检查是否需要更新
         check_update() {
-          local target_path="$1"   # 完整路径（用于文件存在检查）
-          local key_name="$2"      # 文件名（用于版本文件键名）
+          local target_path="$1"
+          local key_name="$2"
           local current_version_data="$3"
           local source_version="$4"
           
@@ -96,25 +95,25 @@ jobs:
           
           if [ "$FILE_EXIST_RESPONSE" != "200" ]; then
             echo "目标文件不存在 (HTTP $FILE_EXIST_RESPONSE)，需要更新"
-            return 0  # 需要更新
+            return 0
           fi
           
           # 2. 检查版本文件中是否有对应键值
           local key_value=$(echo "$current_version_data" | jq -r ".\"$key_name\"")
           if [ "$key_value" = "null" ] || [ -z "$key_value" ]; then
             echo "版本文件中无对应键值，需要更新"
-            return 0  # 需要更新
+            return 0
           fi
           
           # 3. 检查版本是否匹配
           local current_version=$(echo "$key_value" | cut -d, -f1)
           if [ "$current_version" != "$source_version" ]; then
             echo "版本不匹配 (源版本: $source_version, 目标版本: $current_version)，需要更新"
-            return 0  # 需要更新
+            return 0
           fi
           
           echo "目标文件存在且版本匹配，无需更新"
-          return 1  # 无需更新
+          return 1
         }
 
         # 处理19.07版本
@@ -175,7 +174,6 @@ jobs:
 
         # 更新版本数据
         echo "更新版本数据..."
-        # 创建临时版本数据文件
         echo "$CURRENT_VERSION_DATA" > "$WORK_DIR/current_version.json"
         
         # 创建jq更新脚本
