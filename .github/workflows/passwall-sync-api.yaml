@@ -27,10 +27,10 @@ jobs:
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # 目标文件名 - 全部放在apk目录下
-        V19_ZIP_TARGET: "19.07_luci-passwall.zip"  # 文件名（不带路径）
-        V24_ZIP_TARGET: "24.10_luci-passwall.zip"  # 文件名（不带路径）
-        V19_ZIP_PATH: "apk/19.07_luci-passwall.zip"  # 完整路径
-        V24_ZIP_PATH: "apk/24.10_luci-passwall.zip"  # 完整路径
+        V19_ZIP_TARGET: "19.07_luci-passwall.zip"
+        V24_ZIP_TARGET: "24.10_luci-passwall.zip"
+        V19_ZIP_PATH: "apk/19.07_luci-passwall.zip"
+        V24_ZIP_PATH: "apk/24.10_luci-passwall.zip"
       run: |
         # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
