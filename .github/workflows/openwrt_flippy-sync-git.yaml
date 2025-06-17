@@ -69,7 +69,7 @@ jobs:
         from telethon.tl.types import DocumentAttributeFilename
         import pytz
         
-        # 配置参数 - 修复6.6内核组键名问题
+        # 配置参数
         KERNEL_GROUPS = {
             "openwrt_flippy6.1": [
                 r"dtb-rockchip-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
@@ -79,7 +79,7 @@ jobs:
                 r"header-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
                 r"dtb-allwinner-6\.1\..*-flippy-\d+\+.*\.tar\.gz"
             ],
-            "openwrt_flippy6.6": [  # 修复键名，确保与版本文件匹配
+            "openwrt_flippy6.6": [
                 r"dtb-rockchip-6\.6\..*-flippy-\d+\+.*\.tar\.gz",
                 r"dtb-amlogic-6\.6\..*-flippy-\d+\+.*\.tar\.gz",
                 r"boot-6\.6\..*-flippy-\d+\+.*\.tar\.gz",
