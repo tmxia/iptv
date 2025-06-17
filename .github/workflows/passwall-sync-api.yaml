@@ -27,8 +27,10 @@ jobs:
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # 目标文件名 - 全部放在apk目录下
-        V19_ZIP_TARGET: "apk/19.07_luci-passwall.zip"
-        V24_ZIP_TARGET: "apk/24.10_luci-passwall.zip"
+        V19_ZIP_TARGET: "19.07_luci-passwall.zip"  # 文件名（不带路径）
+        V24_ZIP_TARGET: "24.10_luci-passwall.zip"  # 文件名（不带路径）
+        V19_ZIP_PATH: "apk/19.07_luci-passwall.zip"  # 完整路径
+        V24_ZIP_PATH: "apk/24.10_luci-passwall.zip"  # 完整路径
       run: |
         # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
@@ -81,15 +83,16 @@ jobs:
 
         # 函数：检查是否需要更新
         check_update() {
-          local target_file="$1"
-          local current_version_data="$2"
-          local source_version="$3"
+          local target_path="$1"   # 完整路径（用于文件存在检查）
+          local key_name="$2"      # 文件名（用于版本文件键名）
+          local current_version_data="$3"
+          local source_version="$4"
           
           # 1. 检查目标文件是否存在
-          echo "检查目标文件是否存在: $target_file..."
+          echo "检查目标文件是否存在: $target_path..."
           FILE_EXIST_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
               -H "Authorization: token $TOKEN" \
-              "https://api.github.com/repos/$TARGET_REPO/contents/$target_file")
+              "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
           
           if [ "$FILE_EXIST_RESPONSE" != "200" ]; then
             echo "目标文件不存在 (HTTP $FILE_EXIST_RESPONSE)，需要更新"
@@ -97,7 +100,7 @@ jobs:
           fi
           
           # 2. 检查版本文件中是否有对应键值
-          local key_value=$(echo "$current_version_data" | jq -r ".\"$target_file\"")
+          local key_value=$(echo "$current_version_data" | jq -r ".\"$key_name\"")
           if [ "$key_value" = "null" ] || [ -z "$key_value" ]; then
             echo "版本文件中无对应键值，需要更新"
             return 0  # 需要更新
@@ -116,7 +119,7 @@ jobs:
 
         # 处理19.07版本
         echo "===== 处理19.07版本 ====="
-        if check_update "$V19_ZIP_TARGET" "$CURRENT_VERSION_DATA" "$TAG_NAME"; then
+        if check_update "$V19_ZIP_PATH" "$V19_ZIP_TARGET" "$CURRENT_VERSION_DATA" "$TAG_NAME"; then
           V19_NEED_UPDATE=true
           
           # 获取19.07版本文件URL
@@ -135,7 +138,7 @@ jobs:
             
             # 创建ZIP包
             cd "$WORK_DIR/v19"
-            zip -j "$WORK_DIR/19.07_luci-passwall.zip" ./*
+            zip -j "$WORK_DIR/$V19_ZIP_TARGET" ./*
             cd -
             
             echo "19.07版本文件打包完成"
@@ -144,7 +147,7 @@ jobs:
 
         # 处理24.10版本
         echo "===== 处理24.10版本 ====="
-        if check_update "$V24_ZIP_TARGET" "$CURRENT_VERSION_DATA" "$TAG_NAME"; then
+        if check_update "$V24_ZIP_PATH" "$V24_ZIP_TARGET" "$CURRENT_VERSION_DATA" "$TAG_NAME"; then
           V24_NEED_UPDATE=true
           
           # 获取24.10版本文件URL
@@ -163,31 +166,34 @@ jobs:
             
             # 创建ZIP包
             cd "$WORK_DIR/v24"
-            zip -j "$WORK_DIR/24.10_luci-passwall.zip" ./*
+            zip -j "$WORK_DIR/$V24_ZIP_TARGET" ./*
             cd -
             
             echo "24.10版本文件打包完成"
           fi
         fi
 
-        # 更新版本数据
-        NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq .)
+        # 更新版本数据 - 使用文件处理避免参数过长
+        echo "更新版本数据..."
+        # 将当前版本数据写入文件
+        echo "$CURRENT_VERSION_DATA" > "$WORK_DIR/current_version.json"
         
-        # 如果需要更新19.07版本，则更新版本数据
-        if [ "$V19_NEED_UPDATE" = true ]; then
-          NEW_VERSION_DATA=$(echo "$NEW_VERSION_DATA" | jq \
-              --arg key "$V19_ZIP_TARGET" \
-              --arg value "${TAG_NAME},${RELEASE_DATE}" \
-              '.[$key] = $value')
-        fi
+        # 创建更新脚本
+        cat > "$WORK_DIR/update_version.jq" << 'EOF'
+        if $update_v19 then .[$v19_key] = $v19_value else . end |
+        if $update_v24 then .[$v24_key] = $v24_value else . end
+EOF
         
-        # 如果需要更新24.10版本，则更新版本数据
-        if [ "$V24_NEED_UPDATE" = true ]; then
-          NEW_VERSION_DATA=$(echo "$NEW_VERSION_DATA" | jq \
-              --arg key "$V24_ZIP_TARGET" \
-              --arg value "${TAG_NAME},${RELEASE_DATE}" \
-              '.[$key] = $value')
-        fi
+        # 执行jq更新
+        NEW_VERSION_DATA=$(jq -n \
+            --argfile current "$WORK_DIR/current_version.json" \
+            --arg v19_key "$V19_ZIP_TARGET" \
+            --arg v19_value "${TAG_NAME},${RELEASE_DATE}" \
+            --arg v24_key "$V24_ZIP_TARGET" \
+            --arg v24_value "${TAG_NAME},${RELEASE_DATE}" \
+            --argjson update_v19 "$V19_NEED_UPDATE" \
+            --argjson update_v24 "$V24_NEED_UPDATE" \
+            -f "$WORK_DIR/update_version.jq")
         
         NEW_VERSION_CONTENT=$(echo "$NEW_VERSION_DATA" | jq -r .)
         echo "更新后的版本文件内容:"
@@ -231,40 +237,46 @@ jobs:
             sha=$(echo "$CONTENT_JSON" | jq -r '.sha')
           fi
           
+          # 使用文件方式处理大JSON
+          local json_file="$WORK_DIR/upload.json"
           local content_base64=$(base64 -w0 "$file_path")
           local commit_msg="更新Passwall包: $target_path"
           
-          local json_data=$(jq -n \
+          # 创建JSON文件
+          jq -n \
             --arg msg "$commit_msg" \
             --arg content "$content_base64" \
             --arg sha "$sha" \
-            '{message: $msg, content: $content, sha: $sha}')
+            '{message: $msg, content: $content, sha: $sha}' > "$json_file"
           
           RESPONSE=$(curl -s \
                 -X PUT \
                 -H "Authorization: token $TOKEN" \
                 -H "Content-Type: application/json" \
-                -d "$json_data" \
+                --data-binary "@$json_file" \
                 "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
           
-          echo "$RESPONSE" | jq -r '.message'
+          local error_message=$(echo "$RESPONSE" | jq -r '.message')
+          if [ "$error_message" != "null" ]; then
+            echo "错误: $error_message"
+            return 1
+          fi
+          return 0
         }
 
         if [ "$V19_NEED_UPDATE" = true ]; then
-          upload_result=$(upload_file "$WORK_DIR/19.07_luci-passwall.zip" "$V19_ZIP_TARGET")
-          if [ "$upload_result" != "null" ]; then
-            echo "上传19.07包失败: $upload_result"
-          else
+          if upload_file "$WORK_DIR/$V19_ZIP_TARGET" "$V19_ZIP_PATH"; then
             echo "19.07包上传成功到apk目录"
+          else
+            echo "上传19.07包失败"
           fi
         fi
 
         if [ "$V24_NEED_UPDATE" = true ]; then
-          upload_result=$(upload_file "$WORK_DIR/24.10_luci-passwall.zip" "$V24_ZIP_TARGET")
-          if [ "$upload_result" != "null" ]; then
-            echo "上传24.10包失败: $upload_result"
-          else
+          if upload_file "$WORK_DIR/$V24_ZIP_TARGET" "$V24_ZIP_PATH"; then
             echo "24.10包上传成功到apk目录"
+          else
+            echo "上传24.10包失败"
           fi
         fi
 
@@ -285,7 +297,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0
-          retain_days: 0
+          keep_minimum_runs: 3
+          retain_days: 7
           delete_workflow_pattern: "Passwall Packages Sync from Source Repository"
           repository: ${{ github.repository }}
