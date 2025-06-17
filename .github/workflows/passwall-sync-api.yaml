@@ -1,0 +1,241 @@
+name: Passwall Packages Sync from Source Repository
+
+on:
+  schedule:
+    - cron: '0 */24 * * *'  # 每24小时运行一次
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout current repository
+      uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl zip
+        
+    - name: Run package sync script
+      env:
+        SOURCE_REPO: "xiaorouji/openwrt-passwall"
+        TARGET_REPO: "${{ github.repository }}"
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # 19.07版本文件匹配模式
+        V19_APP_PATTERN: "luci-19.07_luci-app-passwall"
+        V19_I18N_PATTERN: "luci-19.07_luci-i18n-passwall-zh-cn"
+        # 24.10版本文件匹配模式
+        V24_APP_PATTERN: "luci-24.10_luci-app-passwall"
+        V24_I18N_PATTERN: "luci-24.10_luci-i18n-passwall-zh-cn"
+        # 目标文件名 - 全部放在apk目录下
+        V19_APP_TARGET: "19.07_luci-app-passwall.ipk"
+        V19_I18N_TARGET: "19.07_luci-i18n-passwall.ipk"
+        V19_ZIP_TARGET: "apk/19.07_luci-passwall.zip"  # 修改为apk目录
+        V24_APP_TARGET: "24.10_luci-app-passwall.ipk"
+        V24_I18N_TARGET: "24.10_luci-i18n-passwall.ipk"
+        V24_ZIP_TARGET: "apk/24.10_luci-passwall.zip"  # 修改为apk目录
+      run: |
+        # 创建临时工作目录
+        WORK_DIR=$(mktemp -d)
+        echo "创建临时目录: $WORK_DIR"
+        mkdir -p "$WORK_DIR/v19" "$WORK_DIR/v24"
+        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
+
+        # 验证令牌访问权限
+        echo "验证GitHub令牌权限..."
+        RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" \
+                  "https://api.github.com/repos/$TARGET_REPO")
+        if [ "$RESPONSE" != "200" ]; then
+          echo "错误: 令牌无效 (HTTP $RESPONSE)"
+          exit 1
+        fi
+
+        # 获取最新稳定版发布信息
+        echo "获取最新稳定版发布信息..."
+        RELEASE_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases/latest")
+        if [ $? -ne 0 ] || [ "$(echo "$RELEASE_JSON" | jq -r '.message')" = "Not Found" ]; then
+          echo "错误: 无法获取发布信息"
+          exit 1
+        fi
+
+        # 提取版本信息
+        TAG_NAME=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+        PUBLISHED_AT=$(echo "$RELEASE_JSON" | jq -r '.published_at')
+        RELEASE_DATE=$(TZ=UTC date -d "$PUBLISHED_AT" +'%Y-%m-%d')
+        echo "最新稳定版: $TAG_NAME (发布于: $RELEASE_DATE)"
+
+        # 获取目标仓库当前版本文件
+        echo "获取目标仓库当前版本文件..."
+        TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+        
+        # 解析当前版本数据
+        if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
+          VERSION_CONTENT=$(echo "$TARGET_VERSION_JSON" | jq -r '.content' | base64 -d)
+          echo "当前版本文件内容:"
+          echo "$VERSION_CONTENT"
+          CURRENT_VERSION_DATA=$(echo "$VERSION_CONTENT" | jq . || echo "{}")
+        else
+          CURRENT_VERSION_DATA="{}"
+          echo "目标仓库无版本文件"
+        fi
+
+        # 下载并处理19.07版本文件
+        echo "===== 处理19.07版本 ====="
+        V19_APP_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("'$V19_APP_PATTERN'")) | .browser_download_url' | head -1)
+        V19_I18N_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("'$V19_I18N_PATTERN'")) | .browser_download_url' | head -1)
+        
+        if [ -z "$V19_APP_URL" ] || [ -z "$V19_I18N_URL" ]; then
+          echo "警告: 未找到19.07版本文件，跳过处理"
+          V19_NEED_UPDATE=false
+        else
+          echo "下载19.07应用文件: $V19_APP_URL"
+          curl -sL "$V19_APP_URL" -o "$WORK_DIR/v19/$V19_APP_TARGET"
+          
+          echo "下载19.07语言文件: $V19_I18N_URL"
+          curl -sL "$V19_I18N_URL" -o "$WORK_DIR/v19/$V19_I18N_TARGET"
+          
+          # 创建ZIP包
+          cd "$WORK_DIR/v19"
+          zip -j "$WORK_DIR/19.07_luci-passwall.zip" ./*
+          cd -
+          
+          V19_NEED_UPDATE=true
+          echo "19.07版本文件打包完成"
+        fi
+
+        # 下载并处理24.10版本文件
+        echo "===== 处理24.10版本 ====="
+        V24_APP_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("'$V24_APP_PATTERN'")) | .browser_download_url' | head -1)
+        V24_I18N_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("'$V24_I18N_PATTERN'")) | .browser_download_url' | head -1)
+        
+        if [ -z "$V24_APP_URL" ] || [ -z "$V24_I18N_URL" ]; then
+          echo "警告: 未找到24.10版本文件，跳过处理"
+          V24_NEED_UPDATE=false
+        else
+          echo "下载24.10应用文件: $V24_APP_URL"
+          curl -sL "$V24_APP_URL" -o "$WORK_DIR/v24/$V24_APP_TARGET"
+          
+          echo "下载24.10语言文件: $V24_I18N_URL"
+          curl -sL "$V24_I18N_URL" -o "$WORK_DIR/v24/$V24_I18N_TARGET"
+          
+          # 创建ZIP包
+          cd "$WORK_DIR/v24"
+          zip -j "$WORK_DIR/24.10_luci-passwall.zip" ./*
+          cd -
+          
+          V24_NEED_UPDATE=true
+          echo "24.10版本文件打包完成"
+        fi
+
+        # 更新版本数据
+        NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
+            --arg v19_key "apk/19.07_luci-passwall.zip" \  # 添加apk路径
+            --arg v19_value "${TAG_NAME},${RELEASE_DATE}" \
+            --arg v24_key "apk/24.10_luci-passwall.zip" \  # 添加apk路径
+            --arg v24_value "${TAG_NAME},${RELEASE_DATE}" \
+            '.[$v19_key] = $v19_value | .[$v24_key] = $v24_value')
+        
+        NEW_VERSION_CONTENT=$(echo "$NEW_VERSION_DATA" | jq -r .)
+        echo "更新后的版本文件内容:"
+        echo "$NEW_VERSION_CONTENT"
+
+        # 上传版本文件
+        echo "更新版本文件..."
+        VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
+                        "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+        
+        SHA_VERSION=""
+        if [ "$(echo "$VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
+          SHA_VERSION=$(echo "$VERSION_JSON" | jq -r '.sha')
+        fi
+
+        VERSION_BASE64=$(echo -n "$NEW_VERSION_CONTENT" | base64 -w0)
+        JSON_VERSION=$(jq -n \
+            --arg msg "更新Passwall版本: $TAG_NAME" \
+            --arg content "$VERSION_BASE64" \
+            --arg sha "$SHA_VERSION" \
+            '{message: $msg, content: $content, sha: $sha}')
+        
+        VERSION_RESPONSE=$(curl -s \
+                  -X PUT \
+                  -H "Authorization: token $TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$JSON_VERSION" \
+                  "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+        
+        # 上传ZIP文件到apk目录
+        upload_file() {
+          local file_path="$1"
+          local target_path="$2"
+          
+          echo "上传文件到apk目录: $target_path..."
+          CONTENT_JSON=$(curl -s -H "Authorization: token $TOKEN" \
+                          "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
+          
+          local sha=""
+          if [ "$(echo "$CONTENT_JSON" | jq -r '.message')" != "Not Found" ]; then
+            sha=$(echo "$CONTENT_JSON" | jq -r '.sha')
+          fi
+          
+          local content_base64=$(base64 -w0 "$file_path")
+          local commit_msg="更新Passwall包: $target_path"
+          
+          local json_data=$(jq -n \
+            --arg msg "$commit_msg" \
+            --arg content "$content_base64" \
+            --arg sha "$sha" \
+            '{message: $msg, content: $content, sha: $sha}')
+          
+          RESPONSE=$(curl -s \
+                -X PUT \
+                -H "Authorization: token $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$json_data" \
+                "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
+          
+          echo "$RESPONSE" | jq -r '.message'
+        }
+
+        if [ "$V19_NEED_UPDATE" = true ]; then
+          upload_result=$(upload_file "$WORK_DIR/19.07_luci-passwall.zip" "$V19_ZIP_TARGET")
+          if [ "$upload_result" != "null" ]; then
+            echo "上传19.07包失败: $upload_result"
+          else
+            echo "19.07包上传成功到apk目录"
+          fi
+        fi
+
+        if [ "$V24_NEED_UPDATE" = true ]; then
+          upload_result=$(upload_file "$WORK_DIR/24.10_luci-passwall.zip" "$V24_ZIP_TARGET")
+          if [ "$upload_result" != "null" ]; then
+            echo "上传24.10包失败: $upload_result"
+          else
+            echo "24.10包上传成功到apk目录"
+          fi
+        fi
+
+        echo "同步完成! 最新版本: $TAG_NAME"
+
+  cleanup_self:
+    name: Cleanup Workflow History
+    runs-on: ubuntu-latest
+    needs: sync
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 3
+          retain_days: 7
+          delete_workflow_pattern: "Passwall Packages Sync from Source Repository"
+          repository: ${{ github.repository }}
