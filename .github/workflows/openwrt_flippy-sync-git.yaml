@@ -69,27 +69,29 @@ jobs:
         from telethon.tl.types import DocumentAttributeFilename
         import pytz
         
-        # 配置参数
+        # 配置参数 - 修复6.1内核检测问题，确保每组6个文件
         KERNEL_GROUPS = {
             "openwrt_flippy6.1": [
-                "dtb-rockchip-6.1.*-flippy-93+*.tar.gz",
-                "dtb-amlogic-6.1.*-flippy-93+*.tar.gz",
-                "boot-6.1.*-flippy-93+*.tar.gz",
-                "modules-6.1.*-flippy-93+*.tar.gz",
-                "header-6.1.*-flippy-93+*.tar.gz",
-                "dtb-allwinner-6.1.*-flippy-93+*.tar.gz"
+                r"dtb-rockchip-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
+                r"dtb-amlogic-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
+                r"boot-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
+                r"modules-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
+                r"header-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
+                r"dtb-allwinner-6\.1\..*-flippy-\d+\+.*\.tar\.gz"  # 添加缺失的文件
             ],
             "openwrt_flippy6.12": [
-                "dtb-amlogic-6.12.*-flippy-93+*.tar.gz",
-                "dtb-rockchip-6.12.*-flippy-93+*.tar.gz",
-                "boot-6.12.*-flippy-93+*.tar.gz",
-                "dtb-allwinner-6.12.*-flippy-93+*.tar.gz",
-                "header-6.12.*-flippy-93+*.tar.gz",
-                "modules-6.12.*-flippy-93+*.tar.gz"
+                r"dtb-amlogic-6\.12\..*-flippy-\d+\+.*\.tar\.gz",
+                r"dtb-rockchip-6\.12\..*-flippy-\d+\+.*\.tar\.gz",
+                r"boot-6\.12\..*-flippy-\d+\+.*\.tar\.gz",
+                r"dtb-allwinner-6\.12\..*-flippy-\d+\+.*\.tar\.gz",
+                r"header-6\.12\..*-flippy-\d+\+.*\.tar\.gz",
+                r"modules-6\.12\..*-flippy-\d+\+.*\.tar\.gz"
             ]
         }
+        REQUIRED_FILE_COUNT = 6  # 每组需要6个文件
+        
         KERNEL_DIR = "kernels"
-        KERNEL_VERSION_FILE = "kernel_versions.json"  # 专用内核版本文件
+        KERNEL_VERSION_FILE = "kernel_versions.json"
         
         # 环境变量
         WORK_DIR = os.path.join(os.getcwd(), "temp_kernels")
@@ -189,8 +191,7 @@ jobs:
         
         def pattern_match(filename, pattern):
             """使用正则表达式检查文件名是否匹配模式"""
-            pattern_regex = pattern.replace('.', r'\.').replace('*', r'.*')
-            return re.fullmatch(pattern_regex, filename) is not None
+            return re.match(pattern, filename) is not None
         
         def find_matching_group(filename):
             """查找文件名匹配的内核组"""
@@ -278,6 +279,7 @@ jobs:
                             if group:
                                 version = extract_version_from_filename(filename)
                                 if not version:
+                                    log.debug(f"无法从文件名提取版本: {filename}")
                                     continue
                                 
                                 # 存储文件信息
@@ -290,23 +292,26 @@ jobs:
             for group, versions in found_groups.items():
                 # 按版本号排序（从新到旧）
                 if not versions:
+                    log.debug(f"{group}: 未找到任何版本")
                     continue
                     
                 sorted_versions = sorted(versions.keys(), reverse=True)
                 for version in sorted_versions:
                     files = versions[version]
+                    
                     # 检查是否包含所有必需的文件
-                    required_files = set(KERNEL_GROUPS[group])
-                    existing_files = set(files.keys())
+                    required_patterns = KERNEL_GROUPS[group]
+                    matched_files = {}
                     
                     # 检查每个必需文件模式是否至少有一个匹配的文件
-                    group_complete = True
-                    for pattern in required_files:
-                        if not any(pattern_match(f, pattern) for f in existing_files):
-                            group_complete = False
-                            break
+                    for pattern in required_patterns:
+                        for filename in files.keys():
+                            if pattern_match(filename, pattern):
+                                matched_files[pattern] = filename
+                                break
                     
-                    if group_complete:
+                    # 检查是否找到所有必需的文件
+                    if len(matched_files) == REQUIRED_FILE_COUNT:
                         log.info(f"发现完整内核组: {group} 版本 {version}")
                         
                         # 获取当前版本信息
@@ -335,7 +340,7 @@ jobs:
                         
                         if version_updated:
                             # 准备下载文件
-                            files_to_download = [(f, msg) for f, msg in files.items()]
+                            files_to_download = [(filename, msg) for filename, msg in files.items()]
                             group_dir = os.path.join(WORK_DIR, f"group_{group}_{version}")
                             
                             zip_path, zip_date = await process_group(client, group, version, files_to_download, group_dir)
@@ -347,8 +352,40 @@ jobs:
                         
                         # 只处理最新版本，跳过旧版本
                         break
+                    else:
+                        missing_patterns = set(required_patterns) - set(matched_files.keys())
+                        log.debug(f"{group} 版本 {version} 缺少 {len(missing_patterns)} 个文件: {', '.join(missing_patterns)}")
             
             return updates if updates else None
+        
+        def delete_old_kernel_versions(group, current_version):
+            """删除同组旧版本的内核文件"""
+            target_dir = os.path.join(GIT_DIR, KERNEL_DIR)
+            if not os.path.exists(target_dir):
+                return []
+            
+            # 查找所有同组文件
+            group_files = []
+            for filename in os.listdir(target_dir):
+                if filename.startswith(f"{group}_") and filename.endswith(".zip"):
+                    group_files.append(filename)
+            
+            if not group_files:
+                return []
+            
+            # 删除旧版本文件
+            deleted = []
+            for filename in group_files:
+                # 跳过当前版本
+                if current_version in filename:
+                    continue
+                
+                file_path = os.path.join(target_dir, filename)
+                os.remove(file_path)
+                deleted.append(filename)
+                log.info(f"已删除旧版本: {filename}")
+            
+            return deleted
         
         def main():
             log.info("="*50)
@@ -385,6 +422,7 @@ jobs:
                 return 3
             
             updated = False
+            deleted_count = 0
             
             if new_kernels:
                 # 3. 处理新内核
@@ -402,6 +440,11 @@ jobs:
                         "date": data["date"]
                     }
                     log.info(f"已更新: {group} (版本: {data['version']}, 日期: {data['date']})")
+                    
+                    # 删除旧版本
+                    deleted = delete_old_kernel_versions(group, data["version"])
+                    deleted_count += len(deleted)
+                    
                     updated = True
                 
                 # 保存内核版本信息
@@ -413,8 +456,11 @@ jobs:
                     group_versions.append(f"{group}@{data['version']}")
                 
                 commit_msg = f"更新OpenWrt内核: {', '.join(group_versions)}"
+                if deleted_count:
+                    commit_msg += f"\n删除 {deleted_count} 个旧版本"
+                
                 if commit_and_push(commit_msg):
-                    log.info(f"同步成功! 更新了 {len(new_kernels)} 个内核组")
+                    log.info(f"同步成功! 更新了 {len(new_kernels)} 个内核组，删除了 {deleted_count} 个旧版本")
                 else:
                     log.error("提交失败")
                     return 4
@@ -465,7 +511,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: `工作流失败通知 - ${{ github.workflow }} #${{ github.run_number }}`,
-                body: `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+                body: `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n错误详情请查看日志。`
               });
               console.log(`创建了新issue: ${issue.data.html_url}`);
             }
@@ -487,7 +533,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0
-          retain_days: 0
+          keep_minimum_runs: 3
+          retain_days: 7
           delete_workflow_pattern: "OpenWrt Kernel Sync from TELEGRAM"
           repository: ${{ github.repository }}
