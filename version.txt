@@ -23,8 +23,6 @@
   "nagramx-beta.apk": "v11.12.0-64c5918,2025-06-14",
   "leanback-pro.apk": "v3.3.5,2025-06-15",
   "mobile-pro.apk": "v3.3.5,2025-06-15",
-  "apk/19.07_luci-passwall.zip": "25.6.1-1,2025-05-31",
-  "apk/24.10_luci-passwall.zip": "25.6.1-1,2025-05-31",
   "19.07_luci-passwall.zip": "25.6.1-1,2025-05-31",
   "24.10_luci-passwall.zip": "25.6.1-1,2025-05-31"
 }
