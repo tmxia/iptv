@@ -6,6 +6,7 @@ on:
       - 'apk/**'
       - 'kernels/**'
       - 'version.txt'
+      - 'kernel_versions.json'  # 添加版本文件监控
     branches: [ main ]
   workflow_run:
     workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "OpenWrt Kernel Sync from TELEGRAM", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM", "Hiddify APK Sync from Source Repository", "Termux APK Sync from Source Repository", "Passwall Packages Sync from Source Repository"]
@@ -72,9 +73,52 @@ jobs:
         UTC_TZ = timezone('UTC')
         BEIJING_TZ = timezone('Asia/Shanghai')
         
-        # 获取准确版本号（从version.txt）
-        def get_accurate_version(filename):
-            """从version.txt获取准确的版本号"""
+        # 获取内核版本信息
+        def get_kernel_versions():
+            """从kernel_versions.json获取内核版本信息"""
+            kernel_version_path = "kernel_versions.json"
+            if os.path.exists(kernel_version_path):
+                try:
+                    with open(kernel_version_path, "r") as f:
+                        return json.load(f)
+                except Exception as e:
+                    print(f"❌ 解析kernel_versions.json失败: {str(e)}")
+            return {}
+        
+        # 获取准确版本号
+        def get_accurate_version(filename, file_path):
+            """
+            获取文件的准确版本信息
+            apk文件: 从version.txt获取
+            kernels文件: 从kernel_versions.json获取
+            """
+            # 处理内核文件
+            if file_path.startswith('kernels/'):
+                kernel_versions = get_kernel_versions()
+                
+                # 从文件名提取组名 (格式: openwrt_flippy6.1_6.1.141-flippy-93+o.zip)
+                match = re.match(r'^([a-zA-Z0-9_]+)_(\d+\..*)\.zip$', filename)
+                if match:
+                    group = match.group(1)
+                    file_version = match.group(2)
+                    
+                    # 在版本数据中查找组
+                    if group in kernel_versions:
+                        version_data = kernel_versions[group]
+                        return {
+                            "version": version_data.get("version", file_version),
+                            "date": version_data.get("date", "未知日期")
+                        }
+                    else:
+                        print(f"⚠️ kernel_versions.json中未找到组: {group}")
+                
+                # 如果无法解析文件名，返回默认值
+                return {
+                    "version": "未知版本",
+                    "date": "未知日期"
+                }
+            
+            # 处理APK文件
             version_path = "version.txt"
             if os.path.exists(version_path):
                 try:
@@ -83,13 +127,20 @@ jobs:
                     
                     # 查找匹配的文件名
                     if filename in version_data:
-                        # 格式为 "版本号,日期"
                         version_info = version_data[filename]
-                        if isinstance(version_info, str) and ',' in version_info:
-                            return version_info.split(',')[0]
-                        return version_info
+                        if isinstance(version_info, str):
+                            if ',' in version_info:
+                                version, date = version_info.split(',', 1)
+                                return {"version": version, "date": date}
+                            return {"version": version_info, "date": "未知日期"}
+                        elif isinstance(version_info, dict):
+                            return {
+                                "version": version_info.get("version", "未知版本"),
+                                "date": version_info.get("date", "未知日期")
+                            }
                 except Exception as e:
                     print(f"❌ 解析version.txt失败: {str(e)}")
+            
             return None
         
         def generate_proxy_urls(raw_url):
@@ -117,17 +168,6 @@ jobs:
                 return "🗜️"
             return "📄"
         
-        def get_current_versions():
-            """从version.txt获取当前版本信息"""
-            version_path = "version.txt"
-            if os.path.exists(version_path):
-                try:
-                    with open(version_path, "r") as f:
-                        return json.load(f)
-                except:
-                    return {}
-            return {}
-        
         async def send_telegram_message(files):
             """使用Telethon发送消息"""
             try:
@@ -152,7 +192,6 @@ jobs:
                     
                     # 添加文件列表
                     for file in files:
-                        # 使用反引号包裹文件名，避免被解析为链接
                         icon = get_file_icon(file['path'])
                         file_type = get_file_type(file['path'])
                         message += f"{icon} **{file_type}**: `{file['name']}`\n"
@@ -269,10 +308,6 @@ jobs:
             diff = repo.diff(parent_commit, head_commit)
             changed_files = []
             
-            # 获取当前版本信息（用于增强监控）
-            current_versions = get_current_versions()
-            print(f"当前版本信息: {json.dumps(current_versions, indent=2)}")
-            
             # 解析差异
             for delta in diff.deltas:
                 # 只处理新增和修改的文件，忽略删除的文件
@@ -299,22 +334,23 @@ jobs:
                 encoded_path = quote(file_path)
                 raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{encoded_path}"
                 
-                # 获取准确版本号（优先从version.txt）
-                accurate_version = get_accurate_version(filename)
-                if accurate_version:
-                    version = accurate_version
-                    version_source = "version.txt"
+                # 获取准确版本信息
+                version_info = get_accurate_version(filename, file_path)
+                
+                if version_info:
+                    version = version_info.get("version", "未知版本")
+                    version_date = version_info.get("date", commit_time)
+                    version_source = "版本文件"
                 else:
-                    # 如果version.txt中没有，尝试从文件名解析
-                    version = "unknown"
-                    version_source = "文件名解析失败"
-                    print(f"⚠️ 未在version.txt中找到 {filename} 的版本信息")
+                    version = "未知版本"
+                    version_date = commit_time
+                    version_source = "默认时间"
                 
                 changed_files.append({
                     "path": file_path,
                     "name": filename,
                     "version": version,
-                    "date": commit_time,
+                    "date": version_date,
                     "url": raw_url,
                     "version_source": version_source
                 })
