@@ -219,7 +219,7 @@ jobs:
                   -d "$JSON_VERSION" \
                   "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
-        # 上传ZIP文件到apk目录
+        # 修复：上传ZIP文件使用直接API调用避免jq参数过长
         upload_file() {
           local file_path="$1"
           local target_path="$2"
@@ -233,17 +233,18 @@ jobs:
             sha=$(echo "$CONTENT_JSON" | jq -r '.sha')
           fi
           
-          # 使用文件方式处理
-          local json_file="$WORK_DIR/upload_$(basename "$target_path").json"
+          # 直接构建JSON避免jq处理大文件
           local content_base64=$(base64 -w0 "$file_path")
-          local commit_msg="更新Passwall包: $target_path"
+          local json_file="$WORK_DIR/upload_$(basename "$target_path").json"
           
-          # 创建JSON文件
-          jq -n \
-            --arg msg "$commit_msg" \
-            --arg content "$content_base64" \
-            --arg sha "$sha" \
-            '{message: $msg, content: $content, sha: $sha}' > "$json_file"
+          # 手动构建JSON避免jq参数过长
+          echo -n '{"message": "' > "$json_file"
+          echo -n "更新Passwall包: $target_path" >> "$json_file"
+          echo -n '", "content": "' >> "$json_file"
+          echo -n "$content_base64" >> "$json_file"
+          echo -n '", "sha": "' >> "$json_file"
+          echo -n "$sha" >> "$json_file"
+          echo -n '"}' >> "$json_file"
           
           RESPONSE=$(curl -s \
                 -X PUT \
