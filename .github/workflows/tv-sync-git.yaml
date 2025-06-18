@@ -76,10 +76,10 @@ jobs:
         from telethon.tl.types import DocumentAttributeFilename
         import pytz
         
-        # 配置参数
+        # 配置参数 - 使用完整的匹配关键词
         APK_TARGETS = {
             "tv.apk": "all-sdk21-original",
-            "tv-x5.apk": "all-sdk21-original-X5"
+            "tv-x5.apk": "all-sdk21-original-X5"  # 使用完整的匹配关键词
         }
         APK_DIR = "apk"
         TELEGRAM_CHANNEL = "mytv_android_release"
@@ -235,6 +235,7 @@ jobs:
             normalized_new = normalize_version(new_version)
             
             if target_name not in current_versions or current_versions[target_name] is None:
+                log.info(f"需要下载 {target_name}: 本地无记录")
                 return True
             
             current_value = current_versions[target_name]
@@ -248,11 +249,18 @@ jobs:
             msg_date_str = msg_date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
             
             if msg_date_str > current_date:
+                log.info(f"需要下载 {target_name}: 新日期 {msg_date_str} > 当前日期 {current_date}")
                 return True
             
             if msg_date_str == current_date and normalized_new and normalized_current:
-                return normalized_new != normalized_current
+                if normalized_new != normalized_current:
+                    log.info(f"需要下载 {target_name}: 相同日期但有新版本 {normalized_new} != {normalized_current}")
+                    return True
+                else:
+                    log.info(f"跳过下载 {target_name}: 相同日期且版本相同")
+                    return False
             
+            log.info(f"跳过下载 {target_name}: 当前版本已是最新")
             return False
         
         async def find_apks_in_channel(client, entity):
@@ -264,26 +272,33 @@ jobs:
                         if isinstance(attr, DocumentAttributeFilename):
                             filename = attr.file_name
                             
-                            # 调试日志：打印所有找到的文件
                             log.info(f"检查文件: {filename}")
                             
-                            for target_name, key_part in APK_TARGETS.items():
-                                # 使用更宽松的匹配逻辑
-                                if key_part.lower() in filename.lower():
-                                    version = extract_version_from_filename(filename)
-                                    if not version:
-                                        continue
-                                    
-                                    log.info(f"文件 {filename} 匹配目标 {target_name} (关键词: {key_part})")
-                                    
-                                    # 只保留每个目标的最新消息
-                                    if target_name not in latest_msgs or msg.date > latest_msgs[target_name]["message"].date:
-                                        latest_msgs[target_name] = {
+                            # 首先尝试匹配 tv-x5.apk
+                            if "all-sdk21-original-X5".lower() in filename.lower():
+                                version = extract_version_from_filename(filename)
+                                if version:
+                                    log.info(f"文件 {filename} 匹配 tv-x5.apk")
+                                    if "tv-x5.apk" not in latest_msgs or msg.date > latest_msgs["tv-x5.apk"]["message"].date:
+                                        latest_msgs["tv-x5.apk"] = {
                                             "message": msg,
                                             "original_filename": filename,
                                             "version": version
                                         }
-                                    break
+                                    continue  # 匹配成功后继续下一个文件
+                            
+                            # 然后尝试匹配 tv.apk
+                            if "all-sdk21-original".lower() in filename.lower() and "X5" not in filename.lower():
+                                version = extract_version_from_filename(filename)
+                                if version:
+                                    log.info(f"文件 {filename} 匹配 tv.apk")
+                                    if "tv.apk" not in latest_msgs or msg.date > latest_msgs["tv.apk"]["message"].date:
+                                        latest_msgs["tv.apk"] = {
+                                            "message": msg,
+                                            "original_filename": filename,
+                                            "version": version
+                                        }
+                                    continue
             
             # 记录匹配结果
             for target in APK_TARGETS:
