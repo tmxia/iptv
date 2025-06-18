@@ -38,7 +38,6 @@ jobs:
         git lfs install
         git lfs track "apk/*.apk"
         git add .gitattributes
-        # 提交Git LFS设置
         git config user.name "github-actions"
         git config user.email "github-actions@github.com"
         git commit -m "配置Git LFS" || echo "没有更改需要提交"
@@ -117,6 +116,9 @@ jobs:
                 
                 # 初始化Git LFS
                 subprocess.run(["git", "lfs", "install", "--local"], cwd=GIT_DIR, check=True)
+                
+                # 确保LFS钩子已安装
+                subprocess.run(["git", "lfs", "update"], cwd=GIT_DIR, check=True)
                 return True
             except Exception as e:
                 log.error(f"Git设置失败: {str(e)}")
@@ -143,13 +145,15 @@ jobs:
                 # 重试机制（最多3次）
                 for attempt in range(1, 4):
                     try:
-                        # 使用LFS推送大文件
+                        # 强制使用LFS推送所有对象
                         subprocess.run(["git", "lfs", "push", "--all", repo_url, "main"], cwd=GIT_DIR, check=True)
-                        # 推送常规更改
+                        # 推送常规提交
                         subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
                         return True
                     except Exception as e:
                         log.error(f"推送尝试 {attempt} 失败: {str(e)}")
+                        # 在重试前重置LFS状态
+                        subprocess.run(["git", "lfs", "prune"], cwd=GIT_DIR, check=True)
                         if attempt < 3:
                             time.sleep(10)
             except Exception as e:
@@ -394,6 +398,10 @@ jobs:
                 
                 # 提交更改
                 commit_msg = f"更新APK: {', '.join(version_updates.keys())}"
+                
+                # 确保LFS已捕获大文件
+                subprocess.run(["git", "lfs", "status"], cwd=GIT_DIR, check=True)
+                
                 if commit_and_push(commit_msg):
                     log.info(f"同步成功! 更新了 {len(version_updates)} 个文件")
                 else:
