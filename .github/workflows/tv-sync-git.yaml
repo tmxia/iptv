@@ -37,7 +37,6 @@ jobs:
       run: |
         git lfs install
         git lfs track "apk/*.apk"
-        git lfs track "temp_apks/*.apk"  # 添加临时目录的LFS跟踪
         git add .gitattributes
         git config user.name "github-actions"
         git config user.email "github-actions@github.com"
@@ -208,8 +207,9 @@ jobs:
                 return f"v{version_str}"
             return version_str
         
-        async def download_apk(client, message, filename):
-            download_path = os.path.join(WORK_DIR, filename)
+        async def download_apk(client, message, filename, target_name):
+            # 使用目标名称作为文件名
+            download_path = os.path.join(WORK_DIR, target_name)
             
             # 下载文件
             await client.download_media(message, file=download_path)
@@ -329,7 +329,8 @@ jobs:
                 
                 # 检查是否需要下载
                 if should_download_apk(target_name, msg.date, version, current_versions):
-                    apk_data = await download_apk(client, msg, filename)
+                    # 传递目标名称作为保存的文件名
+                    apk_data = await download_apk(client, msg, filename, target_name)
                     if apk_data:
                         # 确保版本号有'v'前缀
                         normalized_version = ensure_version_prefix(apk_data['version'])
@@ -403,6 +404,12 @@ jobs:
                 
                 # 确保LFS已捕获大文件
                 subprocess.run(["git", "lfs", "ls-files"], cwd=GIT_DIR, check=True)
+                
+                # 添加APK文件到Git LFS
+                for target_name in version_updates.keys():
+                    apk_path = os.path.join(APK_DIR, target_name)
+                    if os.path.exists(apk_path):
+                        subprocess.run(["git", "lfs", "track", apk_path], cwd=GIT_DIR, check=True)
                 
                 if commit_and_push(commit_msg):
                     log.info(f"同步成功! 更新了 {len(version_updates)} 个文件")
