@@ -1,2 +1,4 @@
 apk/tv.apk filter=lfs diff=lfs merge=lfs -text
 apk/tv-x5.apk filter=lfs diff=lfs merge=lfs -text
+apk/tv-new-x5.apk filter=lfs diff=lfs merge=lfs -text
+apk/tv-new.apk filter=lfs diff=lfs merge=lfs -text
