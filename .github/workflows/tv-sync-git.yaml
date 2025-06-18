@@ -68,8 +68,8 @@ jobs:
         
         # 配置参数
         APK_TARGETS = {
-            "tv.apk": "all-sdk21-original",
-            "tv-x5.apk": "armeabi-v7a-sdk21-X5"
+            "tv-new.apk": "all-sdk21-original",
+            "tv-new-x5.apk": "armeabi-v7a-sdk21-X5"
         }
         APK_DIR = "apk"
         TELEGRAM_CHANNEL = "YYKM_release"  # 硬编码频道名称
