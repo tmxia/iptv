@@ -38,6 +38,10 @@ jobs:
         git lfs install
         git lfs track "apk/*.apk"
         git add .gitattributes
+        # 提交Git LFS设置
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        git commit -m "配置Git LFS" || echo "没有更改需要提交"
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -103,8 +107,13 @@ jobs:
                 subprocess.run(["git", "config", "user.name", actor], cwd=GIT_DIR, check=True)
                 subprocess.run(["git", "config", "user.email", email], cwd=GIT_DIR, check=True)
                 
+                # 确保工作区干净
+                subprocess.run(["git", "reset", "--hard"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "clean", "-fd"], cwd=GIT_DIR, check=True)
+                
                 # 拉取最新更改（防止冲突）
-                subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "fetch", "origin", "main"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=GIT_DIR, check=True)
                 
                 # 初始化Git LFS
                 subprocess.run(["git", "lfs", "install", "--local"], cwd=GIT_DIR, check=True)
@@ -134,9 +143,10 @@ jobs:
                 # 重试机制（最多3次）
                 for attempt in range(1, 4):
                     try:
-                        subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=GIT_DIR, check=True)
                         # 使用LFS推送大文件
-                        subprocess.run(["git", "lfs", "push", "--all", repo_url, "HEAD:main"], cwd=GIT_DIR, check=True)
+                        subprocess.run(["git", "lfs", "push", "--all", repo_url, "main"], cwd=GIT_DIR, check=True)
+                        # 推送常规更改
+                        subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
                         return True
                     except Exception as e:
                         log.error(f"推送尝试 {attempt} 失败: {str(e)}")
