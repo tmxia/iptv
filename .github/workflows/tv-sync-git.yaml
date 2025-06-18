@@ -1,4 +1,4 @@
-name: TV APK Sync from TELEGRAM
+name: TV NEW APK Sync from TELEGRAM
 
 concurrency: 
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -425,5 +425,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "TV APK Sync from TELEGRAM"
+          delete_workflow_pattern: "TV NEW APK Sync from TELEGRAM"
           repository: ${{ github.repository }}
