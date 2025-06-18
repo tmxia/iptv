@@ -72,7 +72,7 @@ jobs:
             "tv-x5.apk": "armeabi-v7a-sdk21-X5"
         }
         APK_DIR = "apk"
-        TELEGRAM_CHANNEL = "YYKM_release"  # 硬编码频道名称
+        TELEGRAM_CHANNEL = "mytv_android_release"  # 硬编码频道名称
         MESSAGE_LIMIT = 50  # 扫描的最近消息数量
         
         # 环境变量
