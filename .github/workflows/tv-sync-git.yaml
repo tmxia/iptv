@@ -82,8 +82,8 @@ jobs:
             "tv-x5.apk": "all-sdk21-original-X5"
         }
         APK_DIR = "apk"
-        TELEGRAM_CHANNEL = "mytv_android_release"  # 硬编码频道名称
-        MESSAGE_LIMIT = 20  # 只扫描最近20条消息
+        TELEGRAM_CHANNEL = "mytv_android_release"
+        MESSAGE_LIMIT = 30
         
         # 环境变量
         WORK_DIR = os.path.join(os.getcwd(), "temp_apks")
@@ -110,7 +110,7 @@ jobs:
                 subprocess.run(["git", "reset", "--hard"], cwd=GIT_DIR, check=True)
                 subprocess.run(["git", "clean", "-fd"], cwd=GIT_DIR, check=True)
                 
-                # 拉取最新更改（防止冲突）
+                # 拉取最新更改
                 subprocess.run(["git", "fetch", "origin", "main"], cwd=GIT_DIR, check=True)
                 subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=GIT_DIR, check=True)
                 
@@ -141,17 +141,16 @@ jobs:
                 repo = os.environ['TARGET_REPO']
                 repo_url = f"https://{actor}:{token}@github.com/{repo}.git"
                 
-                # 重试机制（最多3次）
+                # 重试机制
                 for attempt in range(1, 4):
                     try:
-                        # 强制使用LFS推送所有对象
+                        # 推送LFS对象
                         subprocess.run(["git", "lfs", "push", "--all", repo_url, "main"], cwd=GIT_DIR, check=True)
                         # 推送常规提交
                         subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
                         return True
                     except Exception as e:
                         log.error(f"推送尝试 {attempt} 失败: {str(e)}")
-                        # 在重试前重置LFS状态
                         subprocess.run(["git", "lfs", "prune"], cwd=GIT_DIR, check=True)
                         if attempt < 3:
                             time.sleep(10)
@@ -160,7 +159,6 @@ jobs:
             return False
         
         def get_current_versions():
-            """获取当前版本信息，保留所有现有键值"""
             version_path = os.path.join(GIT_DIR, "version.txt")
             versions = {}
             if os.path.exists(version_path):
@@ -168,58 +166,41 @@ jobs:
                     with open(version_path, "r") as f:
                         versions = json.load(f)
                 except:
-                    # 如果解析失败，创建新的空字典
                     pass
             return versions
         
         def update_versions(new_versions):
-            """更新版本文件，只修改需要更新的键值"""
             version_path = os.path.join(GIT_DIR, "version.txt")
-            
-            # 读取现有版本信息
             current_versions = get_current_versions()
-            
-            # 合并更新
             for key, value in new_versions.items():
                 current_versions[key] = value
-            
-            # 写入更新后的版本信息
             with open(version_path, "w") as f:
                 json.dump(current_versions, f, indent=2)
         
         def normalize_version(version_str):
-            """规范化版本字符串 - 移除前缀'v'并转为小写"""
             if not version_str:
                 return None
-            # 移除前缀'v'或'V'，并转为小写
             return re.sub(r'^v', '', version_str, flags=re.IGNORECASE).lower()
         
         def extract_version_from_filename(filename):
-            """从文件名提取版本号"""
             match = re.search(r'v?(\d+\.\d+\.\d+)|v?(\d+\.\d+)|(\d{8})', filename)
             if match:
                 return match.group(1) or match.group(2) or match.group(3)
             return None
         
         def ensure_version_prefix(version_str):
-            """确保版本号有'v'前缀"""
             if version_str and not version_str.startswith('v'):
                 return f"v{version_str}"
             return version_str
         
         async def download_apk(client, message, filename, target_name):
-            # 使用目标名称作为文件名
             download_path = os.path.join(WORK_DIR, target_name)
-            
-            # 下载文件
             await client.download_media(message, file=download_path)
             
-            # 检查文件大小并记录警告
             file_size_mb = os.path.getsize(download_path) / (1024 * 1024)
             if file_size_mb > 100:
                 log.warning(f"文件过大 ({file_size_mb:.2f}MB)，将通过LFS处理: {filename}")
             
-            # 版本解析
             version = extract_version_from_filename(filename) or extract_version_from_filename(message.text or "")
             if not version:
                 return None
@@ -231,7 +212,6 @@ jobs:
             }
         
         def check_local_files():
-            """检查本地APK文件是否存在"""
             target_dir = os.path.join(GIT_DIR, APK_DIR)
             local_files = {}
             file_missing = False
@@ -241,11 +221,9 @@ jobs:
             for target_name in APK_TARGETS.keys():
                 file_path = os.path.join(target_dir, target_name)
                 if os.path.exists(file_path):
-                    # 如果版本文件中有记录，使用它
                     if target_name in current_versions:
                         local_files[target_name] = current_versions[target_name]
                     else:
-                        # 版本文件缺少键值，标记为需要更新
                         local_files[target_name] = None
                 else:
                     file_missing = True
@@ -254,53 +232,49 @@ jobs:
             return local_files, not file_missing
         
         def should_download_apk(target_name, msg_date, new_version, current_versions):
-            """判断是否需要下载APK"""
-            # 规范化新版本 - 用于比较
             normalized_new = normalize_version(new_version)
             
-            # 如果本地没有该APK的记录，需要下载
             if target_name not in current_versions or current_versions[target_name] is None:
                 return True
             
-            # 解析当前版本信息
             current_value = current_versions[target_name]
             if current_value and ',' in current_value:
                 current_version, current_date = current_value.split(',', 1)
-                # 规范化当前版本 - 移除"v"前缀
                 normalized_current = normalize_version(current_version)
             else:
                 normalized_current = None
                 current_date = "1970-01-01"
             
-            # 将消息日期转换为日期字符串（YYYY-MM-DD）
             msg_date_str = msg_date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
             
-            # 如果消息日期比记录日期新，需要下载
             if msg_date_str > current_date:
                 return True
             
-            # 日期相同的情况，比较版本号
             if msg_date_str == current_date and normalized_new and normalized_current:
                 return normalized_new != normalized_current
             
             return False
         
         async def find_apks_in_channel(client, entity):
-            """在频道中查找匹配的APK文件"""
             latest_msgs = {}
             
-            # 扫描最近的20条消息
             async for msg in client.iter_messages(entity, limit=MESSAGE_LIMIT):
                 if msg.media and hasattr(msg.media, "document"):
                     for attr in msg.media.document.attributes:
                         if isinstance(attr, DocumentAttributeFilename):
                             filename = attr.file_name
-                            # 检查文件名是否匹配任何目标
+                            
+                            # 调试日志：打印所有找到的文件
+                            log.info(f"检查文件: {filename}")
+                            
                             for target_name, key_part in APK_TARGETS.items():
+                                # 使用更宽松的匹配逻辑
                                 if key_part.lower() in filename.lower():
                                     version = extract_version_from_filename(filename)
                                     if not version:
                                         continue
+                                    
+                                    log.info(f"文件 {filename} 匹配目标 {target_name} (关键词: {key_part})")
                                     
                                     # 只保留每个目标的最新消息
                                     if target_name not in latest_msgs or msg.date > latest_msgs[target_name]["message"].date:
@@ -310,39 +284,45 @@ jobs:
                                             "version": version
                                         }
                                     break
+            
+            # 记录匹配结果
+            for target in APK_TARGETS:
+                if target in latest_msgs:
+                    log.info(f"找到目标 {target} 的最新文件: {latest_msgs[target]['original_filename']}")
+                else:
+                    log.warning(f"未找到目标 {target} 的匹配文件")
+            
             return latest_msgs
         
         async def process_apk_updates(client, entity, current_versions):
-            """处理APK更新"""
-            # 在频道中查找APK文件
             apk_matches = await find_apks_in_channel(client, entity)
             if not apk_matches:
                 return None
             
             updates = {}
             
-            # 处理每个目标文件
             for target_name, data in apk_matches.items():
                 msg = data["message"]
                 filename = data["original_filename"]
                 version = data["version"]
                 
-                # 检查是否需要下载
                 if should_download_apk(target_name, msg.date, version, current_versions):
-                    # 传递目标名称作为保存的文件名
                     apk_data = await download_apk(client, msg, filename, target_name)
                     if apk_data:
-                        # 确保版本号有'v'前缀
                         normalized_version = ensure_version_prefix(apk_data['version'])
                         new_value = f"{normalized_version},{apk_data['date_iso']}"
                         updates[target_name] = new_value
+                        log.info(f"将更新: {target_name} 版本 {normalized_version}")
+                    else:
+                        log.error(f"下载失败: {target_name}")
+                else:
+                    log.info(f"跳过下载: {target_name} (已是最新)")
             
             return updates if updates else None
         
         async def main_async():
             log.info("APK 同步工具启动")
             
-            # 验证环境变量
             required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GITHUB_TOKEN']
             missing = [var for var in required if not os.environ.get(var)]
             if missing:
@@ -352,11 +332,9 @@ jobs:
             if not setup_git():
                 return 2
             
-            # 首先检查本地文件
             current_versions, all_files_exist = check_local_files()
             log.info(f"当前版本状态: {json.dumps(current_versions, indent=2)}")
             
-            # 初始化Telegram客户端
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
                 int(os.environ['TELEGRAM_API_ID']),
@@ -373,7 +351,6 @@ jobs:
                     log.error(f"获取频道实体失败: {str(e)}")
                     return 3
                 
-                # 处理APK更新
                 version_updates = await process_apk_updates(client, entity, current_versions)
             except Exception as e:
                 log.error(f"Telegram错误: {str(e)}")
@@ -382,11 +359,9 @@ jobs:
                 await client.disconnect()
             
             if version_updates:
-                # 处理新文件
                 target_dir = os.path.join(GIT_DIR, APK_DIR)
                 os.makedirs(target_dir, exist_ok=True)
                 
-                # 移动下载的APK文件到目标目录
                 for target_name in version_updates.keys():
                     src = os.path.join(WORK_DIR, target_name)
                     dest = os.path.join(target_dir, target_name)
@@ -396,20 +371,17 @@ jobs:
                     else:
                         log.error(f"源文件不存在: {src}")
                 
-                # 更新版本信息
                 update_versions(version_updates)
                 
-                # 提交更改
                 commit_msg = f"更新APK: {', '.join(version_updates.keys())}"
-                
-                # 确保LFS已捕获大文件
-                subprocess.run(["git", "lfs", "ls-files"], cwd=GIT_DIR, check=True)
                 
                 # 添加APK文件到Git LFS
                 for target_name in version_updates.keys():
                     apk_path = os.path.join(APK_DIR, target_name)
                     if os.path.exists(apk_path):
                         subprocess.run(["git", "lfs", "track", apk_path], cwd=GIT_DIR, check=True)
+                
+                subprocess.run(["git", "add", ".gitattributes"], cwd=GIT_DIR, check=True)
                 
                 if commit_and_push(commit_msg):
                     log.info(f"同步成功! 更新了 {len(version_updates)} 个文件")
@@ -419,13 +391,11 @@ jobs:
             else:
                 log.info("没有需要更新的APK文件")
             
-            # 最终检查APK文件是否存在
             _, all_files_exist = check_local_files()
             if not all_files_exist:
                 log.error("关键错误: 缺少APK文件")
                 return 6
             
-            # 清理临时目录
             if os.path.exists(WORK_DIR):
                 shutil.rmtree(WORK_DIR)
             
