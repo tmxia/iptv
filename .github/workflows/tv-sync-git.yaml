@@ -37,6 +37,7 @@ jobs:
       run: |
         git lfs install
         git lfs track "apk/*.apk"
+        git lfs track "temp_apks/*.apk"  # 添加临时目录的LFS跟踪
         git add .gitattributes
         git config user.name "github-actions"
         git config user.email "github-actions@github.com"
@@ -116,9 +117,8 @@ jobs:
                 
                 # 初始化Git LFS
                 subprocess.run(["git", "lfs", "install", "--local"], cwd=GIT_DIR, check=True)
-                
-                # 确保LFS钩子已安装
                 subprocess.run(["git", "lfs", "update"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "lfs", "fetch", "--all"], cwd=GIT_DIR, check=True)
                 return True
             except Exception as e:
                 log.error(f"Git设置失败: {str(e)}")
@@ -392,6 +392,8 @@ jobs:
                     if os.path.exists(src):
                         shutil.move(src, dest)
                         log.info(f"移动文件: {src} -> {dest}")
+                    else:
+                        log.error(f"源文件不存在: {src}")
                 
                 # 更新版本信息
                 update_versions(version_updates)
@@ -400,7 +402,7 @@ jobs:
                 commit_msg = f"更新APK: {', '.join(version_updates.keys())}"
                 
                 # 确保LFS已捕获大文件
-                subprocess.run(["git", "lfs", "status"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "lfs", "ls-files"], cwd=GIT_DIR, check=True)
                 
                 if commit_and_push(commit_msg):
                     log.info(f"同步成功! 更新了 {len(version_updates)} 个文件")
