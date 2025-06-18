@@ -31,6 +31,13 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
+        lfs: true  # 启用Git LFS支持
+
+    - name: Set up Git LFS
+      run: |
+        git lfs install
+        git lfs track "apk/*.apk"
+        git add .gitattributes
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -40,7 +47,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl unzip
+        sudo apt-get install -y jq curl unzip git-lfs
         pip install telethon requests pytz
 
     - name: Run APK Sync
@@ -73,7 +80,7 @@ jobs:
         }
         APK_DIR = "apk"
         TELEGRAM_CHANNEL = "mytv_android_release"  # 硬编码频道名称
-        MESSAGE_LIMIT = 50  # 扫描的最近消息数量
+        MESSAGE_LIMIT = 20  # 只扫描最近20条消息
         
         # 环境变量
         WORK_DIR = os.path.join(os.getcwd(), "temp_apks")
@@ -98,6 +105,9 @@ jobs:
                 
                 # 拉取最新更改（防止冲突）
                 subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=GIT_DIR, check=True)
+                
+                # 初始化Git LFS
+                subprocess.run(["git", "lfs", "install", "--local"], cwd=GIT_DIR, check=True)
                 return True
             except Exception as e:
                 log.error(f"Git设置失败: {str(e)}")
@@ -125,9 +135,11 @@ jobs:
                 for attempt in range(1, 4):
                     try:
                         subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=GIT_DIR, check=True)
-                        subprocess.run(["git", "push", repo_url, "HEAD:main"], cwd=GIT_DIR, check=True)
+                        # 使用LFS推送大文件
+                        subprocess.run(["git", "lfs", "push", "--all", repo_url, "HEAD:main"], cwd=GIT_DIR, check=True)
                         return True
-                    except:
+                    except Exception as e:
+                        log.error(f"推送尝试 {attempt} 失败: {str(e)}")
                         if attempt < 3:
                             time.sleep(10)
             except Exception as e:
@@ -187,6 +199,11 @@ jobs:
             
             # 下载文件
             await client.download_media(message, file=download_path)
+            
+            # 检查文件大小并记录警告
+            file_size_mb = os.path.getsize(download_path) / (1024 * 1024)
+            if file_size_mb > 100:
+                log.warning(f"文件过大 ({file_size_mb:.2f}MB)，将通过LFS处理: {filename}")
             
             # 版本解析
             version = extract_version_from_filename(filename) or extract_version_from_filename(message.text or "")
@@ -258,7 +275,7 @@ jobs:
             """在频道中查找匹配的APK文件"""
             latest_msgs = {}
             
-            # 扫描最近的50条消息
+            # 扫描最近的20条消息
             async for msg in client.iter_messages(entity, limit=MESSAGE_LIMIT):
                 if msg.media and hasattr(msg.media, "document"):
                     for attr in msg.media.document.attributes:
@@ -353,6 +370,14 @@ jobs:
                 # 处理新文件
                 target_dir = os.path.join(GIT_DIR, APK_DIR)
                 os.makedirs(target_dir, exist_ok=True)
+                
+                # 移动下载的APK文件到目标目录
+                for target_name in version_updates.keys():
+                    src = os.path.join(WORK_DIR, target_name)
+                    dest = os.path.join(target_dir, target_name)
+                    if os.path.exists(src):
+                        shutil.move(src, dest)
+                        log.info(f"移动文件: {src} -> {dest}")
                 
                 # 更新版本信息
                 update_versions(version_updates)
