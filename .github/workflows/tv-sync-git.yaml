@@ -76,10 +76,10 @@ jobs:
         from telethon.tl.types import DocumentAttributeFilename
         import pytz
         
-        # 配置参数 - 使用完整的匹配关键词
+        # 配置参数
         APK_TARGETS = {
             "tv.apk": "all-sdk21-original",
-            "tv-x5.apk": "all-sdk21-original-X5"  # 使用完整的匹配关键词
+            "tv-x5.apk": "all-sdk21-original-X5"
         }
         APK_DIR = "apk"
         TELEGRAM_CHANNEL = "mytv_android_release"
@@ -235,7 +235,6 @@ jobs:
             normalized_new = normalize_version(new_version)
             
             if target_name not in current_versions or current_versions[target_name] is None:
-                log.info(f"需要下载 {target_name}: 本地无记录")
                 return True
             
             current_value = current_versions[target_name]
@@ -249,18 +248,11 @@ jobs:
             msg_date_str = msg_date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
             
             if msg_date_str > current_date:
-                log.info(f"需要下载 {target_name}: 新日期 {msg_date_str} > 当前日期 {current_date}")
                 return True
             
             if msg_date_str == current_date and normalized_new and normalized_current:
-                if normalized_new != normalized_current:
-                    log.info(f"需要下载 {target_name}: 相同日期但有新版本 {normalized_new} != {normalized_current}")
-                    return True
-                else:
-                    log.info(f"跳过下载 {target_name}: 相同日期且版本相同")
-                    return False
+                return normalized_new != normalized_current
             
-            log.info(f"跳过下载 {target_name}: 当前版本已是最新")
             return False
         
         async def find_apks_in_channel(client, entity):
@@ -272,26 +264,22 @@ jobs:
                         if isinstance(attr, DocumentAttributeFilename):
                             filename = attr.file_name
                             
-                            log.info(f"检查文件: {filename}")
-                            
                             # 首先尝试匹配 tv-x5.apk
                             if "all-sdk21-original-X5".lower() in filename.lower():
                                 version = extract_version_from_filename(filename)
                                 if version:
-                                    log.info(f"文件 {filename} 匹配 tv-x5.apk")
                                     if "tv-x5.apk" not in latest_msgs or msg.date > latest_msgs["tv-x5.apk"]["message"].date:
                                         latest_msgs["tv-x5.apk"] = {
                                             "message": msg,
                                             "original_filename": filename,
                                             "version": version
                                         }
-                                    continue  # 匹配成功后继续下一个文件
+                                    continue
                             
                             # 然后尝试匹配 tv.apk
                             if "all-sdk21-original".lower() in filename.lower() and "X5" not in filename.lower():
                                 version = extract_version_from_filename(filename)
                                 if version:
-                                    log.info(f"文件 {filename} 匹配 tv.apk")
                                     if "tv.apk" not in latest_msgs or msg.date > latest_msgs["tv.apk"]["message"].date:
                                         latest_msgs["tv.apk"] = {
                                             "message": msg,
@@ -299,13 +287,6 @@ jobs:
                                             "version": version
                                         }
                                     continue
-            
-            # 记录匹配结果
-            for target in APK_TARGETS:
-                if target in latest_msgs:
-                    log.info(f"找到目标 {target} 的最新文件: {latest_msgs[target]['original_filename']}")
-                else:
-                    log.warning(f"未找到目标 {target} 的匹配文件")
             
             return latest_msgs
         
@@ -327,11 +308,8 @@ jobs:
                         normalized_version = ensure_version_prefix(apk_data['version'])
                         new_value = f"{normalized_version},{apk_data['date_iso']}"
                         updates[target_name] = new_value
-                        log.info(f"将更新: {target_name} 版本 {normalized_version}")
                     else:
                         log.error(f"下载失败: {target_name}")
-                else:
-                    log.info(f"跳过下载: {target_name} (已是最新)")
             
             return updates if updates else None
         
@@ -462,5 +440,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "TV NEW APK Sync from TELEGRAM"
+          delete_workflow_pattern: "TV APK Sync from TELEGRAM"
           repository: ${{ github.repository }}
