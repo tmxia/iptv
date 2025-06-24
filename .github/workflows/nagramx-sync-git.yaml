@@ -29,6 +29,8 @@ jobs:
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
         git config pull.rebase true  # 配置rebase策略
+        # 提前设置带认证的远程URL
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         
     # 在开始同步前获取仓库锁 - 关键修复位置
     - name: Acquire Repository Lock 🔒
@@ -37,7 +39,7 @@ jobs:
         same-branch-only: true
         poll-interval-seconds: 30
         abort-after-seconds: 1200  # 20分钟超时
-        
+
     - name: Run sync script
       env:
         SOURCE_REPO: "risin42/NagramX"
@@ -332,11 +334,15 @@ jobs:
             sys.exit(asyncio.run(main()))
         EOF
 
+    # ========== 关键修复：提交前拉取最新更改 ==========
+    - name: Pull latest changes before commit
+      run: |
+        echo "拉取远程最新更改..."
+        git pull --rebase origin main
+        echo "已同步远程最新更改"
+
     - name: Commit and Push Changes
       run: |
-        # 设置远程URL
-        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-        
         # 检查是否有文件变更
         if git diff-index --quiet HEAD --; then
           echo "没有需要提交的更改"
@@ -347,9 +353,10 @@ jobs:
         git add apk/ version.txt
         git commit -m "同步NagramX更新 [${{ github.run_id }}]"
         
-        # 推送更改
+        # 安全强制推送（仅在远程没有新提交时覆盖）
         echo "推送更改..."
-        git push origin HEAD:${{ github.ref }}
+        git push --force-with-lease origin HEAD:${{ github.ref }}
+        echo "推送成功"
         
     # 添加解锁步骤 - 确保无论成功失败都释放锁
     - name: Release Repository Lock 🔓
