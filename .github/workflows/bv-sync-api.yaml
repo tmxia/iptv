@@ -21,6 +21,22 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y jq curl
         
+    - name: Configure Git
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git config pull.rebase true  # 配置rebase策略
+        # 提前设置带认证的远程URL
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        
+    # 添加仓库锁机制防止并发更新
+    - name: Acquire Repository Lock 🔒
+      uses: softprops/turnstyle@v1
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200  # 20分钟超时
+
     - name: Run APK sync script
       env:
         SOURCE_REPO: "aaa1115910/bv"
@@ -59,52 +75,73 @@ jobs:
           echo "错误: 无法获取发布信息"
           exit 1
         fi
+        
+        # 调试：输出API响应
+        echo "API响应:"
+        echo "$RELEASES_JSON" | jq . > "$WORK_DIR/releases.json"
+        head -n 50 "$WORK_DIR/releases.json"
 
-        # 提取最新稳定版
+        # 提取最新稳定版 - 增强错误处理
+        SYNC_STABLE=true
         LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]')
         if [ -z "$LATEST_STABLE_RELEASE" ] || [ "$LATEST_STABLE_RELEASE" = "null" ]; then
-          echo "错误: 无法提取稳定版发布信息"
-          exit 1
-        fi
-        
-        # 关键修复：从发布标题中提取完整版本号并添加 'v' 前缀
-        RAW_STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.name' | grep -oP '(\d+\.)+\d+' | head -1)
-        if [ -z "$RAW_STABLE_VERSION" ]; then
-          RAW_STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
-        fi
-        if [[ ! "$RAW_STABLE_VERSION" =~ ^v ]]; then
-          STABLE_VERSION="v$RAW_STABLE_VERSION"
+          echo "警告: 无法提取稳定版发布信息，跳过稳定版同步"
+          SYNC_STABLE=false
         else
-          STABLE_VERSION="$RAW_STABLE_VERSION"
+          # 关键修复：改进版本号提取逻辑
+          # 尝试从name字段提取，如果失败则使用tag_name
+          RAW_STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.name // ""')
+          if [ -z "$RAW_STABLE_VERSION" ] || [ "$RAW_STABLE_VERSION" = "null" ]; then
+            RAW_STABLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+          fi
+          
+          # 清理版本号
+          CLEANED_STABLE_VERSION=$(echo "$RAW_STABLE_VERSION" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ -z "$CLEANED_STABLE_VERSION" ]; then
+            CLEANED_STABLE_VERSION=$RAW_STABLE_VERSION
+          fi
+          
+          # 确保版本号以 'v' 开头
+          if [[ ! "$CLEANED_STABLE_VERSION" =~ ^v ]]; then
+            STABLE_VERSION="v$CLEANED_STABLE_VERSION"
+          else
+            STABLE_VERSION="$CLEANED_STABLE_VERSION"
+          fi
+          
+          STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
+          # 转换为北京时间并格式化为 YYYY-MM-DD
+          STABLE_DATE_UTC8=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
+          echo "源仓库最新稳定版: $STABLE_VERSION (发布于: $STABLE_DATE_UTC8)"
         fi
-        
-        STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
-        # 转换为北京时间并格式化为 YYYY-MM-DD
-        STABLE_DATE_UTC8=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
-        echo "源仓库最新稳定版: $STABLE_VERSION (发布于: $STABLE_DATE_UTC8)"
 
         # 提取最新预发行版
+        SYNC_PRE_RELEASE=true
         LATEST_PRE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]')
         if [ -z "$LATEST_PRE_RELEASE" ] || [ "$LATEST_PRE_RELEASE" = "null" ]; then
           echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          # 关键修复：从发布标题中提取完整版本号并添加 'v' 前缀
-          RAW_PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.name' | grep -oP '(\d+\.)+\d+' | head -1)
-          if [ -z "$RAW_PRE_RELEASE_VERSION" ]; then
+          # 改进预发布版本号提取
+          RAW_PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.name // ""')
+          if [ -z "$RAW_PRE_RELEASE_VERSION" ] || [ "$RAW_PRE_RELEASE_VERSION" = "null" ]; then
             RAW_PRE_RELEASE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name')
           fi
-          if [[ ! "$RAW_PRE_RELEASE_VERSION" =~ ^v ]]; then
-            PRE_RELEASE_VERSION="v$RAW_PRE_RELEASE_VERSION"
+          
+          CLEANED_PRE_RELEASE_VERSION=$(echo "$RAW_PRE_RELEASE_VERSION" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ -z "$CLEANED_PRE_RELEASE_VERSION" ]; then
+            CLEANED_PRE_RELEASE_VERSION=$RAW_PRE_RELEASE_VERSION
+          fi
+          
+          if [[ ! "$CLEANED_PRE_RELEASE_VERSION" =~ ^v ]]; then
+            PRE_RELEASE_VERSION="v$CLEANED_PRE_RELEASE_VERSION"
           else
-            PRE_RELEASE_VERSION="$RAW_PRE_RELEASE_VERSION"
+            PRE_RELEASE_VERSION="$CLEANED_PRE_RELEASE_VERSION"
           fi
           
           PRE_RELEASE_PUBLISHED_AT=$(echo "$LATEST_PRE_RELEASE" | jq -r '.published_at')
           # 转换为北京时间并格式化为 YYYY-MM-DD
           PRE_RELEASE_DATE_UTC8=$(TZ=UTC date -d "$PRE_RELEASE_PUBLISHED_AT" +'%Y-%m-%d')
           echo "源仓库最新预发行版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE_UTC8)"
-          SYNC_PRE_RELEASE=true
         fi
 
         # 获取目标仓库当前版本文件
@@ -300,24 +337,30 @@ jobs:
 
         # 处理稳定版（使用STABLE_APK_PATTERN）
         STABLE_NEED_UPDATE=false
-        echo "===== 处理稳定版 ====="
-        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN"
-        STABLE_RESULT=$?
-        if [ $STABLE_RESULT -eq 0 ]; then
-          # 检查是否需要更新（通过文件内容判断）
-          if [ -f "$WORK_DIR/$STABLE_KEY_NAME" ]; then
-            STABLE_NEED_UPDATE=true
-            NEW_STABLE_VERSION="$STABLE_VERSION"
-            NEW_STABLE_DATE="$STABLE_DATE_UTC8"
-            echo "稳定版需要更新"
+        if [ "$SYNC_STABLE" = true ]; then
+          echo "===== 处理稳定版 ====="
+          check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN"
+          STABLE_RESULT=$?
+          if [ $STABLE_RESULT -eq 0 ]; then
+            # 检查是否需要更新（通过文件内容判断）
+            if [ -f "$WORK_DIR/$STABLE_KEY_NAME" ]; then
+              STABLE_NEED_UPDATE=true
+              NEW_STABLE_VERSION="$STABLE_VERSION"
+              NEW_STABLE_DATE="$STABLE_DATE_UTC8"
+              echo "稳定版需要更新"
+            else
+              NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
+              NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
+              echo "稳定版无需更新"
+            fi
           else
-            NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
-            NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
-            echo "稳定版无需更新"
+            echo "错误: 稳定版处理失败"
+            exit 1
           fi
         else
-          echo "错误: 稳定版处理失败"
-          exit 1
+          NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
+          NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
+          echo "跳过稳定版处理"
         fi
 
         # 处理预发行版（使用PRE_RELEASE_APK_PATTERN）
@@ -423,6 +466,40 @@ jobs:
         
         # 总是以成功状态退出
         exit 0
+
+    # ========== 提交前拉取最新更改 ==========
+    - name: Pull latest changes before commit
+      run: |
+        echo "拉取远程最新更改..."
+        git pull --rebase origin main
+        echo "已同步远程最新更改"
+
+    - name: Commit and Push Changes
+      run: |
+        # 检查是否有文件变更
+        if git diff-index --quiet HEAD --; then
+          echo "没有需要提交的更改"
+          exit 0
+        fi
+
+        # 添加变更并提交
+        git add apk/ version.txt
+        git commit -m "同步BV APK更新 [${{ github.run_id }}]"
+        
+        # 安全强制推送
+        echo "推送更改..."
+        git push --force-with-lease origin HEAD:${{ github.ref }}
+        echo "推送成功"
+        
+    # 确保解锁仓库
+    - name: Release Repository Lock 🔓
+      if: always()  # 无论前面步骤成功与否都执行
+      uses: softprops/turnstyle@v1
+      with:
+        continue-on-error: true  # 即使解锁失败也不中断工作流
+        action: unlock  # 指定解锁操作
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   cleanup_self:
     name: Cleanup Self Workflow History
