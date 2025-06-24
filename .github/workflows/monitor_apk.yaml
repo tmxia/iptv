@@ -97,26 +97,31 @@ jobs:
                 kernel_versions = get_kernel_versions()
                 
                 # 从文件名提取组名 (格式: openwrt_flippy6.1_6.1.141-flippy-93+o.zip)
-                match = re.match(r'^([a-zA-Z0-9_]+)_(\d+\..*)\.zip$', filename)
-                if match:
-                    group = match.group(1)
-                    file_version = match.group(2)
-                    
-                    # 在版本数据中查找组
-                    if group in kernel_versions:
-                        version_data = kernel_versions[group]
-                        return {
-                            "version": version_data.get("version", file_version),
-                            "date": version_data.get("date", "未知日期")
-                        }
-                    else:
-                        print(f"⚠️ kernel_versions.json中未找到组: {group}")
+                # 提取组名部分（第一个下划线之前的部分）
+                group = filename.split('_')[0]
                 
-                # 如果无法解析文件名，返回默认值
-                return {
-                    "version": "未知版本",
-                    "date": "未知日期"
-                }
+                # 在版本数据中查找组
+                if group in kernel_versions:
+                    version_data = kernel_versions[group]
+                    return {
+                        "version": version_data.get("version", "未知版本"),
+                        "date": version_data.get("date", "未知日期")
+                    }
+                else:
+                    # 尝试匹配更长的组名（包含内核版本）
+                    for key in kernel_versions.keys():
+                        if filename.startswith(key):
+                            version_data = kernel_versions[key]
+                            return {
+                                "version": version_data.get("version", "未知版本"),
+                                "date": version_data.get("date", "未知日期")
+                            }
+                    
+                    print(f"⚠️ kernel_versions.json中未找到匹配的组: {group}")
+                    return {
+                        "version": "未知版本",
+                        "date": "未知日期"
+                    }
             
             # 处理APK文件
             version_path = "version.txt"
@@ -196,8 +201,7 @@ jobs:
                         file_type = get_file_type(file['path'])
                         message += f"{icon} **{file_type}**: `{file['name']}`\n"
                         message += f"  - 版本: `{file['version']}`\n"
-                        message += f"  - 更新时间: `{file['date']}` (北京时间)\n"
-                        message += f"  - \n\n"
+                        message += f"  - 更新时间: `{file['date']}` (北京时间)\n\n"
                     
                     await client.send_message(
                         entity=channel,
