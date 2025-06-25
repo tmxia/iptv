@@ -5,6 +5,7 @@ on:
     - cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:
 
+# 使用原生并发控制
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -17,12 +18,32 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    # 基于缓存的锁机制
     - name: Acquire Repository Lock 🔒
-      uses: marocchino/lock@v1
-      with:
-        key: repo-lock
-        wait: true
-        timeout: 600  # 等待10分钟获取锁
+      id: lock
+      run: |
+        # 创建锁文件路径
+        LOCK_FILE="lock-${{ github.run_id }}"
+        echo "LOCK_KEY=repo-lock-${{ github.run_id }}" >> $GITHUB_ENV
+        
+        # 尝试获取锁
+        for i in {1..10}; do
+          # 检查是否有其他工作流持有锁
+          if [ -f "$GITHUB_WORKSPACE/.lock/repo-lock" ]; then
+            echo "锁已被占用，等待重试 ($i/10)..."
+            sleep 30
+          else
+            # 创建锁文件
+            mkdir -p "$GITHUB_WORKSPACE/.lock"
+            touch "$GITHUB_WORKSPACE/.lock/repo-lock"
+            echo "lock-acquired=true" >> $GITHUB_OUTPUT
+            echo "成功获取锁"
+            exit 0
+          fi
+        done
+        
+        echo "错误: 无法在5分钟内获取锁"
+        exit 1
 
     - name: Checkout repository with LFS
       uses: actions/checkout@v4
@@ -241,10 +262,14 @@ jobs:
 
     - name: Release Repository Lock 🔓
       if: always()
-      uses: marocchino/lock@v2
-      with:
-        key: repo-lock
-        release: true
+      run: |
+        # 释放锁
+        if [ -f "$GITHUB_WORKSPACE/.lock/repo-lock" ]; then
+          rm -f "$GITHUB_WORKSPACE/.lock/repo-lock"
+          echo "锁已释放"
+        else
+          echo "锁文件不存在，无需释放"
+        fi
 
   cleanup_self:
     name: Cleanup Self Workflow History
