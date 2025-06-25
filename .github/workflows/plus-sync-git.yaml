@@ -57,7 +57,7 @@ jobs:
 
         # 获取下载页内容
         echo "正在解析下载页..."
-        DOWNLOAD_PAGE=$(wget -qO- --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" "$DOWNLOAD_URL")
+        DOWNLOAD_PAGE=$(curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" "$DOWNLOAD_URL")
         
         # 尝试多种方法提取APK链接
         echo "尝试提取APK链接..."
@@ -141,7 +141,18 @@ jobs:
           echo "APK文件不存在，需要重新上传"
           NEED_UPDATE=true
         else
-          echo "版本相同且文件存在，无需更新"
+          # 检查文件大小是否合理
+          if [ -f "apk/$APK_NAME" ]; then
+            FILE_SIZE=$(stat -c%s "apk/$APK_NAME")
+            if [ "$FILE_SIZE" -lt 50000000 ]; then  # 小于50MB视为无效
+              echo "现有文件大小($FILE_SIZE)过小，需要重新下载"
+              NEED_UPDATE=true
+            else
+              echo "版本相同且文件存在，无需更新"
+            fi
+          else
+            echo "版本相同且文件存在，无需更新"
+          fi
         fi
 
         if [ "$NEED_UPDATE" = false ]; then
@@ -149,33 +160,34 @@ jobs:
           exit 0
         fi
 
-        # 使用更复杂的下载方法绕过403错误
-        echo "正在下载APK文件(绕过403限制)..."
+        # 使用更复杂的下载方法
+        echo "正在下载APK文件(绕过限制)..."
         
         # 方法1: 使用curl并添加完整的浏览器头信息
-        if ! curl -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
+        curl -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
           -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
           -H "Accept-Language: en-US,en;q=0.5" \
           -H "Connection: keep-alive" \
           -H "Referer: $DOWNLOAD_URL" \
           -H "Upgrade-Insecure-Requests: 1" \
+          -H "DNT: 1" \
+          -H "Sec-Fetch-Dest: document" \
+          -H "Sec-Fetch-Mode: navigate" \
+          -H "Sec-Fetch-Site: same-origin" \
           -o "$WORK_DIR/temp.apk" \
-          "$APK_LINK"; then
-          
-          # 方法2: 如果curl失败，使用wget并添加完整头信息
-          echo "使用curl下载失败，尝试wget..."
-          wget -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
-            --header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
-            --header="Accept-Language: en-US,en;q=0.5" \
-            --header="Connection: keep-alive" \
-            --header="Referer: $DOWNLOAD_URL" \
-            --header="Upgrade-Insecure-Requests: 1" \
-            -O "$WORK_DIR/temp.apk" \
-            "$APK_LINK"
+          "$APK_LINK"
+        
+        # 检查文件大小是否合理
+        if [ ! -f "$WORK_DIR/temp.apk" ]; then
+          echo "错误: APK下载失败 - 文件不存在"
+          exit 1
         fi
         
-        if [ ! -f "$WORK_DIR/temp.apk" ]; then
-          echo "错误: APK下载失败"
+        FILE_SIZE=$(wc -c < "$WORK_DIR/temp.apk")
+        if [ "$FILE_SIZE" -lt 50000000 ]; then  # 小于50MB视为无效
+          echo "错误: 下载的文件大小($FILE_SIZE 字节)过小，可能是无效文件"
+          echo "文件内容前100字节:"
+          head -c 100 "$WORK_DIR/temp.apk" | hexdump -C
           exit 1
         fi
 
@@ -184,7 +196,7 @@ jobs:
 
         # 保存当前版本
         cp "$WORK_DIR/temp.apk" "apk/$APK_NAME"
-        echo "已保存当前版本: apk/$APK_NAME"
+        echo "已保存当前版本: apk/$APK_NAME (大小: $FILE_SIZE 字节)"
 
         # 更新版本文件
         NEW_VALUE="v$VERSION,$CURRENT_DATE"
@@ -195,8 +207,16 @@ jobs:
         # 添加文件到Git
         git add apk/ "$VERSION_FILE" .gitattributes
 
-        # 提交并推送
+        # 提交前先拉取最新更改
+        echo "拉取远程最新更改..."
+        git config pull.rebase true
+        git pull origin main
+        
+        # 提交更改
         git commit -m "更新Plus Messenger: v$VERSION ($CURRENT_DATE)"
+        
+        # 推送更改（强制推送以防冲突）
+        echo "推送更改到远程仓库..."
         git push origin main
 
         echo "同步完成! 新版本: v$VERSION, 日期: $CURRENT_DATE"
