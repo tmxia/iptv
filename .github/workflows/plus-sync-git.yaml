@@ -39,13 +39,12 @@ jobs:
       run: |
         git config user.name "GitHub Actions"
         git config user.email "actions@users.noreply.github.com"
+        git config pull.rebase true  # 预先配置rebase
 
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y jq curl wget python3-pip
-        
-        # 安装最新版 cloudscraper 和依赖
         pip install --upgrade pip
         pip install cloudscraper requests
 
@@ -60,7 +59,7 @@ jobs:
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
         # 使用cloudscraper绕过Cloudflare获取页面
-        echo "使用cloudscraper绕过Cloudflare获取页面..."
+        echo "使用cloudscraper获取下载页面..."
         cat > "$WORK_DIR/get_page.py" <<EOL
         import cloudscraper
         import sys
@@ -87,12 +86,8 @@ jobs:
           exit 1
         fi
         
-        # 保存页面用于调试
-        echo "$DOWNLOAD_PAGE" > "$WORK_DIR/download_page.html"
-        echo "成功获取页面内容 (长度: ${#DOWNLOAD_PAGE} 字符)"
-        
         # 提取APK链接
-        echo "尝试提取APK链接..."
+        echo "提取APK链接..."
         APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'href="[^"]*id="download_button"[^"]*"' | cut -d'"' -f2)
         
         if [ -z "$APK_LINK" ]; then
@@ -100,13 +95,7 @@ jobs:
         fi
         
         if [ -z "$APK_LINK" ]; then
-          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https://[^"]*Plus_Messenger[^"]*\.apk' | head -1)
-        fi
-        
-        if [ -z "$APK_LINK" ]; then
           echo "错误: 无法提取APK链接"
-          echo "页面内容前200字节:"
-          head -c 200 "$WORK_DIR/download_page.html"
           exit 1
         fi
         
@@ -117,12 +106,11 @@ jobs:
         VERSION=$(echo "$FILENAME" | sed -n 's/.*Plus_Messenger_v\{0,1\}\([0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
         
         if [ -z "$VERSION" ]; then
-          # 如果无法从URL提取版本，使用当前日期时间作为版本号
           VERSION=$(date +%Y%m%d%H%M)
-          echo "警告: 无法提取版本号，使用日期替代: $VERSION"
+          echo "警告: 使用日期作为版本号: $VERSION"
         fi
         
-        echo "主版本号: $VERSION"
+        echo "版本号: $VERSION"
         
         # 获取当前日期（北京时间）
         CURRENT_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
@@ -154,29 +142,18 @@ jobs:
         NEED_UPDATE=false
 
         if [ "$CURRENT_VALUE" == "null" ] || [ -z "$CURRENT_VALUE" ]; then
-          echo "版本文件中不存在该APK记录，需要更新"
+          echo "需要更新: 版本记录不存在"
           NEED_UPDATE=true
         
         elif [ "$VERSION" != "$CURRENT_VERSION_NO_V" ]; then
-          echo "发现新版本，需要更新"
+          echo "需要更新: 发现新版本"
           NEED_UPDATE=true
         
         elif [ ! -f "apk/$APK_NAME" ]; then
-          echo "APK文件不存在，需要重新上传"
+          echo "需要更新: APK文件不存在"
           NEED_UPDATE=true
         else
-          # 检查文件大小是否合理
-          if [ -f "apk/$APK_NAME" ]; then
-            FILE_SIZE=$(stat -c%s "apk/$APK_NAME")
-            if [ "$FILE_SIZE" -lt 50000000 ]; then  # 小于50MB视为无效
-              echo "现有文件大小($FILE_SIZE)过小，需要重新下载"
-              NEED_UPDATE=true
-            else
-              echo "版本相同且文件存在，无需更新"
-            fi
-          else
-            echo "版本相同且文件存在，无需更新"
-          fi
+          echo "无需更新: 版本相同且文件存在"
         fi
 
         if [ "$NEED_UPDATE" = false ]; then
@@ -185,11 +162,10 @@ jobs:
         fi
 
         # 使用cloudscraper下载文件
-        echo "正在使用cloudscraper下载APK文件..."
+        echo "正在下载APK文件..."
         cat > "$WORK_DIR/download_file.py" <<EOL
         import cloudscraper
         import sys
-        import os
         
         scraper = cloudscraper.create_scraper()
         try:
@@ -198,20 +174,12 @@ jobs:
                 print(f"错误: 下载失败，状态码 {response.status_code}", file=sys.stderr)
                 sys.exit(1)
                 
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded = 0
-            
             with open(sys.argv[2], 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-                        downloaded += len(chunk)
-                        # 每下载5MB打印一次进度
-                        if total_size > 0 and downloaded % (5 * 1024 * 1024) == 0:
-                            percent = (downloaded / total_size) * 100
-                            print(f"下载进度: {percent:.1f}% ({downloaded}/{total_size} 字节)")
             
-            print(f"下载完成: {downloaded} 字节")
+            print(f"下载完成")
             
         except Exception as e:
             print(f"下载错误: {str(e)}", file=sys.stderr)
@@ -229,11 +197,7 @@ jobs:
         
         FILE_SIZE=$(wc -c < "$WORK_DIR/temp.apk")
         if [ "$FILE_SIZE" -lt 50000000 ]; then  # 小于50MB视为无效
-          echo "错误: 下载的文件大小($FILE_SIZE 字节)过小，可能是无效文件"
-          echo "文件内容类型:"
-          file "$WORK_DIR/temp.apk"
-          echo "文件内容前100字节:"
-          head -c 100 "$WORK_DIR/temp.apk" | hexdump -C
+          echo "错误: 下载的文件大小($FILE_SIZE 字节)过小"
           exit 1
         fi
 
@@ -242,22 +206,21 @@ jobs:
 
         # 保存当前版本
         cp "$WORK_DIR/temp.apk" "apk/$APK_NAME"
-        echo "已保存当前版本: apk/$APK_NAME (大小: $FILE_SIZE 字节)"
+        echo "已保存APK文件 (大小: $FILE_SIZE 字节)"
 
         # 更新版本文件
         NEW_VALUE="v$VERSION,$CURRENT_DATE"
         NEW_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq --arg key "$APK_NAME" --arg value "$NEW_VALUE" '.[$key] = $value')
         echo "$NEW_VERSION_JSON" > "$VERSION_FILE"
-        echo "更新版本文件: $VERSION_FILE"
+        echo "更新版本文件"
 
+        # 先拉取远程更改
+        echo "拉取远程最新更改..."
+        git pull origin main
+        
         # 添加文件到Git
         git add apk/ "$VERSION_FILE" .gitattributes
 
-        # 提交前先拉取最新更改
-        echo "拉取远程最新更改..."
-        git config pull.rebase true
-        git pull origin main
-        
         # 提交更改
         git commit -m "更新Plus Messenger: v$VERSION ($CURRENT_DATE)"
         
@@ -265,7 +228,7 @@ jobs:
         echo "推送更改到远程仓库..."
         git push origin main
 
-        echo "同步完成! 新版本: v$VERSION, 日期: $CURRENT_DATE"
+        echo "同步完成! 版本: v$VERSION, 日期: $CURRENT_DATE"
 
   cleanup_self:
     name: Cleanup Self Workflow History
