@@ -17,6 +17,13 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    - name: Acquire Repository Lock 🔒
+      uses: marocchino/lock@v2
+      with:
+        key: repo-lock
+        wait: true
+        timeout: 600  # 等待10分钟获取锁
+
     - name: Checkout repository with LFS
       uses: actions/checkout@v4
       with:
@@ -231,6 +238,13 @@ jobs:
         git push origin main
 
         echo "同步完成! 版本: v$VERSION, 日期: $CURRENT_DATE"
+
+    - name: Release Repository Lock 🔓
+      if: always()
+      uses: marocchino/lock@v2
+      with:
+        key: repo-lock
+        release: true
 
   cleanup_self:
     name: Cleanup Self Workflow History
