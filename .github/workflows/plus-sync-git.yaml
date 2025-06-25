@@ -44,7 +44,10 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y jq curl wget python3-pip
-        pip install cfscrape
+        
+        # 安装最新版 cloudscraper 和依赖
+        pip install --upgrade pip
+        pip install cloudscraper requests
 
     - name: Download and process APK
       env:
@@ -56,17 +59,26 @@ jobs:
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 使用Cloudflare绕过工具获取页面内容
-        echo "使用cfscrape绕过Cloudflare获取页面..."
+        # 使用cloudscraper绕过Cloudflare获取页面
+        echo "使用cloudscraper绕过Cloudflare获取页面..."
         cat > "$WORK_DIR/get_page.py" <<EOL
-        import cfscrape
+        import cloudscraper
         import sys
         
-        scraper = cfscrape.create_scraper()
-        response = scraper.get(sys.argv[1])
-        print(response.text)
+        scraper = cloudscraper.create_scraper()
+        try:
+            response = scraper.get(sys.argv[1])
+            if response.status_code == 200:
+                print(response.text)
+            else:
+                print(f"错误: 状态码 {response.status_code}", file=sys.stderr)
+                sys.exit(1)
+        except Exception as e:
+            print(f"错误: {str(e)}", file=sys.stderr)
+            sys.exit(1)
         EOL
         
+        # 运行Python脚本获取页面
         DOWNLOAD_PAGE=$(python3 "$WORK_DIR/get_page.py" "$DOWNLOAD_URL")
         
         # 检查页面是否有效
@@ -77,6 +89,7 @@ jobs:
         
         # 保存页面用于调试
         echo "$DOWNLOAD_PAGE" > "$WORK_DIR/download_page.html"
+        echo "成功获取页面内容 (长度: ${#DOWNLOAD_PAGE} 字符)"
         
         # 提取APK链接
         echo "尝试提取APK链接..."
@@ -171,22 +184,41 @@ jobs:
           exit 0
         fi
 
-        # 使用cfscrape下载文件
-        echo "正在使用cfscrape下载APK文件..."
+        # 使用cloudscraper下载文件
+        echo "正在使用cloudscraper下载APK文件..."
         cat > "$WORK_DIR/download_file.py" <<EOL
-        import cfscrape
+        import cloudscraper
         import sys
         import os
         
-        scraper = cfscrape.create_scraper()
-        response = scraper.get(sys.argv[1], stream=True)
-        
-        with open(sys.argv[2], 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+        scraper = cloudscraper.create_scraper()
+        try:
+            response = scraper.get(sys.argv[1], stream=True)
+            if response.status_code != 200:
+                print(f"错误: 下载失败，状态码 {response.status_code}", file=sys.stderr)
+                sys.exit(1)
+                
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+            
+            with open(sys.argv[2], 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        # 每下载5MB打印一次进度
+                        if total_size > 0 and downloaded % (5 * 1024 * 1024) == 0:
+                            percent = (downloaded / total_size) * 100
+                            print(f"下载进度: {percent:.1f}% ({downloaded}/{total_size} 字节)")
+            
+            print(f"下载完成: {downloaded} 字节")
+            
+        except Exception as e:
+            print(f"下载错误: {str(e)}", file=sys.stderr)
+            sys.exit(1)
         EOL
         
+        # 运行下载脚本
         python3 "$WORK_DIR/download_file.py" "$APK_LINK" "$WORK_DIR/temp.apk"
         
         # 检查文件大小是否合理
