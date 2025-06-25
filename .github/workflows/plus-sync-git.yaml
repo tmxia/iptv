@@ -43,7 +43,8 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl wget chromium-browser
+        sudo apt-get install -y jq curl wget python3-pip
+        pip install cfscrape
 
     - name: Download and process APK
       env:
@@ -55,82 +56,57 @@ jobs:
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 方法1: 使用浏览器模拟获取真实下载链接
-        echo "尝试使用Chromium浏览器获取真实下载链接..."
-        REAL_APK_LINK=""
+        # 使用Cloudflare绕过工具获取页面内容
+        echo "使用cfscrape绕过Cloudflare获取页面..."
+        cat > "$WORK_DIR/get_page.py" <<EOL
+        import cfscrape
+        import sys
         
-        # 创建浏览器脚本
-        cat > "$WORK_DIR/get_link.js" <<EOL
-        const { chromium } = require('playwright');
-        (async () => {
-          const browser = await chromium.launch();
-          const context = await browser.newContext();
-          const page = await context.newPage();
-          
-          // 导航到下载页面
-          await page.goto('$DOWNLOAD_URL');
-          
-          // 等待下载按钮出现
-          await page.waitForSelector('#download_button');
-          
-          // 获取下载链接
-          const downloadLink = await page.$eval('#download_button', a => a.href);
-          console.log(downloadLink);
-          
-          await browser.close();
-        })();
+        scraper = cfscrape.create_scraper()
+        response = scraper.get(sys.argv[1])
+        print(response.text)
         EOL
         
-        # 运行浏览器脚本获取链接
-        if REAL_APK_LINK=$(node "$WORK_DIR/get_link.js" 2>/dev/null); then
-          echo "通过浏览器获取到APK链接: $REAL_APK_LINK"
-        else
-          echo "浏览器方法失败，尝试备用方法..."
-          
-          # 方法2: 使用curl获取页面并提取链接
-          echo "正在解析下载页..."
-          DOWNLOAD_PAGE=$(curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" "$DOWNLOAD_URL")
-          
-          # 尝试多种方法提取APK链接
-          REAL_APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'href="[^"]*download-button[^"]*"' | cut -d'"' -f2 | head -1)
-          
-          if [ -z "$REAL_APK_LINK" ]; then
-            REAL_APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https\?://[^"]*Plus_Messenger[^"]*\.apk' | head -1)
-          fi
-          
-          if [ -z "$REAL_APK_LINK" ]; then
-            REAL_APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https\?://dl\.leeapk\.com[^"]*' | head -1)
-          fi
-          
-          if [ -z "$REAL_APK_LINK" ]; then
-            echo "错误: 无法提取APK链接"
-            exit 1
-          fi
-          
-          echo "提取到APK链接: $REAL_APK_LINK"
+        DOWNLOAD_PAGE=$(python3 "$WORK_DIR/get_page.py" "$DOWNLOAD_URL")
+        
+        # 检查页面是否有效
+        if [ -z "$DOWNLOAD_PAGE" ]; then
+          echo "错误: 无法获取下载页面"
+          exit 1
         fi
+        
+        # 保存页面用于调试
+        echo "$DOWNLOAD_PAGE" > "$WORK_DIR/download_page.html"
+        
+        # 提取APK链接
+        echo "尝试提取APK链接..."
+        APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'href="[^"]*id="download_button"[^"]*"' | cut -d'"' -f2)
+        
+        if [ -z "$APK_LINK" ]; then
+          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https://dl\.leeapk\.com[^"]*\.apk' | head -1)
+        fi
+        
+        if [ -z "$APK_LINK" ]; then
+          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https://[^"]*Plus_Messenger[^"]*\.apk' | head -1)
+        fi
+        
+        if [ -z "$APK_LINK" ]; then
+          echo "错误: 无法提取APK链接"
+          echo "页面内容前200字节:"
+          head -c 200 "$WORK_DIR/download_page.html"
+          exit 1
+        fi
+        
+        echo "提取到APK链接: $APK_LINK"
 
         # 从链接提取主版本号
-        FILENAME=$(basename "$REAL_APK_LINK")
+        FILENAME=$(basename "$APK_LINK")
         VERSION=$(echo "$FILENAME" | sed -n 's/.*Plus_Messenger_v\{0,1\}\([0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
         
         if [ -z "$VERSION" ]; then
-          echo "警告: 无法提取版本号，尝试从内容获取"
-          
-          # 下载文件并尝试从APK中提取版本
-          curl -L -o "$WORK_DIR/temp.apk" "$REAL_APK_LINK"
-          
-          if [ -f "$WORK_DIR/temp.apk" ]; then
-            # 尝试从APK中提取版本
-            VERSION=$(aapt dump badging "$WORK_DIR/temp.apk" | grep "versionName" | sed "s/.*versionName='\([^']*\)'.*/\1/")
-            if [ -z "$VERSION" ]; then
-              echo "无法从APK提取版本，使用日期替代"
-              VERSION=$(date +%Y%m%d%H%M)
-            fi
-          else
-            echo "下载失败，使用日期作为版本号"
-            VERSION=$(date +%Y%m%d%H%M)
-          fi
+          # 如果无法从URL提取版本，使用当前日期时间作为版本号
+          VERSION=$(date +%Y%m%d%H%M)
+          echo "警告: 无法提取版本号，使用日期替代: $VERSION"
         fi
         
         echo "主版本号: $VERSION"
@@ -195,18 +171,23 @@ jobs:
           exit 0
         fi
 
-        # 下载APK文件
-        echo "正在下载APK文件..."
-        if [ ! -f "$WORK_DIR/temp.apk" ]; then
-          curl -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
-            -H "Accept: */*" \
-            -H "Accept-Language: en-US,en;q=0.5" \
-            -H "Connection: keep-alive" \
-            -H "Referer: $DOWNLOAD_URL" \
-            -H "DNT: 1" \
-            -o "$WORK_DIR/temp.apk" \
-            "$REAL_APK_LINK"
-        fi
+        # 使用cfscrape下载文件
+        echo "正在使用cfscrape下载APK文件..."
+        cat > "$WORK_DIR/download_file.py" <<EOL
+        import cfscrape
+        import sys
+        import os
+        
+        scraper = cfscrape.create_scraper()
+        response = scraper.get(sys.argv[1], stream=True)
+        
+        with open(sys.argv[2], 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        EOL
+        
+        python3 "$WORK_DIR/download_file.py" "$APK_LINK" "$WORK_DIR/temp.apk"
         
         # 检查文件大小是否合理
         if [ ! -f "$WORK_DIR/temp.apk" ]; then
@@ -219,6 +200,8 @@ jobs:
           echo "错误: 下载的文件大小($FILE_SIZE 字节)过小，可能是无效文件"
           echo "文件内容类型:"
           file "$WORK_DIR/temp.apk"
+          echo "文件内容前100字节:"
+          head -c 100 "$WORK_DIR/temp.apk" | hexdump -C
           exit 1
         fi
 
