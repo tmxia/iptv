@@ -57,7 +57,7 @@ jobs:
 
         # 获取下载页内容
         echo "正在解析下载页..."
-        DOWNLOAD_PAGE=$(wget -qO- --user-agent="Mozilla/5.0" "$DOWNLOAD_URL")
+        DOWNLOAD_PAGE=$(wget -qO- --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" "$DOWNLOAD_URL")
         
         # 尝试多种方法提取APK链接
         echo "尝试提取APK链接..."
@@ -149,9 +149,30 @@ jobs:
           exit 0
         fi
 
-        # 下载APK文件
-        echo "正在下载APK文件..."
-        wget -O "$WORK_DIR/temp.apk" "$APK_LINK"
+        # 使用更复杂的下载方法绕过403错误
+        echo "正在下载APK文件(绕过403限制)..."
+        
+        # 方法1: 使用curl并添加完整的浏览器头信息
+        if ! curl -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
+          -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
+          -H "Accept-Language: en-US,en;q=0.5" \
+          -H "Connection: keep-alive" \
+          -H "Referer: $DOWNLOAD_URL" \
+          -H "Upgrade-Insecure-Requests: 1" \
+          -o "$WORK_DIR/temp.apk" \
+          "$APK_LINK"; then
+          
+          # 方法2: 如果curl失败，使用wget并添加完整头信息
+          echo "使用curl下载失败，尝试wget..."
+          wget -U "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
+            --header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
+            --header="Accept-Language: en-US,en;q=0.5" \
+            --header="Connection: keep-alive" \
+            --header="Referer: $DOWNLOAD_URL" \
+            --header="Upgrade-Insecure-Requests: 1" \
+            -O "$WORK_DIR/temp.apk" \
+            "$APK_LINK"
+        fi
         
         if [ ! -f "$WORK_DIR/temp.apk" ]; then
           echo "错误: APK下载失败"
