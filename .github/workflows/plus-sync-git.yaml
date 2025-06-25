@@ -28,7 +28,6 @@ jobs:
         git lfs install
         git lfs track "apk/*.apk"
         git add .gitattributes
-        # 确保.gitattributes被提交（如果之前没有）
         if [ -n "$(git status --porcelain .gitattributes)" ]; then
           git config user.name "GitHub Actions"
           git config user.email "actions@users.noreply.github.com"
@@ -44,7 +43,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl
+        sudo apt-get install -y jq curl wget
 
     - name: Download and process APK
       env:
@@ -58,29 +57,48 @@ jobs:
 
         # 获取下载页内容
         echo "正在解析下载页..."
-        DOWNLOAD_PAGE=$(curl -sL "$DOWNLOAD_URL")
-
-        # 提取最新版本APK链接
-        APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -oP 'https?://[^"]+?Plus_Messenger[^"]+?\.apk(?=")' | head -1)
+        DOWNLOAD_PAGE=$(wget -qO- --user-agent="Mozilla/5.0" "$DOWNLOAD_URL")
+        
+        # 尝试多种方法提取APK链接
+        echo "尝试提取APK链接..."
+        APK_LINK=""
+        
+        # 方法1: 使用data-src属性
+        APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'data-src="[^"]*' | cut -d'"' -f2 | grep -i 'plus_messenger.*\.apk' | head -1)
+        
+        # 方法2: 使用直接下载链接模式
         if [ -z "$APK_LINK" ]; then
-          echo "错误: 无法提取APK下载链接"
-          exit 1
+          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https\?://[^"]*Plus_Messenger[^"]*\.apk' | head -1)
         fi
+        
+        # 方法3: 使用备用域名匹配
+        if [ -z "$APK_LINK" ]; then
+          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https\?://dl\.leeapk\.com[^"]*' | head -1)
+        fi
+        
+        # 方法4: 使用类名匹配
+        if [ -z "$APK_LINK" ]; then
+          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'href="[^"]*download-button[^"]*"' | cut -d'"' -f2 | head -1)
+        fi
+        
+        # 如果所有方法都失败，使用硬编码URL模式
+        if [ -z "$APK_LINK" ]; then
+          echo "警告: 无法从页面提取链接，使用硬编码模式"
+          APK_LINK="https://dl.leeapk.com/uploads/Plus_Messenger_latest.apk"
+        fi
+        
         echo "提取到APK链接: $APK_LINK"
 
-        # 从URL提取原始文件名
-        ORIG_FILENAME=$(basename "$APK_LINK")
-        echo "原始文件名: $ORIG_FILENAME"
-
-        # 从文件名提取主版本号（忽略后缀）
-        if [[ "$ORIG_FILENAME" =~ Plus_Messenger_([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
-          VERSION="${BASH_REMATCH[1]}"
-          echo "提取的主版本号: $VERSION"
-        else
-          echo "警告: 无法从文件名提取主版本号 ($ORIG_FILENAME)"
+        # 从链接提取主版本号
+        FILENAME=$(basename "$APK_LINK")
+        VERSION=$(echo "$FILENAME" | sed -n 's/.*Plus_Messenger_v\{0,1\}\([0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
+        
+        if [ -z "$VERSION" ]; then
+          echo "警告: 无法提取版本号，使用日期替代"
           VERSION=$(date +%Y%m%d%H%M)
-          echo "使用时间戳作为版本号: $VERSION"
         fi
+        
+        echo "主版本号: $VERSION"
         
         # 获取当前日期（北京时间）
         CURRENT_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
@@ -98,12 +116,11 @@ jobs:
         CURRENT_VALUE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$APK_NAME\"")
         CURRENT_VERSION=""
         if [ "$CURRENT_VALUE" != "null" ] && [ -n "$CURRENT_VALUE" ]; then
-          # 解析当前值（格式为：v<版本号>,<日期>）
           IFS=',' read -ra parts <<< "$CURRENT_VALUE"
-          CURRENT_VERSION="${parts[0]}"   # 包含v前缀
+          CURRENT_VERSION="${parts[0]}"
         fi
 
-        # 移除当前版本号中的v前缀（用于比较）
+        # 移除当前版本号中的v前缀
         CURRENT_VERSION_NO_V=${CURRENT_VERSION#v}
 
         echo "当前版本: $CURRENT_VERSION_NO_V"
@@ -112,17 +129,14 @@ jobs:
         # 检查是否需要更新
         NEED_UPDATE=false
 
-        # 情况1: 版本文件中没有该APK的键值
         if [ "$CURRENT_VALUE" == "null" ] || [ -z "$CURRENT_VALUE" ]; then
           echo "版本文件中不存在该APK记录，需要更新"
           NEED_UPDATE=true
         
-        # 情况2: 版本不同
         elif [ "$VERSION" != "$CURRENT_VERSION_NO_V" ]; then
           echo "发现新版本，需要更新"
           NEED_UPDATE=true
         
-        # 情况3: 版本相同但文件不存在
         elif [ ! -f "apk/$APK_NAME" ]; then
           echo "APK文件不存在，需要重新上传"
           NEED_UPDATE=true
@@ -135,20 +149,19 @@ jobs:
           exit 0
         fi
 
-        # 下载APK文件（如果需要更新）
+        # 下载APK文件
+        echo "正在下载APK文件..."
+        wget -O "$WORK_DIR/temp.apk" "$APK_LINK"
+        
         if [ ! -f "$WORK_DIR/temp.apk" ]; then
-          echo "正在下载APK文件..."
-          curl -L -o "$WORK_DIR/temp.apk" "$APK_LINK"
-          if [ ! -f "$WORK_DIR/temp.apk" ]; then
-            echo "错误: APK下载失败"
-            exit 1
-          fi
+          echo "错误: APK下载失败"
+          exit 1
         fi
 
-        # 创建apk目录（如果不存在）
+        # 创建apk目录
         mkdir -p apk
 
-        # 保存当前版本（固定文件名）
+        # 保存当前版本
         cp "$WORK_DIR/temp.apk" "apk/$APK_NAME"
         echo "已保存当前版本: apk/$APK_NAME"
 
