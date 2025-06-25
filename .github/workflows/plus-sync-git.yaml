@@ -39,7 +39,7 @@ jobs:
       run: |
         git config user.name "GitHub Actions"
         git config user.email "actions@users.noreply.github.com"
-        git config pull.rebase true  # 预先配置rebase
+        git config pull.rebase true
 
     - name: Install dependencies
       run: |
@@ -53,13 +53,17 @@ jobs:
         APK_NAME: "plus_mod.apk"
         DOWNLOAD_URL: "https://leeapk.com/plus-messenger-mod-apk/download/"
       run: |
+        # 1. 拉取远程最新更改（在修改文件之前）
+        echo "拉取远程最新更改..."
+        git pull origin main
+        
         # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
         # 使用cloudscraper绕过Cloudflare获取页面
-        echo "使用cloudscraper获取下载页面..."
+        echo "获取下载页面..."
         cat > "$WORK_DIR/get_page.py" <<EOL
         import cloudscraper
         import sys
@@ -79,10 +83,8 @@ jobs:
         
         # 运行Python脚本获取页面
         DOWNLOAD_PAGE=$(python3 "$WORK_DIR/get_page.py" "$DOWNLOAD_URL")
-        
-        # 检查页面是否有效
-        if [ -z "$DOWNLOAD_PAGE" ]; then
-          echo "错误: 无法获取下载页面"
+        if [ $? -ne 0 ]; then
+          echo "获取页面失败"
           exit 1
         fi
         
@@ -188,6 +190,10 @@ jobs:
         
         # 运行下载脚本
         python3 "$WORK_DIR/download_file.py" "$APK_LINK" "$WORK_DIR/temp.apk"
+        if [ $? -ne 0 ]; then
+          echo "下载APK失败"
+          exit 1
+        fi
         
         # 检查文件大小是否合理
         if [ ! -f "$WORK_DIR/temp.apk" ]; then
@@ -196,7 +202,7 @@ jobs:
         fi
         
         FILE_SIZE=$(wc -c < "$WORK_DIR/temp.apk")
-        if [ "$FILE_SIZE" -lt 50000000 ]; then  # 小于50MB视为无效
+        if [ "$FILE_SIZE" -lt 50000000 ]; then
           echo "错误: 下载的文件大小($FILE_SIZE 字节)过小"
           exit 1
         fi
@@ -214,10 +220,6 @@ jobs:
         echo "$NEW_VERSION_JSON" > "$VERSION_FILE"
         echo "更新版本文件"
 
-        # 先拉取远程更改
-        echo "拉取远程最新更改..."
-        git pull origin main
-        
         # 添加文件到Git
         git add apk/ "$VERSION_FILE" .gitattributes
 
