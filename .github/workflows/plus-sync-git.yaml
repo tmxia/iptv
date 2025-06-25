@@ -5,6 +5,10 @@ on:
     - cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   actions: write
@@ -13,48 +17,67 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout current repository
-      uses: actions/checkout@v3
+    - name: Checkout repository with LFS
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        fetch-depth: 0
+
+    - name: Setup Git LFS
+      run: |
+        git lfs install
+        git lfs track "apk/*.apk"
+        git add .gitattributes
+        # 确保.gitattributes被提交（如果之前没有）
+        if [ -n "$(git status --porcelain .gitattributes)" ]; then
+          git config user.name "GitHub Actions"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "Add LFS tracking for APK files"
+          git push origin main
+        fi
+
+    - name: Configure Git
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@users.noreply.github.com"
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl zip unzip
-        
-    - name: Download and process GitHub APK
+        sudo apt-get install -y jq curl
+
+    - name: Download and process APK
       env:
-        TARGET_REPO: "${{ github.repository }}"
-        TOKEN: ${{ secrets.GITHUB_TOKEN }}
         APK_NAME: "plus_mod.apk"
-        APKPURE_URL: "https://leeapk.com/plus-messenger-mod-apk/download/"
+        DOWNLOAD_URL: "https://leeapk.com/plus-messenger-mod-apk/download/"
       run: |
         # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 下载XAPK文件
-        echo "正在下载GitHub XAPK文件..."
-        curl -L -o "$WORK_DIR/original.xapk" "$APKPURE_URL"
-        
-        if [ ! -f "$WORK_DIR/original.xapk" ]; then
-          echo "错误: XAPK下载失败"
+        # 获取下载页内容
+        echo "正在解析下载页..."
+        DOWNLOAD_PAGE=$(curl -sL "$DOWNLOAD_URL")
+
+        # 提取最新版本APK链接
+        APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -oP 'https?://[^"]+?Plus_Messenger[^"]+?\.apk(?=")' | head -1)
+        if [ -z "$APK_LINK" ]; then
+          echo "错误: 无法提取APK下载链接"
           exit 1
         fi
+        echo "提取到APK链接: $APK_LINK"
 
-        # 获取原始文件名
-        ORIG_FILENAME=$(curl -sLI "$APKPURE_URL" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2)
+        # 从URL提取原始文件名
+        ORIG_FILENAME=$(basename "$APK_LINK")
         echo "原始文件名: $ORIG_FILENAME"
 
-        # 从文件名提取版本号
-        if [[ "$ORIG_FILENAME" =~ _([0-9]+\.[0-9]+\.[0-9]+)_ ]]; then
+        # 从文件名提取主版本号（忽略后缀）
+        if [[ "$ORIG_FILENAME" =~ Plus_Messenger_([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
           VERSION="${BASH_REMATCH[1]}"
-          echo "提取的版本号: $VERSION"
-        elif [[ "$ORIG_FILENAME" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-          VERSION="${BASH_REMATCH[1]}"
-          echo "提取的版本号（备用匹配）: $VERSION"
+          echo "提取的主版本号: $VERSION"
         else
-          echo "警告: 无法从文件名提取版本号 ($ORIG_FILENAME)"
+          echo "警告: 无法从文件名提取主版本号 ($ORIG_FILENAME)"
           VERSION=$(date +%Y%m%d%H%M)
           echo "使用时间戳作为版本号: $VERSION"
         fi
@@ -63,74 +86,48 @@ jobs:
         CURRENT_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
         echo "当前日期: $CURRENT_DATE"
 
-        # 重命名XAPK文件
-        mv "$WORK_DIR/original.xapk" "$WORK_DIR/$XAPK_NAME"
-        echo "已重命名为: $XAPK_NAME"
-        
-        # 将XAPK压缩为ZIP文件
-        echo "将XAPK文件压缩为ZIP..."
-        zip -j "$WORK_DIR/$ZIP_NAME" "$WORK_DIR/$XAPK_NAME"
-        if [ ! -f "$WORK_DIR/$ZIP_NAME" ]; then
-          echo "错误: ZIP文件创建失败"
-          exit 1
-        fi
-        echo "已创建ZIP文件: $ZIP_NAME"
-
-        # 获取目标仓库当前版本
-        echo "获取目标仓库当前版本..."
-        TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-        
-        CURRENT_VALUE=""
-        CURRENT_CONTENT=""
-        if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
-          VERSION_CONTENT=$(echo "$TARGET_VERSION_JSON" | jq -r '.content' | base64 -d)
-          CURRENT_CONTENT="$VERSION_CONTENT"
-          CURRENT_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".\"$VERSION_KEY\"")
-          if [ "$CURRENT_VALUE" = "null" ]; then
-            CURRENT_VALUE=""
-          fi
-        fi
-        
-        # 提取当前版本号（如果存在）
-        CURRENT_VERSION=""
-        CURRENT_DATE_OLD=""
-        if [ -n "$CURRENT_VALUE" ] && [[ "$CURRENT_VALUE" == *,* ]]; then
-          CURRENT_VERSION=$(echo "$CURRENT_VALUE" | cut -d, -f1)
-          CURRENT_DATE_OLD=$(echo "$CURRENT_VALUE" | cut -d, -f2)
+        # 读取版本文件
+        VERSION_FILE="version.txt"
+        if [ -f "$VERSION_FILE" ]; then
+          CURRENT_VERSION_JSON=$(cat "$VERSION_FILE")
         else
-          CURRENT_VERSION="$CURRENT_VALUE"
+          CURRENT_VERSION_JSON="{}"
         fi
-        
-        # 移除当前版本号可能存在的"v"前缀（用于比较）
+
+        # 获取当前版本值
+        CURRENT_VALUE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$APK_NAME\"")
+        CURRENT_VERSION=""
+        if [ "$CURRENT_VALUE" != "null" ] && [ -n "$CURRENT_VALUE" ]; then
+          # 解析当前值（格式为：v<版本号>,<日期>）
+          IFS=',' read -ra parts <<< "$CURRENT_VALUE"
+          CURRENT_VERSION="${parts[0]}"   # 包含v前缀
+        fi
+
+        # 移除当前版本号中的v前缀（用于比较）
         CURRENT_VERSION_NO_V=${CURRENT_VERSION#v}
-        
-        echo "当前版本: $CURRENT_VERSION (日期: $CURRENT_DATE_OLD)"
-        echo "新版本: $VERSION (日期: $CURRENT_DATE)"
-        
-        # 创建新版本值（在版本号前添加v）
-        NEW_VALUE="v$VERSION,$CURRENT_DATE"
+
+        echo "当前版本: $CURRENT_VERSION_NO_V"
+        echo "新版本: $VERSION"
 
         # 检查是否需要更新
         NEED_UPDATE=false
+
+        # 情况1: 版本文件中没有该APK的键值
+        if [ "$CURRENT_VALUE" == "null" ] || [ -z "$CURRENT_VALUE" ]; then
+          echo "版本文件中不存在该APK记录，需要更新"
+          NEED_UPDATE=true
         
-        # 1. 版本不同时需要更新
-        if [ "$VERSION" != "$CURRENT_VERSION_NO_V" ]; then
+        # 情况2: 版本不同
+        elif [ "$VERSION" != "$CURRENT_VERSION_NO_V" ]; then
           echo "发现新版本，需要更新"
           NEED_UPDATE=true
+        
+        # 情况3: 版本相同但文件不存在
+        elif [ ! -f "apk/$APK_NAME" ]; then
+          echo "APK文件不存在，需要重新上传"
+          NEED_UPDATE=true
         else
-          # 2. 版本相同但文件不存在时需要更新
-          echo "检查ZIP文件是否存在..."
-          ZIP_EXIST_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-              -H "Authorization: token $TOKEN" \
-              "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
-          
-          if [ "$ZIP_EXIST_RESPONSE" -ne 200 ]; then
-            echo "ZIP文件不存在 (HTTP $ZIP_EXIST_RESPONSE)，需要上传"
-            NEED_UPDATE=true
-          else
-            echo "版本相同且ZIP文件存在，无需更新"
-          fi
+          echo "版本相同且文件存在，无需更新"
         fi
 
         if [ "$NEED_UPDATE" = false ]; then
@@ -138,91 +135,35 @@ jobs:
           exit 0
         fi
 
+        # 下载APK文件（如果需要更新）
+        if [ ! -f "$WORK_DIR/temp.apk" ]; then
+          echo "正在下载APK文件..."
+          curl -L -o "$WORK_DIR/temp.apk" "$APK_LINK"
+          if [ ! -f "$WORK_DIR/temp.apk" ]; then
+            echo "错误: APK下载失败"
+            exit 1
+          fi
+        fi
+
+        # 创建apk目录（如果不存在）
+        mkdir -p apk
+
+        # 保存当前版本（固定文件名）
+        cp "$WORK_DIR/temp.apk" "apk/$APK_NAME"
+        echo "已保存当前版本: apk/$APK_NAME"
+
         # 更新版本文件
-        echo "更新版本文件..."
-        NEW_VERSION_CONTENT="{}"
-        if [ -n "$CURRENT_CONTENT" ]; then
-          # 更新特定键值，保留其他内容
-          NEW_VERSION_CONTENT=$(echo "$CURRENT_CONTENT" | jq --arg key "$VERSION_KEY" --arg value "$NEW_VALUE" '.[$key] = $value')
-        else
-          # 如果无版本文件，创建新JSON
-          NEW_VERSION_CONTENT=$(jq -n --arg key "$VERSION_KEY" --arg value "$NEW_VALUE" '{($key): $value}')
-        fi
+        NEW_VALUE="v$VERSION,$CURRENT_DATE"
+        NEW_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq --arg key "$APK_NAME" --arg value "$NEW_VALUE" '.[$key] = $value')
+        echo "$NEW_VERSION_JSON" > "$VERSION_FILE"
+        echo "更新版本文件: $VERSION_FILE"
 
-        echo "新版本文件内容:"
-        echo "$NEW_VERSION_CONTENT"
+        # 添加文件到Git
+        git add apk/ "$VERSION_FILE" .gitattributes
 
-        # 获取版本文件的SHA（用于更新）
-        VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
-                        "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-
-        SHA_VERSION=""
-        if [ "$(echo "$VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
-          SHA_VERSION=$(echo "$VERSION_JSON" | jq -r '.sha')
-        fi
-
-        # Base64编码版本文件
-        VERSION_BASE64=$(echo -n "$NEW_VERSION_CONTENT" | base64 -w0)
-
-        # 创建JSON请求
-        JSON_VERSION=$(jq -n \
-            --arg msg "更新GitHub ZIP: v$VERSION ($CURRENT_DATE)" \
-            --arg content "$VERSION_BASE64" \
-            --arg sha "$SHA_VERSION" \
-            '{message: $msg, content: $content, sha: $sha}')
-
-        # 上传版本文件
-        echo "上传版本文件..."
-        VERSION_RESPONSE=$(curl -s \
-                  -X PUT \
-                  -H "Authorization: token $TOKEN" \
-                  -H "Content-Type: application/json" \
-                  -d "$JSON_VERSION" \
-                  "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-
-        # 检查错误
-        ERROR_MESSAGE_VERSION=$(echo "$VERSION_RESPONSE" | jq -r '.message')
-        if [ "$ERROR_MESSAGE_VERSION" != "null" ]; then
-          echo "错误: 版本文件上传失败 - $ERROR_MESSAGE_VERSION"
-          exit 1
-        fi
-
-        # 上传ZIP文件
-        echo "上传ZIP文件..."
-        ZIP_JSON=$(curl -s -H "Authorization: token $TOKEN" \
-                    "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
-        
-        SHA_ZIP=""
-        if [ "$(echo "$ZIP_JSON" | jq -r '.message')" != "Not Found" ]; then
-          SHA_ZIP=$(echo "$ZIP_JSON" | jq -r '.sha')
-        fi
-
-        # 创建JSON请求文件（处理大文件）
-        JSON_FILE="$WORK_DIR/request.json"
-        {
-          echo '{'
-          echo "  \"message\": \"更新GitHub ZIP: v$VERSION ($CURRENT_DATE)\","
-          echo -n '  "content": "'
-          base64 -w0 "$WORK_DIR/$ZIP_NAME" | tr -d '\n'
-          echo '",'
-          echo "  \"sha\": \"$SHA_ZIP\""
-          echo '}'
-        } > "$JSON_FILE"
-
-        # 上传ZIP文件
-        ZIP_RESPONSE=$(curl -s \
-                  -X PUT \
-                  -H "Authorization: token $TOKEN" \
-                  -H "Content-Type: application/json" \
-                  --data-binary "@$JSON_FILE" \
-                  "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
-
-        # 检查错误
-        ERROR_MESSAGE_ZIP=$(echo "$ZIP_RESPONSE" | jq -r '.message')
-        if [ "$ERROR_MESSAGE_ZIP" != "null" ]; then
-          echo "错误: ZIP文件上传失败 - $ERROR_MESSAGE_ZIP"
-          exit 1
-        fi
+        # 提交并推送
+        git commit -m "更新Plus Messenger: v$VERSION ($CURRENT_DATE)"
+        git push origin main
 
         echo "同步完成! 新版本: v$VERSION, 日期: $CURRENT_DATE"
 
