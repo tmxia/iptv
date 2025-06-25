@@ -43,7 +43,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl wget
+        sudo apt-get install -y jq curl wget chromium-browser
 
     - name: Download and process APK
       env:
@@ -55,47 +55,82 @@ jobs:
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 获取下载页内容
-        echo "正在解析下载页..."
-        DOWNLOAD_PAGE=$(curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" "$DOWNLOAD_URL")
+        # 方法1: 使用浏览器模拟获取真实下载链接
+        echo "尝试使用Chromium浏览器获取真实下载链接..."
+        REAL_APK_LINK=""
         
-        # 尝试多种方法提取APK链接
-        echo "尝试提取APK链接..."
-        APK_LINK=""
+        # 创建浏览器脚本
+        cat > "$WORK_DIR/get_link.js" <<EOL
+        const { chromium } = require('playwright');
+        (async () => {
+          const browser = await chromium.launch();
+          const context = await browser.newContext();
+          const page = await context.newPage();
+          
+          // 导航到下载页面
+          await page.goto('$DOWNLOAD_URL');
+          
+          // 等待下载按钮出现
+          await page.waitForSelector('#download_button');
+          
+          // 获取下载链接
+          const downloadLink = await page.$eval('#download_button', a => a.href);
+          console.log(downloadLink);
+          
+          await browser.close();
+        })();
+        EOL
         
-        # 方法1: 使用data-src属性
-        APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'data-src="[^"]*' | cut -d'"' -f2 | grep -i 'plus_messenger.*\.apk' | head -1)
-        
-        # 方法2: 使用直接下载链接模式
-        if [ -z "$APK_LINK" ]; then
-          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https\?://[^"]*Plus_Messenger[^"]*\.apk' | head -1)
+        # 运行浏览器脚本获取链接
+        if REAL_APK_LINK=$(node "$WORK_DIR/get_link.js" 2>/dev/null); then
+          echo "通过浏览器获取到APK链接: $REAL_APK_LINK"
+        else
+          echo "浏览器方法失败，尝试备用方法..."
+          
+          # 方法2: 使用curl获取页面并提取链接
+          echo "正在解析下载页..."
+          DOWNLOAD_PAGE=$(curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" "$DOWNLOAD_URL")
+          
+          # 尝试多种方法提取APK链接
+          REAL_APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'href="[^"]*download-button[^"]*"' | cut -d'"' -f2 | head -1)
+          
+          if [ -z "$REAL_APK_LINK" ]; then
+            REAL_APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https\?://[^"]*Plus_Messenger[^"]*\.apk' | head -1)
+          fi
+          
+          if [ -z "$REAL_APK_LINK" ]; then
+            REAL_APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https\?://dl\.leeapk\.com[^"]*' | head -1)
+          fi
+          
+          if [ -z "$REAL_APK_LINK" ]; then
+            echo "错误: 无法提取APK链接"
+            exit 1
+          fi
+          
+          echo "提取到APK链接: $REAL_APK_LINK"
         fi
-        
-        # 方法3: 使用备用域名匹配
-        if [ -z "$APK_LINK" ]; then
-          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https\?://dl\.leeapk\.com[^"]*' | head -1)
-        fi
-        
-        # 方法4: 使用类名匹配
-        if [ -z "$APK_LINK" ]; then
-          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'href="[^"]*download-button[^"]*"' | cut -d'"' -f2 | head -1)
-        fi
-        
-        # 如果所有方法都失败，使用硬编码URL模式
-        if [ -z "$APK_LINK" ]; then
-          echo "警告: 无法从页面提取链接，使用硬编码模式"
-          APK_LINK="https://dl.leeapk.com/uploads/Plus_Messenger_latest.apk"
-        fi
-        
-        echo "提取到APK链接: $APK_LINK"
 
         # 从链接提取主版本号
-        FILENAME=$(basename "$APK_LINK")
+        FILENAME=$(basename "$REAL_APK_LINK")
         VERSION=$(echo "$FILENAME" | sed -n 's/.*Plus_Messenger_v\{0,1\}\([0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
         
         if [ -z "$VERSION" ]; then
-          echo "警告: 无法提取版本号，使用日期替代"
-          VERSION=$(date +%Y%m%d%H%M)
+          echo "警告: 无法提取版本号，尝试从内容获取"
+          
+          # 下载文件并尝试从APK中提取版本
+          curl -L -o "$WORK_DIR/temp.apk" "$REAL_APK_LINK"
+          
+          if [ -f "$WORK_DIR/temp.apk" ]; then
+            # 尝试从APK中提取版本
+            VERSION=$(aapt dump badging "$WORK_DIR/temp.apk" | grep "versionName" | sed "s/.*versionName='\([^']*\)'.*/\1/")
+            if [ -z "$VERSION" ]; then
+              echo "无法从APK提取版本，使用日期替代"
+              VERSION=$(date +%Y%m%d%H%M)
+            fi
+          else
+            echo "下载失败，使用日期作为版本号"
+            VERSION=$(date +%Y%m%d%H%M)
+          fi
         fi
         
         echo "主版本号: $VERSION"
@@ -160,22 +195,18 @@ jobs:
           exit 0
         fi
 
-        # 使用更复杂的下载方法
-        echo "正在下载APK文件(绕过限制)..."
-        
-        # 方法1: 使用curl并添加完整的浏览器头信息
-        curl -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
-          -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
-          -H "Accept-Language: en-US,en;q=0.5" \
-          -H "Connection: keep-alive" \
-          -H "Referer: $DOWNLOAD_URL" \
-          -H "Upgrade-Insecure-Requests: 1" \
-          -H "DNT: 1" \
-          -H "Sec-Fetch-Dest: document" \
-          -H "Sec-Fetch-Mode: navigate" \
-          -H "Sec-Fetch-Site: same-origin" \
-          -o "$WORK_DIR/temp.apk" \
-          "$APK_LINK"
+        # 下载APK文件
+        echo "正在下载APK文件..."
+        if [ ! -f "$WORK_DIR/temp.apk" ]; then
+          curl -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
+            -H "Accept: */*" \
+            -H "Accept-Language: en-US,en;q=0.5" \
+            -H "Connection: keep-alive" \
+            -H "Referer: $DOWNLOAD_URL" \
+            -H "DNT: 1" \
+            -o "$WORK_DIR/temp.apk" \
+            "$REAL_APK_LINK"
+        fi
         
         # 检查文件大小是否合理
         if [ ! -f "$WORK_DIR/temp.apk" ]; then
@@ -186,8 +217,8 @@ jobs:
         FILE_SIZE=$(wc -c < "$WORK_DIR/temp.apk")
         if [ "$FILE_SIZE" -lt 50000000 ]; then  # 小于50MB视为无效
           echo "错误: 下载的文件大小($FILE_SIZE 字节)过小，可能是无效文件"
-          echo "文件内容前100字节:"
-          head -c 100 "$WORK_DIR/temp.apk" | hexdump -C
+          echo "文件内容类型:"
+          file "$WORK_DIR/temp.apk"
           exit 1
         fi
 
@@ -215,7 +246,7 @@ jobs:
         # 提交更改
         git commit -m "更新Plus Messenger: v$VERSION ($CURRENT_DATE)"
         
-        # 推送更改（强制推送以防冲突）
+        # 推送更改
         echo "推送更改到远程仓库..."
         git push origin main
 
