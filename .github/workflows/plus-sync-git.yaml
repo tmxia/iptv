@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Acquire Repository Lock 🔒
-      uses: marocchino/lock@v2
+      uses: marocchino/lock@v1
       with:
         key: repo-lock
         wait: true
