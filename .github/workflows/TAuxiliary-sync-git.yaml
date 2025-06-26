@@ -57,7 +57,8 @@ jobs:
         import pytz
         
         # 配置参数
-        CHANNEL = "TAuxiliary/3763"
+        GROUP_USERNAME = "TAuxiliary"  # 群组用户名
+        TOPIC_ID = 3763                # 话题ID
         APK_FILE = "TAuxiliary.apk"
         VERSION_FILE = "version.txt"
         VERSION_KEY = "TAuxiliary.apk"
@@ -109,8 +110,20 @@ jobs:
         
         def extract_version(filename):
             """从文件名提取版本号"""
-            match = re.search(r'TAuxiliary-([\d.]+)_[a-f0-9]+\.apk', filename)
-            return f"v{match.group(1)}" if match else None
+            # 支持多种格式的文件名
+            patterns = [
+                r'TAuxiliary[-_]?([\d.]+)[_-]([a-f0-9]+)\.apk',
+                r'TAuxiliary[-_]?([\d.]+)\.apk',
+                r'TAuxiliary[-_]?([\d.]+)_([a-f0-9]+)\.apk'
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, filename, re.IGNORECASE)
+                if match:
+                    version = match.group(1)
+                    commit_hash = match.group(2) if match.lastindex > 1 else None
+                    return f"v{version}", commit_hash
+            return None, None
         
         async def main():
             """主同步逻辑"""
@@ -133,24 +146,50 @@ jobs:
             
             try:
                 await client.start()
-                entity = await client.get_entity(CHANNEL)
+                log("Connected to Telegram")
                 
-                # 查找最新APK
-                async for msg in client.iter_messages(entity, limit=10):
+                # 获取群组实体
+                try:
+                    group = await client.get_entity(GROUP_USERNAME)
+                    log(f"Found group: {group.title}")
+                except Exception as e:
+                    log(f"Failed to get group: {str(e)}")
+                    return 1
+                
+                # 获取话题实体
+                try:
+                    # 在Telethon中，话题通过消息ID标识
+                    topic = await client.get_messages(group, ids=TOPIC_ID)
+                    if not topic:
+                        log(f"Topic with ID {TOPIC_ID} not found")
+                        return 1
+                    
+                    log(f"Accessing topic: {topic.text[:50] if topic.text else 'No title'}")
+                except Exception as e:
+                    log(f"Failed to get topic: {str(e)}")
+                    return 1
+                
+                # 查找话题中的最新APK
+                found = False
+                async for msg in client.iter_messages(group, reply_to=TOPIC_ID, limit=30):
                     if msg.media and hasattr(msg.media, "document"):
                         for attr in msg.media.document.attributes:
                             if isinstance(attr, DocumentAttributeFilename):
                                 filename = attr.file_name
-                                if "TAuxiliary-" in filename and filename.endswith(".apk"):
+                                if "TAuxiliary" in filename and filename.lower().endswith(".apk"):
                                     # 提取版本信息
-                                    version = extract_version(filename) or f"v{datetime.now().strftime('%Y%m%d')}"
+                                    version, commit_hash = extract_version(filename)
+                                    if not version:
+                                        log(f"Skipping file: {filename} (invalid format)")
+                                        continue
+                                    
                                     date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                                     new_value = f"{version},{date}"
                                     
                                     # 检查是否需要更新
                                     if new_value != current:
                                         # 下载APK
-                                        log(f"Downloading new version: {version}")
+                                        log(f"Downloading new version: {version} ({commit_hash or 'no hash'})")
                                         await client.download_media(msg, file=APK_FILE)
                                         
                                         # 更新版本文件
@@ -166,14 +205,22 @@ jobs:
                                     else:
                                         log("Already on latest version")
                                     
-                                    await client.disconnect()
-                                    return 0
+                                    found = True
+                                    break
+                        if found:
+                            break
                 
-                log("No APK found in channel")
+                if not found:
+                    log("No valid TAuxiliary APK found in topic messages")
                 return 0
             except Exception as e:
                 log(f"Error: {str(e)}")
                 return 1
+            finally:
+                try:
+                    await client.disconnect()
+                except:
+                    pass
         
         if __name__ == "__main__":
             import asyncio
