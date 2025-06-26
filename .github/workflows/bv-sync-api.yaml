@@ -2,7 +2,7 @@ name: BV APK Sync from Source Repository
 
 on:
   schedule:
-    - cron: '0 */24 * * *'  # 每24小时运行一次
+    - cron: '0 */24 * * *'
   workflow_dispatch:
 
 permissions:
@@ -13,504 +13,222 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout current repository
+    - name: Checkout repository
       uses: actions/checkout@v3
 
     - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl
+      run: sudo apt-get update && sudo apt-get install -y jq curl
         
     - name: Configure Git
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
-        git config pull.rebase true  # 配置rebase策略
-        # 提前设置带认证的远程URL
+        git config pull.rebase true
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         
-    # 添加仓库锁机制防止并发更新
     - name: Acquire Repository Lock 🔒
       uses: softprops/turnstyle@v1
       with:
         same-branch-only: true
         poll-interval-seconds: 30
-        abort-after-seconds: 1200  # 20分钟超时
+        abort-after-seconds: 1200
 
-    - name: Run APK sync script
+    - name: Run APK sync
       env:
         SOURCE_REPO: "aaa1115910/bv"
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        STABLE_APK_PATTERN: "release_default_universal.apk"  # 稳定版匹配模式
-        PRE_RELEASE_APK_PATTERN: "alpha_default_universal.apk"  # 预发行版匹配模式
+        STABLE_APK_PATTERN: "release_default_universal.apk"
+        PRE_RELEASE_APK_PATTERN: "alpha_default_universal.apk"
         STABLE_KEY_NAME: "bv.apk"
         PRE_RELEASE_KEY_NAME: "bv-beta.apk"
       run: |
-        set -euo pipefail  # 严格错误处理
-        
-        # 从环境变量获取配置
-        STABLE_TARGET_FILENAME="apk/$STABLE_KEY_NAME"
-        PRE_RELEASE_TARGET_FILENAME="apk/$PRE_RELEASE_KEY_NAME"
-        
-        # 创建临时工作目录
+        set -euo pipefail
         WORK_DIR=$(mktemp -d)
-        echo "创建临时目录: $WORK_DIR"
-        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
-
-        # 验证令牌访问权限
-        echo "验证GitHub令牌权限..."
-        RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" \
-                  "https://api.github.com/repos/$TARGET_REPO")
-        if [ "$RESPONSE" != "200" ]; then
-          echo "错误: 令牌无效 (HTTP $RESPONSE)"
-          echo "请检查工作流权限设置"
-          exit 1
-        fi
-
-        # 获取最新发布的APK下载链接
-        echo "获取最新发布版本信息..."
-
-        # 获取所有发布（包括预发行版）
-        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
-        if [ $? -ne 0 ]; then
-          echo "错误: 无法获取发布信息"
-          exit 1
-        fi
+        trap 'rm -rf "$WORK_DIR"' EXIT
         
-        # 调试：输出API响应
-        echo "API响应:"
-        echo "$RELEASES_JSON" | jq . > "$WORK_DIR/releases.json"
-        head -n 50 "$WORK_DIR/releases.json"
-
-        # 提取最新稳定版 - 增强错误处理
+        # 验证令牌权限
+        curl -s -H "Authorization: token $TOKEN" \
+          "https://api.github.com/repos/$TARGET_REPO" | grep -q '"id"' || \
+          { echo "错误: 令牌无效"; exit 1; }
+        
+        # 获取源仓库发布信息
+        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
+        
+        # 函数: 提取版本信息
+        extract_version() {
+          local release_json="$1"
+          local type="$2"
+          
+          local tag_name=$(jq -r '.tag_name // ""' <<< "$release_json")
+          local name=$(jq -r '.name // ""' <<< "$release_json")
+          local published_at=$(jq -r '.published_at' <<< "$release_json")
+          
+          # 提取版本号
+          if [[ "$tag_name" =~ v?([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            version="v${BASH_REMATCH[1]}"
+          elif [[ "$name" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            version="v${BASH_REMATCH[1]}"
+          else
+            version="$tag_name"
+          fi
+          
+          date_utc8=$(TZ=UTC date -d "$published_at" +'%Y-%m-%d')
+          echo "$version $date_utc8"
+        }
+        
+        # 处理稳定版
         SYNC_STABLE=true
-        LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]')
-        if [ -z "$LATEST_STABLE_RELEASE" ] || [ "$LATEST_STABLE_RELEASE" = "null" ]; then
-          echo "警告: 无法提取稳定版发布信息，跳过稳定版同步"
+        LATEST_STABLE=$(jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]' <<< "$RELEASES_JSON")
+        if [ -z "$LATEST_STABLE" ] || [ "$LATEST_STABLE" = "null" ]; then
           SYNC_STABLE=false
         else
-          # 改进版本提取逻辑：优先使用标签(tag_name)，如果不完整则使用标题(name)
-          TAG_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name // ""')
-          TITLE_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.name // ""')
-          
-          # 从标签中提取版本号（支持v前缀）
-          if [[ "$TAG_VERSION" =~ v?([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-            STABLE_VERSION="v${BASH_REMATCH[1]}"
-            echo "从标签提取稳定版: $STABLE_VERSION"
-          # 如果标签不完整，尝试从标题中提取
-          elif [[ "$TITLE_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-            STABLE_VERSION="v${BASH_REMATCH[1]}"
-            echo "从标题提取稳定版: $STABLE_VERSION"
-          else
-            # 如果都无法提取，使用原始标签
-            STABLE_VERSION="$TAG_VERSION"
-            echo "使用原始标签作为稳定版: $STABLE_VERSION"
-          fi
-          
-          STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
-          # 转换为北京时间并格式化为 YYYY-MM-DD
-          STABLE_DATE_UTC8=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
-          echo "源仓库最新稳定版: $STABLE_VERSION (发布于: $STABLE_DATE_UTC8)"
+          read STABLE_VERSION STABLE_DATE_UTC8 <<< $(extract_version "$LATEST_STABLE" "stable")
+          echo "稳定版: $STABLE_VERSION (发布于: $STABLE_DATE_UTC8)"
         fi
-
-        # 提取最新预发行版
+        
+        # 处理预发行版
         SYNC_PRE_RELEASE=true
-        LATEST_PRE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]')
+        LATEST_PRE_RELEASE=$(jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]' <<< "$RELEASES_JSON")
         if [ -z "$LATEST_PRE_RELEASE" ] || [ "$LATEST_PRE_RELEASE" = "null" ]; then
-          echo "警告: 无法提取预发行版发布信息，跳过预发行版同步"
           SYNC_PRE_RELEASE=false
         else
-          # 改进预发布版本提取逻辑
-          TAG_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.tag_name // ""')
-          TITLE_VERSION=$(echo "$LATEST_PRE_RELEASE" | jq -r '.name // ""')
-          
-          # 从标签中提取版本号
-          if [[ "$TAG_VERSION" =~ v?([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-            PRE_RELEASE_VERSION="v${BASH_REMATCH[1]}"
-            echo "从标签提取预发行版: $PRE_RELEASE_VERSION"
-          # 如果标签不完整，尝试从标题中提取
-          elif [[ "$TITLE_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-            PRE_RELEASE_VERSION="v${BASH_REMATCH[1]}"
-            echo "从标题提取预发行版: $PRE_RELEASE_VERSION"
-          else
-            # 如果都无法提取，使用原始标签
-            PRE_RELEASE_VERSION="$TAG_VERSION"
-            echo "使用原始标签作为预发行版: $PRE_RELEASE_VERSION"
-          fi
-          
-          PRE_RELEASE_PUBLISHED_AT=$(echo "$LATEST_PRE_RELEASE" | jq -r '.published_at')
-          # 转换为北京时间并格式化为 YYYY-MM-DD
-          PRE_RELEASE_DATE_UTC8=$(TZ=UTC date -d "$PRE_RELEASE_PUBLISHED_AT" +'%Y-%m-%d')
-          echo "源仓库最新预发行版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE_UTC8)"
-        fi
-
-        # 获取目标仓库当前版本文件
-        echo "获取目标仓库当前版本文件..."
-        TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-
-        # 检查版本文件是否存在
-        if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
-          # 提取内容并解码
-          VERSION_CONTENT=$(echo "$TARGET_VERSION_JSON" | jq -r '.content' | base64 -d)
-          echo "版本文件内容:"
-          echo "$VERSION_CONTENT"
-          
-          # 尝试解析JSON
-          if ! CURRENT_VERSION_DATA=$(echo "$VERSION_CONTENT" | jq .); then
-            echo "警告: 版本文件格式无效，重置为JSON格式"
-            CURRENT_VERSION_DATA="{}"
-            CURRENT_STABLE_VERSION=""
-            CURRENT_STABLE_DATE=""
-            CURRENT_PRE_RELEASE_VERSION=""
-            CURRENT_PRE_RELEASE_DATE=""
-          else
-            # 获取当前稳定版版本和日期
-            STABLE_FULL_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".\"$STABLE_KEY_NAME\"")
-            if [ "$STABLE_FULL_VALUE" != "null" ] && [[ "$STABLE_FULL_VALUE" == *,* ]]; then
-              CURRENT_STABLE_VERSION=$(echo "$STABLE_FULL_VALUE" | cut -d, -f1)
-              CURRENT_STABLE_DATE=$(echo "$STABLE_FULL_VALUE" | cut -d, -f2)
-            else
-              CURRENT_STABLE_VERSION=""
-              CURRENT_STABLE_DATE=""
-            fi
-            echo "目标仓库当前稳定版版本: $CURRENT_STABLE_VERSION (日期: $CURRENT_STABLE_DATE)"
-            
-            # 获取当前预发行版版本和日期
-            PRE_RELEASE_FULL_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"")
-            if [ "$PRE_RELEASE_FULL_VALUE" != "null" ] && [[ "$PRE_RELEASE_FULL_VALUE" == *,* ]]; then
-              CURRENT_PRE_RELEASE_VERSION=$(echo "$PRE_RELEASE_FULL_VALUE" | cut -d, -f1)
-              CURRENT_PRE_RELEASE_DATE=$(echo "$PRE_RELEASE_FULL_VALUE" | cut -d, -f2)
-            else
-              CURRENT_PRE_RELEASE_VERSION=""
-              CURRENT_PRE_RELEASE_DATE=""
-            fi
-            echo "目标仓库当前预发行版版本: $CURRENT_PRE_RELEASE_VERSION (日期: $CURRENT_PRE_RELEASE_DATE)"
-          fi
-        else
-          echo "目标仓库无版本文件"
-          CURRENT_VERSION_DATA="{}"
-          CURRENT_STABLE_VERSION=""
-          CURRENT_STABLE_DATE=""
-          CURRENT_PRE_RELEASE_VERSION=""
-          CURRENT_PRE_RELEASE_DATE=""
-        fi
-
-        # 函数：检查并下载APK
-        check_and_download_apk() {
-          local release_json="$1"
-          local target_filename="$2"
-          local key_name="$3"
-          local current_version="$4"
-          local apk_pattern="$5"
-          
-          # 检查是否需要更新
-          local latest_version=$(echo "$release_json" | jq -r '.tag_name')
-          
-          # 检查目标仓库中APK文件是否存在
-          echo "检查目标仓库中APK文件是否存在: $target_filename..."
-          local APK_EXIST_RESPONSE
-          APK_EXIST_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-              -H "Authorization: token $TOKEN" \
-              "https://api.github.com/repos/$TARGET_REPO/contents/$target_filename")
-          
-          local apk_exists=false
-          if [ "$APK_EXIST_RESPONSE" -eq 200 ]; then
-            echo "目标仓库中存在APK文件: $target_filename"
-            apk_exists=true
-          else
-            echo "目标仓库中不存在APK文件: $target_filename (HTTP $APK_EXIST_RESPONSE)"
-          fi
-          
-          # 检查是否需要更新
-          local need_update=false
-          
-          # 情况1: 版本号不匹配
-          if [ "$latest_version" != "$current_version" ]; then
-            echo "发现新版本: $latest_version (当前: $current_version)"
-            need_update=true
-          # 情况2: 版本号匹配但文件不存在
-          elif [ "$apk_exists" = false ]; then
-            echo "版本号匹配但APK文件不存在，需要重新上传"
-            need_update=true
-          # 情况3: 版本号匹配但版本文件无效
-          elif [ -z "$current_version" ]; then
-            echo "版本文件无效，需要更新"
-            need_update=true
-          else
-            echo "版本相同 ($latest_version) 且APK文件存在，无需更新"
-          fi
-          
-          # 如果需要更新，尝试下载APK
-          if [ "$need_update" = true ]; then
-            # 查找匹配的APK文件
-            local download_url
-            download_url=$(echo "$release_json" | jq -r '.assets[] | select(.name | contains("'"$apk_pattern"'")) | .browser_download_url' | head -1)
-            
-            if [ -z "$download_url" ] || [ "$download_url" = "null" ]; then
-              echo "警告: 源仓库附件撤回，无法找到匹配的APK文件 (匹配模式: $apk_pattern)"
-              return 0
-            fi
-            
-            local source_apk_name=$(basename "$download_url")
-            echo "下载APK: $source_apk_name (匹配模式: $apk_pattern)"
-            curl -sL "$download_url" -o "$WORK_DIR/$source_apk_name"
-            if [ ! -f "$WORK_DIR/$source_apk_name" ]; then
-              echo "错误: APK下载失败"
-              return 1
-            fi
-            
-            local simple_target_filename=$(basename "$target_filename")
-            mv "$WORK_DIR/$source_apk_name" "$WORK_DIR/$simple_target_filename"
-            echo "文件已重命名为: $simple_target_filename"
-            
-            return 0
-          else
-            return 0
-          fi
-        }
-
-        # 函数：上传APK文件
-        upload_apk() {
-          local target_filename="$1"
-          local latest_version="$2"
-          local is_prerelease="$3"
-          
-          echo "上传APK文件: $target_filename..."
-          
-          # 获取仓库当前内容
-          local CONTENT_JSON
-          CONTENT_JSON=$(curl -s -H "Authorization: token $TOKEN" \
-                          "https://api.github.com/repos/$TARGET_REPO/contents/$target_filename")
-          
-          # 检查文件是否存在
-          local sha=""
-          if [ "$(echo "$CONTENT_JSON" | jq -r '.message')" != "Not Found" ]; then
-            sha=$(echo "$CONTENT_JSON" | jq -r '.sha')
-          fi
-          
-          # 创建提交信息
-          local commit_msg="更新APK: $target_filename 到版本: $latest_version"
-          if [ "$is_prerelease" = "true" ]; then
-            commit_msg="$commit_msg (预发行版)"
-          fi
-          
-          # 获取简单文件名（不含路径）
-          local simple_target_filename=$(basename "$target_filename")
-          
-          # 创建JSON请求文件
-          local json_file="$WORK_DIR/request_$simple_target_filename.json"
-          
-          # 手动构建JSON文件，避免大文件参数问题
-          {
-            echo '{'
-            echo "  \"message\": \"$commit_msg\","
-            echo -n '  "content": "'
-            base64 -w0 "$WORK_DIR/$simple_target_filename" | tr -d '\n'
-            echo '",'
-            echo "  \"sha\": \"$sha\""
-            echo '}'
-          } > "$json_file"
-          
-          # 使用--data-binary上传，确保正确处理大文件
-          local RESPONSE_JSON
-          RESPONSE_JSON=$(curl -s \
-                -X PUT \
-                -H "Authorization: token $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data-binary "@$json_file" \
-                "https://api.github.com/repos/$TARGET_REPO/contents/$target_filename")
-          
-          # 检查错误
-          local error_message=$(echo "$RESPONSE_JSON" | jq -r '.message')
-          if [ "$error_message" != "null" ] && [ ! -z "$error_message" ]; then
-            echo "错误: 文件上传失败 - $error_message"
-            echo "完整响应:"
-            echo "$RESPONSE_JSON"
-            return 1
-          else
-            echo "上传成功: $target_filename ($latest_version)"
-            return 0
-          fi
-        }
-
-        # 处理稳定版（使用STABLE_APK_PATTERN）
-        STABLE_NEED_UPDATE=false
-        if [ "$SYNC_STABLE" = true ]; then
-          echo "===== 处理稳定版 ====="
-          check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$STABLE_APK_PATTERN"
-          STABLE_RESULT=$?
-          if [ $STABLE_RESULT -eq 0 ]; then
-            # 检查是否需要更新（通过文件内容判断）
-            if [ -f "$WORK_DIR/$STABLE_KEY_NAME" ]; then
-              STABLE_NEED_UPDATE=true
-              NEW_STABLE_VERSION="$STABLE_VERSION"
-              NEW_STABLE_DATE="$STABLE_DATE_UTC8"
-              echo "稳定版需要更新"
-            else
-              NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
-              NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
-              echo "稳定版无需更新"
-            fi
-          else
-            echo "错误: 稳定版处理失败"
-            exit 1
-          fi
-        else
-          NEW_STABLE_VERSION="$CURRENT_STABLE_VERSION"
-          NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
-          echo "跳过稳定版处理"
-        fi
-
-        # 处理预发行版（使用PRE_RELEASE_APK_PATTERN）
-        PRE_RELEASE_NEED_UPDATE=false
-        if [ "$SYNC_PRE_RELEASE" = true ]; then
-          echo "===== 处理预发行版 ====="
-          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$PRE_RELEASE_APK_PATTERN"
-          PRE_RELEASE_RESULT=$?
-          if [ $PRE_RELEASE_RESULT -eq 0 ]; then
-            if [ -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" ]; then
-              PRE_RELEASE_NEED_UPDATE=true
-              NEW_PRE_RELEASE_VERSION="$PRE_RELEASE_VERSION"
-              NEW_PRE_RELEASE_DATE="$PRE_RELEASE_DATE_UTC8"
-              echo "预发行版需要更新"
-            else
-              NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
-              NEW_PRE_RELEASE_DATE="$CURRENT_PRE_RELEASE_DATE"
-              echo "预发行版无需更新"
-            fi
-          else
-            echo "错误: 预发行版处理失败"
-            exit 1
-          fi
-        else
-          NEW_PRE_RELEASE_VERSION="$CURRENT_PRE_RELEASE_VERSION"
-          NEW_PRE_RELEASE_DATE="$CURRENT_PRE_RELEASE_DATE"
-          echo "跳过预发行版处理"
-        fi
-
-        # 更新版本数据（格式：版本号,日期）
-        NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
-            --arg stable_key "$STABLE_KEY_NAME" \
-            --arg stable_value "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
-            --arg pre_key "$PRE_RELEASE_KEY_NAME" \
-            --arg pre_value "$NEW_PRE_RELEASE_VERSION,$NEW_PRE_RELEASE_DATE" \
-            '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
-            
-        NEW_VERSION_CONTENT=$(echo "$NEW_VERSION_DATA" | jq -r .)
-
-        echo "更新后的版本文件内容:"
-        echo "$NEW_VERSION_CONTENT"
-
-        # 上传版本文件
-        echo "更新版本文件..."
-        VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
-                        "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-
-        # 检查文件是否存在
-        SHA_VERSION=""
-        if [ "$(echo "$VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
-          SHA_VERSION=$(echo "$VERSION_JSON" | jq -r '.sha')
-        fi
-
-        # Base64编码版本文件
-        VERSION_BASE64=$(echo -n "$NEW_VERSION_CONTENT" | base64 -w0)
-
-        # 创建JSON数据
-        JSON_VERSION=$(jq -n \
-            --arg msg "更新版本号: 稳定版=$NEW_STABLE_VERSION, 预发行版=$NEW_PRE_RELEASE_VERSION" \
-            --arg content "$VERSION_BASE64" \
-            --arg sha "$SHA_VERSION" \
-            '{message: $msg, content: $content, sha: $sha}')
-
-        # 上传版本文件
-        echo "上传版本文件..."
-        VERSION_RESPONSE=$(curl -s \
-                  -X PUT \
-                  -H "Authorization: token $TOKEN" \
-                  -H "Content-Type: application/json" \
-                  -d "$JSON_VERSION" \
-                  "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-
-        # 检查错误
-        ERROR_MESSAGE_VERSION=$(echo "$VERSION_RESPONSE" | jq -r '.message')
-        if [ "$ERROR_MESSAGE_VERSION" != "null" ]; then
-          echo "错误: 版本文件上传失败 - $ERROR_MESSAGE_VERSION"
-          exit 1
-        fi
-
-        # 上传稳定版APK（如果需要）
-        if [ "$STABLE_NEED_UPDATE" = true ]; then
-          upload_apk "$STABLE_TARGET_FILENAME" "$STABLE_VERSION" "false"
-          if [ $? -ne 0 ]; then
-            echo "错误: 稳定版APK上传失败"
-            exit 1
-          fi
-        fi
-
-        # 上传预发行版APK（如果需要）
-        if [ "$PRE_RELEASE_NEED_UPDATE" = true ]; then
-          upload_apk "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_VERSION" "true"
-          if [ $? -ne 0 ]; then
-            echo "错误: 预发行版APK上传失败"
-            exit 1
-          fi
-        fi
-
-        echo "同步完成! 状态: 成功"
-        echo "稳定版: $STABLE_TARGET_FILENAME ($NEW_STABLE_VERSION, $NEW_STABLE_DATE)"
-        if [ "$SYNC_PRE_RELEASE" = true ]; then
-          echo "预发行版: $PRE_RELEASE_TARGET_FILENAME ($NEW_PRE_RELEASE_VERSION, $NEW_PRE_RELEASE_DATE)"
+          read PRE_RELEASE_VERSION PRE_RELEASE_DATE_UTC8 <<< $(extract_version "$LATEST_PRE_RELEASE" "pre-release")
+          echo "预发行版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE_UTC8)"
         fi
         
-        # 总是以成功状态退出
+        # 获取目标仓库当前版本
+        VERSION_FILE=$(curl -s -H "Authorization: token $TOKEN" \
+          "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+        
+        declare -A CURRENT_VERSIONS
+        if [ "$(jq -r '.message' <<< "$VERSION_FILE")" != "Not Found" ]; then
+          CONTENT=$(jq -r '.content' <<< "$VERSION_FILE" | base64 -d)
+          echo "当前版本文件: $CONTENT"
+          
+          while IFS="=" read -r key value; do
+            [[ $key ]] && CURRENT_VERSIONS[$key]=$value
+          done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' <<< "$CONTENT")
+        fi
+        
+        # 函数: 检查并下载APK
+        process_apk() {
+          local release_json="$1"
+          local pattern="$2"
+          local key="$3"
+          local target="apk/$key"
+          
+          local current="${CURRENT_VERSIONS[$key]%,*}"
+          local latest=$(jq -r '.tag_name' <<< "$release_json")
+          
+          # 检查是否需要更新
+          if [ "$latest" != "$current" ] || \
+             ! curl -s -o /dev/null -w "%{http_code}" \
+               -H "Authorization: token $TOKEN" \
+               "https://api.github.com/repos/$TARGET_REPO/contents/$target" | grep -q 200; then
+               
+            # 获取下载链接
+            local url=$(jq -r '.assets[] | select(.name | contains("'"$pattern"'")) | .browser_download_url' <<< "$release_json" | head -1)
+            [ -z "$url" ] && return
+            
+            echo "下载APK: $(basename "$url")"
+            curl -sL "$url" -o "$WORK_DIR/$key"
+            return 0
+          fi
+          return 1
+        }
+        
+        # 处理APK文件
+        STABLE_NEED_UPDATE=false
+        PRE_RELEASE_NEED_UPDATE=false
+        
+        if $SYNC_STABLE; then
+          process_apk "$LATEST_STABLE" "$STABLE_APK_PATTERN" "$STABLE_KEY_NAME" && {
+            STABLE_NEED_UPDATE=true
+            NEW_STABLE_VERSION="$STABLE_VERSION"
+            NEW_STABLE_DATE="$STABLE_DATE_UTC8"
+          } || {
+            NEW_STABLE_VERSION="${CURRENT_VERSIONS[$STABLE_KEY_NAME]%,*}"
+            NEW_STABLE_DATE="${CURRENT_VERSIONS[$STABLE_KEY_NAME]#*,}"
+          }
+        fi
+        
+        if $SYNC_PRE_RELEASE; then
+          process_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_KEY_NAME" && {
+            PRE_RELEASE_NEED_UPDATE=true
+            NEW_PRE_RELEASE_VERSION="$PRE_RELEASE_VERSION"
+            NEW_PRE_RELEASE_DATE="$PRE_RELEASE_DATE_UTC8"
+          } || {
+            NEW_PRE_RELEASE_VERSION="${CURRENT_VERSIONS[$PRE_RELEASE_KEY_NAME]%,*}"
+            NEW_PRE_RELEASE_DATE="${CURRENT_VERSIONS[$PRE_RELEASE_KEY_NAME]#*,}"
+          }
+        fi
+        
+        # 更新版本数据
+        declare -A NEW_VERSION_DATA=(
+          ["$STABLE_KEY_NAME"]="$NEW_STABLE_VERSION,$NEW_STABLE_DATE"
+          ["$PRE_RELEASE_KEY_NAME"]="$NEW_PRE_RELEASE_VERSION,$NEW_PRE_RELEASE_DATE"
+        )
+        
+        # 上传版本文件
+        SHA_VERSION=$(jq -r '.sha // empty' <<< "$VERSION_FILE")
+        JSON_VERSION=$(jq -n \
+          --arg msg "更新版本号" \
+          --arg content "$(jq -n '$ARGS.positional' --args "${NEW_VERSION_DATA[@]}")" \
+          --arg sha "$SHA_VERSION" \
+          '{message: $msg, content: ($content | tostring | @base64), sha: $sha}')
+        
+        curl -s -X PUT \
+          -H "Authorization: token $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "$JSON_VERSION" \
+          "https://api.github.com/repos/$TARGET_REPO/contents/version.txt"
+        
+        # 上传APK文件
+        upload_apk() {
+          local key="$1"
+          local version="$2"
+          local target="apk/$key"
+          
+          local sha=$(curl -s -H "Authorization: token $TOKEN" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target" | jq -r '.sha // empty')
+          
+          curl -s -X PUT \
+            -H "Authorization: token $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg msg "更新APK: $key ($version)" \
+              --arg content "$(base64 -w0 "$WORK_DIR/$key")" \
+              --arg sha "$sha" \
+              '{message: $msg, content: $content, sha: $sha}')" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target"
+        }
+        
+        $STABLE_NEED_UPDATE && upload_apk "$STABLE_KEY_NAME" "$NEW_STABLE_VERSION"
+        $PRE_RELEASE_NEED_UPDATE && upload_apk "$PRE_RELEASE_KEY_NAME" "$NEW_PRE_RELEASE_VERSION"
+        
+        echo "同步完成! 稳定版: $NEW_STABLE_VERSION, 预发行版: $NEW_PRE_RELEASE_VERSION"
         exit 0
 
-    # ========== 提交前拉取最新更改 ==========
-    - name: Pull latest changes before commit
-      run: |
-        echo "拉取远程最新更改..."
-        git pull --rebase origin main
-        echo "已同步远程最新更改"
-
-    - name: Commit and Push Changes
-      run: |
-        # 检查是否有文件变更
-        if git diff-index --quiet HEAD --; then
-          echo "没有需要提交的更改"
-          exit 0
-        fi
-
-        # 添加变更并提交
-        git add apk/ version.txt
-        git commit -m "同步BV APK更新 [${{ github.run_id }}]"
-        
-        # 安全强制推送
-        echo "推送更改..."
-        git push --force-with-lease origin HEAD:${{ github.ref }}
-        echo "推送成功"
-        
-    # 确保解锁仓库
     - name: Release Repository Lock 🔓
-      if: always()  # 无论前面步骤成功与否都执行
+      if: always()
       uses: softprops/turnstyle@v1
       with:
-        continue-on-error: true  # 即使解锁失败也不中断工作流
-        action: unlock  # 指定解锁操作
+        continue-on-error: true
+        action: unlock
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   cleanup_self:
-    name: Cleanup Self Workflow History
+    name: Cleanup Workflow History
     runs-on: ubuntu-latest
     needs: sync
-    if: ${{ always() }}
+    if: always()
     permissions:
       actions: write
       contents: read
     steps:
-      - name: Delete old workflow runs
+      - name: Delete old runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
