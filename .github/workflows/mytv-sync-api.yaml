@@ -73,15 +73,15 @@ jobs:
           SYNC_PRE_RELEASE=true
         fi
         
-        # 获取目标版本文件 (固定为version.txt)
+        # 获取目标版本文件
         VERSION_FILE=$(curl -s -H "Authorization: token $TOKEN" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
-        # 解析当前版本文件 (保留所有键值对)
+        # 解析当前版本文件
         if [ "$(jq -r '.message' <<< "$VERSION_FILE")" != "Not Found" ]; then
           CONTENT=$(jq -r '.content' <<< "$VERSION_FILE" | base64 -d)
           
-          # 解析为JSON对象 (保留所有键)
+          # 解析为JSON对象
           if CURRENT_VERSION_JSON=$(echo "$CONTENT" | jq . 2>/dev/null); then
             echo "版本文件解析成功"
           else
@@ -93,7 +93,7 @@ jobs:
           CURRENT_VERSION_JSON="{}"
         fi
         
-        # 提取当前版本信息 (不删除其他键)
+        # 提取当前版本信息
         CURRENT_STABLE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f1)
         CURRENT_STABLE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f2)
         CURRENT_PRE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f1)
