@@ -184,7 +184,7 @@ jobs:
         if: always() && steps.generate-readme.conclusion == 'success'
         run: |
           # 精确检测无效0值：只匹配整数0或0.0格式
-          if grep -qE '\| (0|0\.0\.00) \|' README.md; then
+          if grep -qE '\| (0|0\.0|0\.00) \|' README.md; then
             echo "检测到无效的文件大小值，尝试修复..."
             
             # 设置基础URL
