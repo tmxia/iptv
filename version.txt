@@ -2,5 +2,6 @@
   "bv.apk": ",",
   "bv-beta.apk": "v0.3.0,2025-06-22",
   "nagramx.apk": "v11.9.1.1210,2025-06-05",
-  "nagramx-beta.apk": "v11.12.0,2025-06-21"
+  "nagramx-beta.apk": "v11.12.0,2025-06-21",
+  "github.zip": "v1.212.0,2025-06-26"
 }
