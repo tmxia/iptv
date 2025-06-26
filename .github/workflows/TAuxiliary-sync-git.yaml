@@ -1,4 +1,4 @@
-name: TAuxiliary APK Sync
+name: TAuxiliary APK Sync from TELEGRAM
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
