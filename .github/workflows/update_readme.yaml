@@ -170,7 +170,7 @@ jobs:
       - name: 检测并修复无效文件大小
         if: always() && steps.generate-readme.conclusion == 'success'
         run: |
-          # 检测无效文件大小值 (0, 0.00, N/A, 空值)
+          # 检测无效文件大小值
           if grep -qE '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md; then
             echo "检测到无效的文件大小值，尝试修复..."
             
@@ -183,50 +183,47 @@ jobs:
             # 创建临时文件
             TEMP_FILE=$(mktemp)
             
-            # 处理每一行
-            line_number=0
-            while IFS= read -r line; do
-              line_number=$((line_number+1))
+            # 获取所有APK文件列表
+            apk_files=$(find apk -type f -name "*.apk" -exec basename {} \;)
+            
+            # 创建文件大小映射
+            declare -A file_sizes
+            for file in $apk_files; do
+              # 获取文件元数据
+              api_url="${API_BASE}apk/${file}?ref=${BRANCH}"
+              api_response=$(curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" "$api_url")
               
+              if size=$(echo "$api_response" | jq -r '.size'); then
+                if [ "$size" != "null" ]; then
+                  # 计算MB大小
+                  file_mb=$(echo "scale=2; $size / (1024*1024)" | bc)
+                  file_sizes["$file"]=$file_mb
+                  echo "文件大小: $file → $file_mb MB"
+                fi
+              fi
+            done
+            
+            # 处理README每一行
+            while IFS= read -r line; do
               # 检查是否包含无效大小值
               if [[ "$line" =~ \|.*\|(0\.00|N/A|0|0\.0|0\.)\|.*\| ]]; then
                 # 提取文件名
-                if [[ "$line" =~ \<div\>([^<]+)\.apk\<\/div\> ]]; then
-                  file_name="${BASH_REMATCH[1]}.apk"
+                if [[ "$line" =~ \<div\>([^<]+)\<\/div\> ]]; then
+                  file_name="${BASH_REMATCH[1]}"
                   
-                  # 构建API URL
-                  api_url="${API_BASE}apk/${file_name}?ref=${BRANCH}"
-                  
-                  echo "处理文件: $file_name"
-                  echo "API URL: $api_url"
-                  
-                  # 获取文件元数据
-                  api_response=$(curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" "$api_url")
-                  
-                  # 检查响应是否有效
-                  if echo "$api_response" | jq -e '.size' >/dev/null 2>&1; then
-                    file_size=$(echo "$api_response" | jq -r '.size')
-                    
-                    # 计算MB大小
-                    file_mb=$(echo "scale=2; $file_size / (1024*1024)" | bc)
-                    
+                  # 检查是否有对应的大小值
+                  if [ -n "${file_sizes[$file_name]}" ]; then
                     # 替换行中的大小值
-                    new_line=$(echo "$line" | sed -E "s/\| (0\.00|N/A|0|0\.0|0\.) \|/| $file_mb |/")
-                    
-                    echo "修复行 #$line_number: $file_name → $file_mb MB"
+                    new_line=$(echo "$line" | sed -E "s/\| (0\.00|N/A|0|0\.0|0\.) \|/| ${file_sizes[$file_name]} |/")
+                    echo "修复: $file_name → ${file_sizes[$file_name]} MB"
                     echo "$new_line" >> "$TEMP_FILE"
-                  else
-                    echo "无法获取文件大小: $file_name"
-                    echo "API响应: $api_response"
-                    echo "$line" >> "$TEMP_FILE"
+                    continue
                   fi
-                else
-                  echo "无法提取文件名: $line"
-                  echo "$line" >> "$TEMP_FILE"
                 fi
-              else
-                echo "$line" >> "$TEMP_FILE"
               fi
+              
+              # 保留原始行
+              echo "$line" >> "$TEMP_FILE"
             done < README.md
             
             # 替换原始文件
