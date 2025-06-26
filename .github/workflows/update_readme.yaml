@@ -188,6 +188,7 @@ jobs:
             
             # 创建文件大小映射
             declare -A file_sizes
+            echo "获取APK文件大小:"
             for file in $apk_files; do
               # 获取文件元数据
               api_url="${API_BASE}apk/${file}?ref=${BRANCH}"
@@ -198,24 +199,22 @@ jobs:
                   # 计算MB大小
                   file_mb=$(echo "scale=2; $size / (1024*1024)" | bc)
                   file_sizes["$file"]=$file_mb
-                  echo "文件大小: $file → $file_mb MB"
+                  echo "  - $file: $file_mb MB"
                 fi
               fi
             done
             
             # 处理README每一行
-            line_number=0
+            fixed_count=0
             while IFS= read -r line; do
-              line_number=$((line_number+1))
-              
               # 只处理表格行
               if [[ "$line" == *"|"*"|"*"|"*"|"* ]]; then
                 # 分割行为列
                 IFS='|' read -r -a columns <<< "$line"
                 
-                # 检查是否是有效的表格行（至少有5列：文件名、大小、版本、日期）
+                # 检查是否是有效的表格行（至少有5列）
                 if [ ${#columns[@]} -ge 5 ]; then
-                  # 文件名在列索引1（因为索引0是行首空列）
+                  # 文件名在列索引1
                   file_col="${columns[1]}"
                   
                   # 提取文件名（从第一个列中）
@@ -233,17 +232,19 @@ jobs:
                         columns[2]=" ${file_sizes[$file_name]} "
                         
                         # 重建行
-                        new_line=$(IFS='|'; echo "${columns[*]}")
+                        new_line="|${columns[1]}|${columns[2]}|${columns[3]}|${columns[4]}|"
                         
-                        echo "修复行 #$line_number: $file_name → ${file_sizes[$file_name]} MB"
+                        # 只记录首次修复
+                        if [[ $fixed_count -eq 0 ]]; then
+                          echo "修复文件大小值:"
+                        fi
+                        fixed_count=$((fixed_count+1))
+                        echo "  - $file_name: $size_col → ${file_sizes[$file_name]}"
+                        
                         echo "$new_line" >> "$TEMP_FILE"
                         continue
-                      else
-                        echo "行 #$line_number: 未找到文件大小: $file_name"
                       fi
                     fi
-                  else
-                    echo "行 #$line_number: 无法提取文件名: $file_col"
                   fi
                 fi
               fi
@@ -254,7 +255,7 @@ jobs:
             
             # 替换原始文件
             mv "$TEMP_FILE" README.md
-            echo "已修复无效的文件大小值"
+            echo "已修复 $fixed_count 个无效的文件大小值"
           else
             echo "未检测到无效的文件大小值"
           fi
