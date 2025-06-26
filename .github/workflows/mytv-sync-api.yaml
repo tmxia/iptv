@@ -174,7 +174,7 @@ jobs:
             --arg content "$ENCODED_CONTENT" \
             --arg sha "$SHA_VERSION" \
             '{message: $msg, content: $content, sha: $sha}')" \
-          "https://api.github.com/repos/$TARGET_REPO/contents/version.txt"
+          "https://api.github.com/repos/$TARGET_REPO/contents/version.txt" > /dev/null
         
         # 函数：上传APK
         upload_apk() {
@@ -193,7 +193,7 @@ jobs:
               --arg content "$(base64 -w0 "$WORK_DIR/$key")" \
               --arg sha "$sha" \
               '{message: $msg, content: $content, sha: $sha}')" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/$target"
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target" > /dev/null
         }
         
         # 上传需要更新的APK
