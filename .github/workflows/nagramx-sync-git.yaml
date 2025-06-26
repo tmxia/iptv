@@ -203,16 +203,12 @@ jobs:
         log = logging.getLogger()
         
         def parse_beta_version(filename):
-            """从文件名解析测试版版本号"""
-            pattern = r'NagramX-v(\d+\.\d+\.\d+)(?:-([a-f0-9]+))?\((\d+)\)-arm64-v8a\.apk'
+            """从文件名解析测试版版本号（只提取主版本号）"""
+            # 匹配模式：NagramX-vX.X.X
+            pattern = r'NagramX-v(\d+\.\d+\.\d+)'
             match = re.search(pattern, filename)
             if match:
-                main_ver = match.group(1)
-                commit_ver = match.group(2) or ""
-                build_num = match.group(3)
-                if commit_ver:
-                    return f"v{main_ver}-{commit_ver}"
-                return f"v{main_ver}-{build_num}"
+                return f"v{match.group(1)}"
             return None
         
         async def get_latest_beta_apk(client, channel_name):
