@@ -17,49 +17,37 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    - name: Acquire Repository Lock 🔒
+    - name: Acquire Repository Lock
       uses: softprops/turnstyle@v1
       with:
         same-branch-only: true
         poll-interval-seconds: 30
-        abort-after-seconds: 1200  # 20分钟超时
+        abort-after-seconds: 1200
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
-        lfs: true  # 启用Git LFS支持
+        lfs: true
 
-    - name: Set up Git LFS
-      run: |
-        git lfs install
-        git lfs track "apk/*.apk"
-        git add .gitattributes
-        git config user.name "github-actions"
-        git config user.email "github-actions@github.com"
-        git commit -m "配置Git LFS" || echo "没有更改需要提交"
-
-    - name: Set up Python
+    - name: Setup Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl unzip git-lfs
-        pip install telethon requests pytz
+        sudo apt-get install -y jq
+        pip install telethon pytz
 
-    - name: Run APK Sync
+    - name: Run Optimized APK Sync
       env:
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        TARGET_REPO: ${{ github.repository }}
       run: |
         python - << "EOF"
         import os
@@ -83,10 +71,11 @@ jobs:
         }
         APK_DIR = "apk"
         TELEGRAM_CHANNEL = "mytv_android_release"
-        MESSAGE_LIMIT = 30
+        MESSAGE_LIMIT = 20
+        VERSION_FILE = "version.txt"
         
         # 环境变量
-        WORK_DIR = os.path.join(os.getcwd(), "temp_apks")
+        WORK_DIR = "temp_apks"
         GIT_DIR = os.getcwd()
         os.makedirs(WORK_DIR, exist_ok=True)
         
@@ -96,238 +85,190 @@ jobs:
             format='[%(asctime)s] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
-        log = logging.getLogger()
+        logger = logging.getLogger()
         
-        def setup_git():
+        def git_setup():
+            """配置Git环境"""
             try:
                 actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
-                email = os.environ.get('GITHUB_EMAIL', f'{actor}@users.noreply.github.com')
+                email = f"{actor}@users.noreply.github.com"
                 
                 subprocess.run(["git", "config", "user.name", actor], cwd=GIT_DIR, check=True)
                 subprocess.run(["git", "config", "user.email", email], cwd=GIT_DIR, check=True)
                 
-                # 确保工作区干净
-                subprocess.run(["git", "reset", "--hard"], cwd=GIT_DIR, check=True)
-                subprocess.run(["git", "clean", "-fd"], cwd=GIT_DIR, check=True)
-                
                 # 拉取最新更改
-                subprocess.run(["git", "fetch", "origin", "main"], cwd=GIT_DIR, check=True)
-                subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=GIT_DIR, check=True)
                 
                 # 初始化Git LFS
                 subprocess.run(["git", "lfs", "install", "--local"], cwd=GIT_DIR, check=True)
-                subprocess.run(["git", "lfs", "update"], cwd=GIT_DIR, check=True)
-                subprocess.run(["git", "lfs", "fetch", "--all"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "lfs", "track", "apk/*.apk"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "add", ".gitattributes"], cwd=GIT_DIR, check=True)
+                
+                logger.info("Git配置完成")
                 return True
             except Exception as e:
-                log.error(f"Git设置失败: {str(e)}")
+                logger.error(f"Git设置失败: {str(e)}")
                 return False
         
-        def commit_and_push(message):
+        def git_commit_push(message):
+            """提交并推送更改"""
             try:
-                # 添加所有更改
-                subprocess.run(["git", "add", "."], cwd=GIT_DIR, check=True)
+                # 添加更改
+                subprocess.run(["git", "add", APK_DIR, VERSION_FILE, ".gitattributes"], cwd=GIT_DIR, check=True)
                 
                 # 检查是否有更改
-                status = subprocess.run(["git", "status", "--porcelain"], cwd=GIT_DIR, capture_output=True, text=True)
+                status = subprocess.run(["git", "status", "--porcelain"], 
+                                       cwd=GIT_DIR, capture_output=True, text=True)
                 if not status.stdout.strip():
+                    logger.info("没有更改需要提交")
                     return True
                 
-                # 提交更改
+                # 提交
                 subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
                 
+                # 使用LFS推送
                 token = os.environ['GITHUB_TOKEN']
-                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
-                repo = os.environ['TARGET_REPO']
-                repo_url = f"https://{actor}:{token}@github.com/{repo}.git"
-                
-                # 重试机制
-                for attempt in range(1, 4):
-                    try:
-                        # 推送LFS对象
-                        subprocess.run(["git", "lfs", "push", "--all", repo_url, "main"], cwd=GIT_DIR, check=True)
-                        # 推送常规提交
-                        subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
-                        return True
-                    except Exception as e:
-                        log.error(f"推送尝试 {attempt} 失败: {str(e)}")
-                        subprocess.run(["git", "lfs", "prune"], cwd=GIT_DIR, check=True)
-                        if attempt < 3:
-                            time.sleep(10)
+                repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
+                subprocess.run(["git", "lfs", "push", "--all", repo_url, "main"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
+                logger.info("推送成功")
+                return True
             except Exception as e:
-                log.error(f"Git操作失败: {str(e)}")
-            return False
+                logger.error(f"Git操作失败: {str(e)}")
+                return False
         
-        def get_current_versions():
-            version_path = os.path.join(GIT_DIR, "version.txt")
-            versions = {}
+        def get_versions():
+            """获取当前版本信息（只关心APK_TARGETS中的键）"""
+            version_path = os.path.join(GIT_DIR, VERSION_FILE)
+            if not os.path.exists(version_path):
+                return {}
+                
+            try:
+                with open(version_path, "r") as f:
+                    versions = json.load(f)
+                    # 只返回关心的键值
+                    return {k: v for k, v in versions.items() if k in APK_TARGETS}
+            except json.JSONDecodeError:
+                logger.error("版本文件格式错误，重置为空白")
+                return {}
+        
+        def update_versions(new_versions):
+            """更新版本文件并显示变更（只关心APK_TARGETS中的键）"""
+            # 读取整个版本文件
+            version_path = os.path.join(GIT_DIR, VERSION_FILE)
+            all_versions = {}
             if os.path.exists(version_path):
                 try:
                     with open(version_path, "r") as f:
-                        versions = json.load(f)
+                        all_versions = json.load(f)
                 except:
                     pass
-            return versions
-        
-        def update_versions(new_versions):
-            version_path = os.path.join(GIT_DIR, "version.txt")
-            current_versions = get_current_versions()
+            
+            # 只更新关心的键值
             for key, value in new_versions.items():
-                current_versions[key] = value
+                all_versions[key] = value
+            
+            # 保存整个版本文件
             with open(version_path, "w") as f:
-                json.dump(current_versions, f, indent=2)
+                json.dump(all_versions, f, indent=2)
+            
+            # 只显示关心的键值版本信息
+            logger.info("版本更新:")
+            for key, value in new_versions.items():
+                logger.info(f"  {key}: {value}")
         
-        def normalize_version(version_str):
-            if not version_str:
-                return None
-            return re.sub(r'^v', '', version_str, flags=re.IGNORECASE).lower()
-        
-        def extract_version_from_filename(filename):
+        def extract_version(filename):
+            """从文件名提取版本号"""
             match = re.search(r'v?(\d+\.\d+\.\d+)|v?(\d+\.\d+)|(\d{8})', filename)
-            if match:
-                return match.group(1) or match.group(2) or match.group(3)
-            return None
+            return (match.group(1) or match.group(2) or match.group(3)) if match else None
         
-        def ensure_version_prefix(version_str):
-            if version_str and not version_str.startswith('v'):
-                return f"v{version_str}"
-            return version_str
-        
-        async def download_apk(client, message, filename, target_name):
+        async def download_apk(client, message, target_name):
+            """下载APK文件"""
             download_path = os.path.join(WORK_DIR, target_name)
+            logger.info(f"开始下载: {target_name}")
+            
+            start_time = time.time()
             await client.download_media(message, file=download_path)
             
-            file_size_mb = os.path.getsize(download_path) / (1024 * 1024)
-            if file_size_mb > 100:
-                log.warning(f"文件过大 ({file_size_mb:.2f}MB)，将通过LFS处理: {filename}")
+            elapsed = time.time() - start_time
+            size_mb = os.path.getsize(download_path) / (1024 * 1024)
+            logger.info(f"下载完成: {size_mb:.1f}MB, 耗时{elapsed:.1f}秒")
             
-            version = extract_version_from_filename(filename) or extract_version_from_filename(message.text or "")
+            # 提取版本信息
+            version = extract_version(message.document.attributes[0].file_name)
+            if not version and message.text:
+                version = extract_version(message.text)
+            
             if not version:
-                return None
+                version = datetime.now().strftime("%Y%m%d")
+                logger.info(f"使用后备版本号: {version}")
             
             return {
                 "path": download_path,
-                "version": version,
-                "date_iso": message.date.strftime("%Y-%m-%d")
+                "version": f"v{version}" if not version.startswith('v') else version,
+                "date": message.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
             }
         
-        def check_local_files():
-            target_dir = os.path.join(GIT_DIR, APK_DIR)
-            local_files = {}
-            file_missing = False
-            
-            current_versions = get_current_versions()
-            
-            for target_name in APK_TARGETS.keys():
-                file_path = os.path.join(target_dir, target_name)
-                if os.path.exists(file_path):
-                    if target_name in current_versions:
-                        local_files[target_name] = current_versions[target_name]
-                    else:
-                        local_files[target_name] = None
-                else:
-                    file_missing = True
-                    local_files[target_name] = None
-            
-            return local_files, not file_missing
-        
-        def should_download_apk(target_name, msg_date, new_version, current_versions):
-            normalized_new = normalize_version(new_version)
-            
-            if target_name not in current_versions or current_versions[target_name] is None:
+        def should_update(target_name, new_version, new_date, current_versions):
+            """检查是否需要更新（只关心版本和日期）"""
+            current = current_versions.get(target_name, "")
+            if not current:
                 return True
-            
-            current_value = current_versions[target_name]
-            if current_value and ',' in current_value:
-                current_version, current_date = current_value.split(',', 1)
-                normalized_current = normalize_version(current_version)
-            else:
-                normalized_current = None
-                current_date = "1970-01-01"
-            
-            msg_date_str = msg_date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
-            
-            if msg_date_str > current_date:
-                return True
-            
-            if msg_date_str == current_date and normalized_new and normalized_current:
-                return normalized_new != normalized_current
-            
-            return False
+                
+            if ',' in current:
+                current_ver, current_date = current.split(",", 1)
+                return (new_version != current_ver) or (new_date > current_date)
+            return new_version != current
         
-        async def find_apks_in_channel(client, entity):
-            latest_msgs = {}
+        async def find_latest_apks(client, entity):
+            """查找最新的APK消息"""
+            apk_messages = {}
             
             async for msg in client.iter_messages(entity, limit=MESSAGE_LIMIT):
-                if msg.media and hasattr(msg.media, "document"):
-                    for attr in msg.media.document.attributes:
-                        if isinstance(attr, DocumentAttributeFilename):
-                            filename = attr.file_name
-                            
-                            # 首先尝试匹配 tv-x5.apk
-                            if "all-sdk21-original-X5".lower() in filename.lower():
-                                version = extract_version_from_filename(filename)
-                                if version:
-                                    if "tv-x5.apk" not in latest_msgs or msg.date > latest_msgs["tv-x5.apk"]["message"].date:
-                                        latest_msgs["tv-x5.apk"] = {
-                                            "message": msg,
-                                            "original_filename": filename,
-                                            "version": version
-                                        }
-                                    continue
-                            
-                            # 然后尝试匹配 tv.apk
-                            if "all-sdk21-original".lower() in filename.lower() and "X5" not in filename.lower():
-                                version = extract_version_from_filename(filename)
-                                if version:
-                                    if "tv.apk" not in latest_msgs or msg.date > latest_msgs["tv.apk"]["message"].date:
-                                        latest_msgs["tv.apk"] = {
-                                            "message": msg,
-                                            "original_filename": filename,
-                                            "version": version
-                                        }
-                                    continue
-            
-            return latest_msgs
-        
-        async def process_apk_updates(client, entity, current_versions):
-            apk_matches = await find_apks_in_channel(client, entity)
-            if not apk_matches:
-                return None
-            
-            updates = {}
-            
-            for target_name, data in apk_matches.items():
-                msg = data["message"]
-                filename = data["original_filename"]
-                version = data["version"]
-                
-                if should_download_apk(target_name, msg.date, version, current_versions):
-                    apk_data = await download_apk(client, msg, filename, target_name)
-                    if apk_data:
-                        normalized_version = ensure_version_prefix(apk_data['version'])
-                        new_value = f"{normalized_version},{apk_data['date_iso']}"
-                        updates[target_name] = new_value
-                    else:
-                        log.error(f"下载失败: {target_name}")
-            
-            return updates if updates else None
+                if not (msg.media and hasattr(msg.media, "document")):
+                    continue
+                    
+                # 检查文件名属性
+                for attr in msg.media.document.attributes:
+                    if not isinstance(attr, DocumentAttributeFilename):
+                        continue
+                    
+                    filename = attr.file_name.lower()
+                    
+                    # 匹配tv-x5.apk
+                    if "x5" in filename and "tv-x5.apk" not in apk_messages:
+                        apk_messages["tv-x5.apk"] = msg
+                    
+                    # 匹配tv.apk (排除X5版本)
+                    if "original" in filename and "x5" not in filename and "tv.apk" not in apk_messages:
+                        apk_messages["tv.apk"] = msg
+                    
+                    # 如果已找到两个文件，提前退出
+                    if len(apk_messages) == len(APK_TARGETS):
+                        return apk_messages
+            return apk_messages
         
         async def main_async():
-            log.info("APK 同步工具启动")
+            """异步主函数"""
+            logger.info("="*50 + "\nAPK 同步工具启动\n" + "="*50)
             
-            required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GITHUB_TOKEN']
-            missing = [var for var in required if not os.environ.get(var)]
-            if missing:
-                log.error(f"错误: 缺少环境变量: {', '.join(missing)}")
+            # 验证环境变量
+            required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION']
+            if missing := [var for var in required if not os.environ.get(var)]:
+                logger.error(f"错误: 缺少环境变量: {', '.join(missing)}")
                 return 1
             
-            if not setup_git():
+            # 设置Git
+            if not git_setup():
                 return 2
             
-            current_versions, all_files_exist = check_local_files()
-            log.info(f"当前版本状态: {json.dumps(current_versions, indent=2)}")
+            # 获取当前版本（只关心APK_TARGETS中的键）
+            current_versions = get_versions()
+            logger.info("当前关心的版本信息:")
+            for key, value in current_versions.items():
+                logger.info(f"  {key}: {value}")
             
+            # 连接Telegram
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
                 int(os.environ['TELEGRAM_API_ID']),
@@ -336,74 +277,65 @@ jobs:
             
             try:
                 await client.start()
-                log.info(f"连接Telegram频道: {TELEGRAM_CHANNEL}")
+                logger.info(f"连接Telegram频道: {TELEGRAM_CHANNEL}")
+                entity = await client.get_entity(TELEGRAM_CHANNEL)
                 
-                try:
-                    entity = await client.get_entity(TELEGRAM_CHANNEL)
-                except Exception as e:
-                    log.error(f"获取频道实体失败: {str(e)}")
-                    return 3
+                # 查找最新APK消息
+                apk_msgs = await find_latest_apks(client, entity)
+                if not apk_msgs:
+                    logger.info("未找到符合条件的APK消息")
+                    return 0
                 
-                version_updates = await process_apk_updates(client, entity, current_versions)
+                updates = {}
+                
+                # 处理每个APK
+                for target_name, msg in apk_msgs.items():
+                    apk_data = await download_apk(client, msg, target_name)
+                    new_value = f"{apk_data['version']},{apk_data['date']}"
+                    
+                    if should_update(target_name, apk_data['version'], apk_data['date'], current_versions):
+                        updates[target_name] = new_value
+                    else:
+                        logger.info(f"跳过更新: {target_name} (无新版本)")
+                
+                if updates:
+                    # 移动文件到目标目录
+                    os.makedirs(APK_DIR, exist_ok=True)
+                    for target_name in updates.keys():
+                        src = os.path.join(WORK_DIR, target_name)
+                        dst = os.path.join(APK_DIR, target_name)
+                        shutil.move(src, dst)
+                        logger.info(f"已移动: {target_name}")
+                    
+                    # 更新版本文件（只显示关心的键值）
+                    update_versions(updates)
+                    
+                    # 提交更改
+                    if git_commit_push(f"更新APK: {', '.join(updates.keys())}"):
+                        logger.info("同步成功!")
+                    else:
+                        logger.error("提交失败")
+                        return 3
+                else:
+                    logger.info("没有需要更新的APK文件")
+                
+                return 0
             except Exception as e:
-                log.error(f"Telegram错误: {str(e)}")
+                logger.error(f"处理错误: {str(e)}")
                 return 4
             finally:
                 await client.disconnect()
-            
-            if version_updates:
-                target_dir = os.path.join(GIT_DIR, APK_DIR)
-                os.makedirs(target_dir, exist_ok=True)
-                
-                for target_name in version_updates.keys():
-                    src = os.path.join(WORK_DIR, target_name)
-                    dest = os.path.join(target_dir, target_name)
-                    if os.path.exists(src):
-                        shutil.move(src, dest)
-                        log.info(f"移动文件: {src} -> {dest}")
-                    else:
-                        log.error(f"源文件不存在: {src}")
-                
-                update_versions(version_updates)
-                
-                commit_msg = f"更新APK: {', '.join(version_updates.keys())}"
-                
-                # 添加APK文件到Git LFS
-                for target_name in version_updates.keys():
-                    apk_path = os.path.join(APK_DIR, target_name)
-                    if os.path.exists(apk_path):
-                        subprocess.run(["git", "lfs", "track", apk_path], cwd=GIT_DIR, check=True)
-                
-                subprocess.run(["git", "add", ".gitattributes"], cwd=GIT_DIR, check=True)
-                
-                if commit_and_push(commit_msg):
-                    log.info(f"同步成功! 更新了 {len(version_updates)} 个文件")
-                else:
-                    log.error("提交失败")
-                    return 5
-            else:
-                log.info("没有需要更新的APK文件")
-            
-            _, all_files_exist = check_local_files()
-            if not all_files_exist:
-                log.error("关键错误: 缺少APK文件")
-                return 6
-            
-            if os.path.exists(WORK_DIR):
-                shutil.rmtree(WORK_DIR)
-            
-            log.info("同步任务完成")
-            return 0
-        
-        def main():
-            import asyncio
-            return asyncio.run(main_async())
+                # 清理临时目录
+                if os.path.exists(WORK_DIR):
+                    shutil.rmtree(WORK_DIR)
+                    logger.info("临时目录已清理")
         
         if __name__ == "__main__":
-            sys.exit(main())
+            import asyncio
+            sys.exit(asyncio.run(main_async()))
         EOF
 
-    - name: Release Repository Lock 🔓
+    - name: Release Repository Lock
       if: always()
       uses: softprops/turnstyle@v1
       with:
@@ -417,12 +349,11 @@ jobs:
       uses: actions/github-script@v6
       with:
         script: |
-          const message = `🚨 Telegram APK同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
           github.rest.issues.createComment({
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: message
+            body: `🚨 Telegram APK同步失败！工作流运行详情: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
           })
 
   cleanup_self:
