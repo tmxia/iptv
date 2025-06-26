@@ -62,6 +62,7 @@ jobs:
         import re
         import logging
         import zipfile
+        import asyncio
         from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
@@ -107,7 +108,7 @@ jobs:
             format='[%(asctime)s] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
-        log = logging.getLogger()
+        logger = logging.getLogger()
         
         class KernelSyncer:
             def __init__(self):
@@ -122,16 +123,14 @@ jobs:
                 if os.path.exists(self.version_file):
                     try:
                         with open(self.version_file, "r") as f:
-                            versions = json.load(f)
+                            return json.load(f)
                     except:
-                        versions = {}
-                else:
-                    versions = {}
+                        pass
                 
                 # 确保所有组都存在
+                versions = {}
                 for group in KERNEL_GROUPS:
-                    if group not in versions:
-                        versions[group] = {"version": "", "date": ""}
+                    versions[group] = {"version": "", "date": ""}
                 return versions
             
             def save_versions(self):
@@ -145,41 +144,53 @@ jobs:
                     actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
                     email = f'{actor}@users.noreply.github.com'
                     
-                    subprocess.run(["git", "config", "user.name", actor], 
-                                   cwd=self.git_dir, check=True, 
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    subprocess.run(["git", "config", "user.email", email], 
-                                   cwd=self.git_dir, check=True,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(
+                        ["git", "config", "user.name", actor], 
+                        cwd=self.git_dir, check=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                    subprocess.run(
+                        ["git", "config", "user.email", email], 
+                        cwd=self.git_dir, check=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
                     
                     # 拉取最新更改
-                    subprocess.run(["git", "pull", "origin", "main", "--rebase"], 
-                                   cwd=self.git_dir, check=True,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(
+                        ["git", "pull", "origin", "main", "--rebase"], 
+                        cwd=self.git_dir, check=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
                     return True
                 except Exception as e:
-                    log.error(f"Git设置失败: {str(e)}")
+                    logger.error(f"Git设置失败: {str(e)}")
                     return False
             
             def commit_and_push(self, message):
                 """提交更改并推送到仓库"""
                 try:
                     # 添加更改
-                    subprocess.run(["git", "add", KERNEL_DIR, KERNEL_VERSION_FILE], 
-                                   cwd=self.git_dir, check=True,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(
+                        ["git", "add", KERNEL_DIR, KERNEL_VERSION_FILE], 
+                        cwd=self.git_dir, check=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
                     
                     # 检查是否有更改
-                    status = subprocess.run(["git", "status", "--porcelain"], 
-                                            cwd=self.git_dir, capture_output=True, text=True)
+                    status = subprocess.run(
+                        ["git", "status", "--porcelain"], 
+                        cwd=self.git_dir, capture_output=True, text=True
+                    )
                     if not status.stdout.strip():
-                        log.info("无更改需要提交")
+                        logger.info("无更改需要提交")
                         return True
                     
                     # 提交更改
-                    subprocess.run(["git", "commit", "-m", message], 
-                                   cwd=self.git_dir, check=True,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(
+                        ["git", "commit", "-m", message], 
+                        cwd=self.git_dir, check=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
                     
                     # 推送更改
                     token = os.environ['GITHUB_TOKEN']
@@ -187,15 +198,19 @@ jobs:
                     repo = os.environ['TARGET_REPO']
                     repo_url = f"https://{actor}:{token}@github.com/{repo}.git"
                     
-                    subprocess.run(["git", "pull", "--rebase", "origin", "main"], 
-                                   cwd=self.git_dir, check=True,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    subprocess.run(["git", "push", repo_url, "HEAD:main"], 
-                                   cwd=self.git_dir, check=True,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(
+                        ["git", "pull", "--rebase", "origin", "main"], 
+                        cwd=self.git_dir, check=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                    subprocess.run(
+                        ["git", "push", repo_url, "HEAD:main"], 
+                        cwd=self.git_dir, check=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
                     return True
                 except Exception as e:
-                    log.error(f"Git操作失败: {str(e)}")
+                    logger.error(f"Git操作失败: {str(e)}")
                     return False
             
             def pattern_match(self, filename, pattern):
@@ -205,12 +220,14 @@ jobs:
             def find_matching_group(self, filename):
                 """查找匹配的内核组"""
                 for group, patterns in KERNEL_GROUPS.items():
-                    if any(self.pattern_match(filename, p) for p in patterns):
-                        return group
+                    for pattern in patterns:
+                        if self.pattern_match(filename, pattern):
+                            return group
                 return None
             
             def extract_version(self, filename):
                 """从文件名提取版本号"""
+                # 匹配格式如: 6.1.141-flippy-93+o 或 6.6.94-flippy-93+
                 match = re.search(r'(\d+\.\d+\.\d+-flippy-\d+\+[a-z]*)', filename) or \
                        re.search(r'(\d+\.\d+\.\d+-flippy-\d+\+)', filename)
                 return match.group(1) if match else None
@@ -231,7 +248,8 @@ jobs:
                 
                 # 下载所有文件
                 for filename, msg in files:
-                    await self.download_file(client, msg, os.path.join(group_dir, filename))
+                    file_path = os.path.join(group_dir, filename)
+                    await self.download_file(client, msg, file_path)
                 
                 # 创建ZIP文件
                 zip_filename = f"{group}_{version}.zip"
@@ -243,13 +261,17 @@ jobs:
                 
                 # 获取最新日期（UTC+8）
                 latest_date = self.get_latest_date(messages)
-                date_str = latest_date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
+                if latest_date:
+                    date_str = latest_date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
+                else:
+                    date_str = datetime.now().strftime("%Y-%m-%d")
                 
                 return zip_path, date_str
             
             def needs_update(self, group, new_version, new_date):
                 """检查是否需要更新"""
                 current = self.versions.get(group, {"version": "", "date": ""})
+                # 新版本不同 或 版本相同但日期更新
                 return (new_version != current["version"]) or \
                        (new_version == current["version"] and new_date > current["date"])
             
@@ -259,40 +281,50 @@ jobs:
                     return 0
                 
                 deleted = 0
+                keep_filename = f"{group}_{keep_version}.zip"
                 for filename in os.listdir(self.kernel_dir):
-                    if filename.startswith(f"{group}_") and filename != f"{group}_{keep_version}.zip":
+                    if filename.startswith(f"{group}_") and filename != keep_filename:
                         os.remove(os.path.join(self.kernel_dir, filename))
                         deleted += 1
+                        logger.info(f"删除旧版本: {filename}")
                 return deleted
             
             async def find_new_kernels(self, client):
                 """在Telegram频道查找新内核"""
                 channel = os.environ.get('TELEGRAM_CHANNEL', 'openwrt_flippy')
-                entity = await client.get_entity(channel)
+                try:
+                    entity = await client.get_entity(channel)
+                except Exception as e:
+                    logger.error(f"获取Telegram频道失败: {str(e)}")
+                    return {}
                 
                 # 存储找到的文件 {group: {version: {filename: message}}}
                 found = {group: {} for group in KERNEL_GROUPS}
                 
                 # 扫描最新的50条消息
-                async for msg in client.iter_messages(entity, limit=50):
-                    if not (msg.media and hasattr(msg.media, "document")):
-                        continue
-                    
-                    for attr in msg.media.document.attributes:
-                        if isinstance(attr, DocumentAttributeFilename):
-                            filename = attr.file_name
-                            group = self.find_matching_group(filename)
-                            if not group:
-                                continue
-                            
-                            version = self.extract_version(filename)
-                            if not version:
-                                continue
-                            
-                            # 添加到found结构
-                            if version not in found[group]:
-                                found[group][version] = {}
-                            found[group][version][filename] = msg
+                try:
+                    async for msg in client.iter_messages(entity, limit=50):
+                        if not (msg.media and hasattr(msg.media, "document")):
+                            continue
+                        
+                        for attr in msg.media.document.attributes:
+                            if isinstance(attr, DocumentAttributeFilename):
+                                filename = attr.file_name
+                                group = self.find_matching_group(filename)
+                                if not group:
+                                    continue
+                                
+                                version = self.extract_version(filename)
+                                if not version:
+                                    continue
+                                
+                                # 添加到found结构
+                                if version not in found[group]:
+                                    found[group][version] = {}
+                                found[group][version][filename] = msg
+                except Exception as e:
+                    logger.error(f"读取Telegram消息失败: {str(e)}")
+                    return {}
                 
                 updates = {}
                 for group, versions in found.items():
@@ -305,32 +337,43 @@ jobs:
                         patterns = KERNEL_GROUPS[group]
                         
                         # 检查是否包含所有必需文件
-                        if sum(1 for p in patterns if any(self.pattern_match(f, p) for f in files)) < REQUIRED_FILE_COUNT:
+                        matched_patterns = 0
+                        for pattern in patterns:
+                            for filename in files:
+                                if self.pattern_match(filename, pattern):
+                                    matched_patterns += 1
+                                    break
+                        
+                        if matched_patterns < REQUIRED_FILE_COUNT:
+                            logger.info(f"{group}@{version} 缺少必需文件 ({matched_patterns}/{REQUIRED_FILE_COUNT})")
                             continue
                         
                         # 检查是否需要更新
                         latest_date = self.get_latest_date(list(files.values()))
                         if not latest_date:
+                            logger.warning(f"无法获取{group}@{version}的日期")
                             continue
                         
                         date_str = latest_date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                         if not self.needs_update(group, version, date_str):
-                            log.info(f"{group}@{version} 已是最新版本")
+                            logger.info(f"{group}@{version} 已是最新版本")
                             break
                         
                         # 处理更新
                         group_dir = os.path.join(self.work_dir, f"{group}_{version}")
                         try:
-                            zip_path, zip_date = await self.process_group(client, group, version, 
-                                                                        list(files.items()), group_dir)
+                            zip_path, zip_date = await self.process_group(
+                                client, group, version, 
+                                list(files.items()), group_dir
+                            )
                             updates[group] = {
                                 "version": version,
                                 "date": zip_date,
                                 "zip_path": zip_path
                             }
-                            log.info(f"准备更新 {group}@{version} ({zip_date})")
+                            logger.info(f"准备更新 {group}@{version} ({zip_date})")
                         except Exception as e:
-                            log.error(f"处理{group}失败: {str(e)}")
+                            logger.error(f"处理{group}失败: {str(e)}")
                         break
                 return updates
             
@@ -340,7 +383,7 @@ jobs:
                 required_vars = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GITHUB_TOKEN']
                 missing = [v for v in required_vars if not os.environ.get(v)]
                 if missing:
-                    log.error(f"缺少环境变量: {', '.join(missing)}")
+                    logger.error(f"缺少环境变量: {', '.join(missing)}")
                     return 1
                 
                 if not self.setup_git():
@@ -358,15 +401,19 @@ jobs:
                 )
                 
                 try:
-                    async with client:
-                        updates = await self.find_new_kernels(client)
+                    await client.start()
+                    updates = await self.find_new_kernels(client)
                 except Exception as e:
-                    log.error(f"Telegram错误: {str(e)}")
+                    logger.error(f"Telegram错误: {str(e)}")
                     return 3
+                finally:
+                    if client.is_connected():
+                        await client.disconnect()
                 
                 if not updates:
-                    log.info("没有需要更新的内核")
-                    shutil.rmtree(self.work_dir)
+                    logger.info("没有需要更新的内核")
+                    if os.path.exists(self.work_dir):
+                        shutil.rmtree(self.work_dir)
                     return 0
                 
                 # 应用更新
@@ -390,12 +437,12 @@ jobs:
                         total_deleted += deleted
                         
                         updated_groups.append(f"{group}@{data['version']}")
-                        log.info(f"已更新 {group}，删除 {deleted} 个旧文件")
+                        logger.info(f"已更新 {group}，删除 {deleted} 个旧文件")
                     except Exception as e:
-                        log.error(f"更新{group}失败: {str(e)}")
+                        logger.error(f"更新{group}失败: {str(e)}")
                 
                 if not updated_groups:
-                    log.info("没有成功更新的组")
+                    logger.info("没有成功更新的组")
                     return 4
                 
                 # 保存版本信息
@@ -407,18 +454,22 @@ jobs:
                     commit_msg += f"\n删除 {total_deleted} 个旧版本"
                 
                 if self.commit_and_push(commit_msg):
-                    log.info(f"成功更新 {len(updated_groups)} 个组")
+                    logger.info(f"成功更新 {len(updated_groups)} 个组")
                 else:
-                    log.error("提交更改失败")
+                    logger.error("提交更改失败")
                     return 5
                 
                 # 清理临时文件
-                shutil.rmtree(self.work_dir)
+                if os.path.exists(self.work_dir):
+                    shutil.rmtree(self.work_dir)
                 return 0
         
-        if __name__ == "__main__":
+        async def main():
             syncer = KernelSyncer()
-            exit_code = syncer.sync_kernels()
+            return await syncer.sync_kernels()
+        
+        if __name__ == "__main__":
+            exit_code = asyncio.run(main())
             sys.exit(exit_code)
         EOF
 
@@ -470,7 +521,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0
-          retain_days: 0
+          keep_minimum_runs: 3
+          retain_days: 7
           delete_workflow_pattern: "OpenWrt Kernel Sync from TELEGRAM"
           repository: ${{ github.repository }}
