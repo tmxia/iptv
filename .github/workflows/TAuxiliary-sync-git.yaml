@@ -57,7 +57,7 @@ jobs:
         import pytz
         
         # 配置参数
-        CHANNEL = "TAuxiliary"
+        CHANNEL = "TAuxiliary/3763"
         APK_FILE = "TAuxiliary.apk"
         VERSION_FILE = "version.txt"
         VERSION_KEY = "TAuxiliary.apk"
