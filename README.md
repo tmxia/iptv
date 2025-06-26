@@ -1,8 +1,15 @@
 # 应用版本列表
 
-最后更新: 2025-06-26 20:14:52 (北京时间)
+最后更新: 2025-06-26 20:22:12 (北京时间)
 
-> 暂无应用版本信息
+## 应用
+
+| 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
+|----------|------------|--------|----------|
+| <div>bv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk)</small></div> | 0 | v0.3.0 | 2025-06-22 |
+| <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 0 | v11.12.0 | 2025-06-21 |
+| <div>nagramx.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk)</small></div> | 0 | v11.9.1.1210 | 2025-06-05 |
+| <div>bv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv.apk)</small></div> | 0 |  |  |
 
 ---
 
