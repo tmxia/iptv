@@ -330,12 +330,35 @@ jobs:
             sys.exit(asyncio.run(main()))
         EOF
 
-    # ========== 关键修复：提交前拉取最新更改 ==========
+    # ========== 关键修复：提交前处理未提交的更改 ==========
+    - name: Stage changes before pull
+      run: |
+        # 添加所有更改到暂存区
+        git add -A
+        echo "已暂存所有更改"
+
+    # ========== 关键修复：使用更安全的重置方法 ==========
+    - name: Reset uncommitted changes
+      run: |
+        # 重置所有未提交的更改（保留工作区）
+        git reset --soft HEAD
+        echo "已重置暂存区更改"
+
     - name: Pull latest changes before commit
       run: |
         echo "拉取远程最新更改..."
         git pull --rebase origin main
         echo "已同步远程最新更改"
+
+    - name: Restore changes after pull
+      run: |
+        # 恢复工作区更改
+        git checkout -- .
+        echo "已恢复工作区更改"
+        
+        # 重新添加需要提交的文件
+        git add apk/ version.txt
+        echo "重新添加APK和版本文件"
 
     - name: Commit and Push Changes
       run: |
