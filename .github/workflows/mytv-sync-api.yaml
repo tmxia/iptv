@@ -77,23 +77,28 @@ jobs:
         VERSION_FILE=$(curl -s -H "Authorization: token $TOKEN" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
-        # 解析当前版本
-        declare -A CURRENT_VERSIONS
+        # 解析当前版本文件 (保留所有键值对)
         if [ "$(jq -r '.message' <<< "$VERSION_FILE")" != "Not Found" ]; then
           CONTENT=$(jq -r '.content' <<< "$VERSION_FILE" | base64 -d)
           echo "当前版本文件: $CONTENT"
           
-          # 提取键值对
-          while IFS="=" read -r key value; do
-            [[ $key ]] && CURRENT_VERSIONS[$key]="$(normalize_version "$value")"
-          done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' <<< "$CONTENT" 2>/dev/null)
+          # 解析为JSON对象 (保留所有键)
+          if CURRENT_VERSION_JSON=$(echo "$CONTENT" | jq . 2>/dev/null); then
+            echo "版本文件解析成功"
+          else
+            echo "警告: 版本文件格式无效，重置为JSON格式"
+            CURRENT_VERSION_JSON="{}"
+          fi
+        else
+          echo "目标仓库无版本文件，将创建新文件"
+          CURRENT_VERSION_JSON="{}"
         fi
         
-        # 输出当前版本信息
-        CURRENT_STABLE="${CURRENT_VERSIONS[$STABLE_KEY_NAME]%,*}"
-        CURRENT_STABLE_DATE="${CURRENT_VERSIONS[$STABLE_KEY_NAME]#*,}"
-        CURRENT_PRE="${CURRENT_VERSIONS[$PRE_RELEASE_KEY_NAME]%,*}"
-        CURRENT_PRE_DATE="${CURRENT_VERSIONS[$PRE_RELEASE_KEY_NAME]#*,}"
+        # 提取当前版本信息 (不删除其他键)
+        CURRENT_STABLE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f1)
+        CURRENT_STABLE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f2)
+        CURRENT_PRE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f1)
+        CURRENT_PRE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f2)
         
         echo "目标稳定版: ${CURRENT_STABLE:-无} (${CURRENT_STABLE_DATE:-无日期})"
         echo "目标预发行版: ${CURRENT_PRE:-无} (${CURRENT_PRE_DATE:-无日期})"
@@ -102,14 +107,13 @@ jobs:
         download_apk() {
           local release_json="$1"
           local key="$2"
-          local target="apk/$key"
           local current_version="$3"
           
           # 检查是否需要更新
           local latest_version=$(normalize_version "$(jq -r '.tag_name' <<< "$release_json")")
           local status_code=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/$target")
+            "https://api.github.com/repos/$TARGET_REPO/contents/apk/$key")
           
           if [ "$status_code" != "200" ] || [ "$latest_version" != "$current_version" ]; then
             echo "需要更新: $key ($current_version → $latest_version)"
@@ -151,22 +155,24 @@ jobs:
           NEW_PRE_DATE="$CURRENT_PRE_DATE"
         fi
         
-        # 更新版本数据
-        declare -A NEW_VERSION_DATA=(
-          ["$STABLE_KEY_NAME"]="$NEW_STABLE_VERSION,$NEW_STABLE_DATE"
-          ["$PRE_RELEASE_KEY_NAME"]="$NEW_PRE_VERSION,$NEW_PRE_DATE"
-        )
+        # 更新版本数据 (保留所有现有键)
+        UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
+          --arg stable_key "$STABLE_KEY_NAME" \
+          --arg stable_value "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
+          --arg pre_key "$PRE_RELEASE_KEY_NAME" \
+          --arg pre_value "$NEW_PRE_VERSION,$NEW_PRE_DATE" \
+          '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
         
-        # 上传版本文件
+        # 上传版本文件 (确保格式正确)
         SHA_VERSION=$(jq -r '.sha // empty' <<< "$VERSION_FILE")
-        VERSION_CONTENT=$(jq -n '$ARGS.positional' --args "${NEW_VERSION_DATA[@]}")
+        ENCODED_CONTENT=$(echo -n "$UPDATED_VERSION_JSON" | base64 -w0)
         
         curl -s -X PUT \
           -H "Authorization: token $TOKEN" \
           -H "Content-Type: application/json" \
           -d "$(jq -n \
             --arg msg "更新版本文件" \
-            --arg content "$(echo -n "$VERSION_CONTENT" | base64 -w0)" \
+            --arg content "$ENCODED_CONTENT" \
             --arg sha "$SHA_VERSION" \
             '{message: $msg, content: $content, sha: $sha}')" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt"
