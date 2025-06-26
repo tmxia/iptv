@@ -61,9 +61,9 @@ jobs:
         # 配置参数
         GROUP = "TAuxiliary"  # 群组用户名
         TOPIC_ID = 3763       # 话题ID
-        APK_PATH = "apk/TAuxiliary.apk"
+        APK_PATH = "apk/tauxiliary.apk"
         VERSION_FILE = "version.txt"
-        VERSION_KEY = "TAuxiliary.apk"
+        VERSION_KEY = "tauxiliary.apk"
         API_BASE = "https://api.github.com"
         
         def log(msg):
