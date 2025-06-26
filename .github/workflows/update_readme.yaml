@@ -199,12 +199,31 @@ jobs:
             # 获取所有APK文件列表
             apk_files=$(find apk -type f -name "*.apk" -exec basename {} \;)
             
+            # 获取所有内核文件列表
+            kernel_files=$(find kernels -type f -name "*.zip" -exec basename {} \;)
+            
             # 创建文件大小映射
             declare -A file_sizes
             echo "获取APK文件大小:"
             for file in $apk_files; do
               # 获取文件元数据
               api_url="${API_BASE}apk/${file}?ref=${BRANCH}"
+              api_response=$(curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" "$api_url")
+              
+              if size=$(echo "$api_response" | jq -r '.size'); then
+                if [ "$size" != "null" ]; then
+                  # 计算MB大小并格式化为两位小数
+                  file_mb=$(echo "scale=2; $size / (1024*1024)" | bc)
+                  file_sizes["$file"]=$file_mb
+                  echo "  - $file: $file_mb MB"
+                fi
+              fi
+            done
+            
+            echo "获取内核文件大小:"
+            for file in $kernel_files; do
+              # 获取文件元数据
+              api_url="${API_BASE}kernels/${file}?ref=${BRANCH}"
               api_response=$(curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" "$api_url")
               
               if size=$(echo "$api_response" | jq -r '.size'); then
