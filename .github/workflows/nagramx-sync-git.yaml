@@ -32,7 +32,7 @@ jobs:
         # 提前设置带认证的远程URL
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         
-    # 在开始同步前获取仓库锁 - 关键修复位置
+    # 在开始同步前获取仓库锁
     - name: Acquire Repository Lock 🔒
       uses: softprops/turnstyle@v1
       with:
@@ -43,21 +43,21 @@ jobs:
     - name: Run sync script
       env:
         SOURCE_REPO: "risin42/NagramX"
-        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用认证令牌
         APK_PATTERN: "arm64-v8a.apk"
-        ANDROID_TARGET_NAME: "nagramx.apk"
+        STABLE_TARGET_NAME: "nagramx.apk"  # 修正为更准确的变量名
       run: |
         # 目标文件路径
-        ANDROID_TARGET_PATH="apk/$ANDROID_TARGET_NAME"
+        STABLE_TARGET_PATH="apk/$STABLE_TARGET_NAME"
         
         # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 获取所有发布版（只取稳定版）
+        # 获取所有发布版（使用认证令牌）
         echo "获取稳定版本信息..."
-        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
+        RELEASES_JSON=$(curl -sL -H "Authorization: Bearer $TOKEN" "https://api.github.com/repos/$SOURCE_REPO/releases")
         if [ $? -ne 0 ]; then
           echo "错误: 无法获取发布信息"
           exit 1
@@ -74,7 +74,7 @@ jobs:
         STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
         RELEASE_DATE=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
         
-        # 关键修复：从发布标题中提取完整版本号并添加 'v' 前缀
+        # 从发布标题中提取完整版本号并添加 'v' 前缀
         RAW_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.name' | grep -oP '(\d+\.)+\d+' | head -1)
         if [ -z "$RAW_VERSION" ]; then
           # 如果无法从标题提取，则使用标签名作为备选
@@ -98,25 +98,25 @@ jobs:
         # 读取当前版本信息
         CURRENT_VERSION_JSON=$(cat version.txt)
         
-        # 解析当前版本和日期
-        CURRENT_ANDROID_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$ANDROID_TARGET_NAME\"")
+        # 解析当前稳定版和日期
+        CURRENT_STABLE_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_TARGET_NAME\"")
         
         # 分离版本和日期
-        CURRENT_ANDROID_VERSION=""
-        CURRENT_ANDROID_DATE=""
-        if [ "$CURRENT_ANDROID_FULL" != "null" ] && [[ "$CURRENT_ANDROID_FULL" == *,* ]]; then
-          CURRENT_ANDROID_VERSION=$(echo "$CURRENT_ANDROID_FULL" | cut -d, -f1)
-          CURRENT_ANDROID_DATE=$(echo "$CURRENT_ANDROID_FULL" | cut -d, -f2)
+        CURRENT_STABLE_VERSION=""
+        CURRENT_STABLE_DATE=""
+        if [ "$CURRENT_STABLE_FULL" != "null" ] && [[ "$CURRENT_STABLE_FULL" == *,* ]]; then
+          CURRENT_STABLE_VERSION=$(echo "$CURRENT_STABLE_FULL" | cut -d, -f1)
+          CURRENT_STABLE_DATE=$(echo "$CURRENT_STABLE_FULL" | cut -d, -f2)
         fi
         
-        echo "当前Android版本: ${CURRENT_ANDROID_VERSION:-无} (日期: ${CURRENT_ANDROID_DATE:-无})"
+        echo "当前稳定版: ${CURRENT_STABLE_VERSION:-无} (日期: ${CURRENT_STABLE_DATE:-无})"
 
         # 检查是否需要更新
         need_update=false
         
-        # 检查Android版本和文件
-        if [ "$STABLE_VERSION" != "$CURRENT_ANDROID_VERSION" ] || [ ! -f "$ANDROID_TARGET_PATH" ]; then
-          echo "Android需要更新: 版本不匹配或文件不存在"
+        # 检查稳定版版本和文件
+        if [ "$STABLE_VERSION" != "$CURRENT_STABLE_VERSION" ] || [ ! -f "$STABLE_TARGET_PATH" ]; then
+          echo "稳定版需要更新: 版本不匹配或文件不存在"
           need_update=true
         fi
         
@@ -127,34 +127,34 @@ jobs:
           # 下载新版本文件
           echo "下载新版本文件..."
           
-          # 查找Android APK文件
+          # 查找稳定版APK文件
           apk_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
           if [ -z "$apk_download_url" ]; then
-            echo "错误: 未找到匹配的Android APK文件"
+            echo "错误: 未找到匹配的稳定版APK文件"
             exit 1
           fi
           
           # 确保apk目录存在
           mkdir -p apk
           
-          # 下载Android APK
+          # 下载稳定版APK
           apk_source_name=$(basename "$apk_download_url")
-          echo "下载Android APK: $apk_source_name"
+          echo "下载稳定版APK: $apk_source_name"
           curl -sL "$apk_download_url" -o "$WORK_DIR/$apk_source_name"
           if [ ! -f "$WORK_DIR/$apk_source_name" ]; then
-            echo "错误: Android APK下载失败"
+            echo "错误: 稳定版APK下载失败"
             exit 1
           fi
           
           # 重命名并移动到目标位置
-          mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH"
-          echo "文件已保存到: $ANDROID_TARGET_PATH"
+          mv "$WORK_DIR/$apk_source_name" "$STABLE_TARGET_PATH"
+          echo "文件已保存到: $STABLE_TARGET_PATH"
 
           # 更新版本文件（保留其他键值，添加日期）
           UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
-            --arg android_key "$ANDROID_TARGET_NAME" \
-            --arg android_value "$STABLE_VERSION,$RELEASE_DATE" \
-            '.[$android_key] = $android_value')
+            --arg stable_key "$STABLE_TARGET_NAME" \
+            --arg stable_value "$STABLE_VERSION,$RELEASE_DATE" \
+            '.[$stable_key] = $stable_value')
             
           echo "$UPDATED_VERSION_JSON" > version.txt
         fi
@@ -330,14 +330,13 @@ jobs:
             sys.exit(asyncio.run(main()))
         EOF
 
-    # ========== 关键修复：提交前处理未提交的更改 ==========
+    # ========== 提交前处理未提交的更改 ==========
     - name: Stage changes before pull
       run: |
         # 添加所有更改到暂存区
         git add -A
         echo "已暂存所有更改"
 
-    # ========== 关键修复：使用更安全的重置方法 ==========
     - name: Reset uncommitted changes
       run: |
         # 重置所有未提交的更改（保留工作区）
