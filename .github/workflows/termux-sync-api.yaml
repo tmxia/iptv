@@ -71,10 +71,18 @@ jobs:
         if [ "$(echo "$version_response" | jq -r '.message')" != "Not Found" ]; then
           current_versions=$(echo "$version_response" | jq -r '.content' | base64 -d | jq -c .)
           echo "当前版本信息:"
-          echo "$current_versions" | jq -r 'to_entries[] | "\(.key): \(.value)"'
+          # 只显示的键值
+          echo "$current_versions" | jq -r ".\"$STABLE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$STABLE_KEY_NAME" '{print key ": " $0}'
+          if [ "$sync_pre_release" = true ]; then
+            echo "$current_versions" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$PRE_RELEASE_KEY_NAME" '{print key ": " $0}'
+          fi
         else
           current_versions="{}"
           echo "无版本文件"
+          echo "$STABLE_KEY_NAME: (未设置)"
+          if [ "$sync_pre_release" = true ]; then
+            echo "$PRE_RELEASE_KEY_NAME: (未设置)"
+          fi
         fi
         
         # 3. 更新版本数据函数
@@ -187,9 +195,13 @@ jobs:
           -d "$version_json" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt" > /dev/null
         
-        # 9. 显示最终版本信息
-        echo "同步完成! 版本信息:"
-        echo "$current_versions" | jq -r 'to_entries[] | "\(.key): \(.value)"'
+        # 9. 显示最终当前的版本信息
+        echo "同步完成! 当前版本信息:"
+        # 只显示相应的键值
+        echo "$current_versions" | jq -r ".\"$STABLE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$STABLE_KEY_NAME" '{print key ": " $0}'
+        if [ "$sync_pre_release" = true ]; then
+          echo "$current_versions" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$PRE_RELEASE_KEY_NAME" '{print key ": " $0}'
+        fi
 
   cleanup_self:
     name: Cleanup Self Workflow History
