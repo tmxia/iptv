@@ -54,10 +54,12 @@ jobs:
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         from telethon.tl.types import DocumentAttributeFilename
+        from telethon.tl.functions.messages import GetDialogsRequest
+        from telethon.tl.types import InputPeerEmpty
         import pytz
         
         # 配置参数
-        CHANNEL = "TAuxiliary"
+        GROUP_NAME = "TAuxiliary"  # 群组名称或用户名
         APK_FILE = "TAuxiliary.apk"
         VERSION_FILE = "version.txt"
         VERSION_KEY = "TAuxiliary.apk"
@@ -109,13 +111,38 @@ jobs:
         
         def extract_version(filename):
             """从文件名提取版本号"""
-            # 修复正则表达式，支持更多格式
-            match = re.search(r'TAuxiliary[-_]?([\d.]+)[_-]([a-f0-9]+)\.apk', filename, re.IGNORECASE)
-            if match:
-                version = match.group(1)
-                commit_hash = match.group(2)
-                return f"v{version}", commit_hash
+            # 支持多种格式的文件名
+            patterns = [
+                r'TAuxiliary[-_]?([\d.]+)[_-]([a-f0-9]+)\.apk',
+                r'TAuxiliary[-_]?([\d.]+)\.apk',
+                r'TAuxiliary[-_]?([\d.]+)_([a-f0-9]+)\.apk'
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, filename, re.IGNORECASE)
+                if match:
+                    version = match.group(1)
+                    commit_hash = match.group(2) if match.lastindex > 1 else None
+                    return f"v{version}", commit_hash
             return None, None
+        
+        async def find_group(client, group_name):
+            """查找群组实体"""
+            # 获取所有对话
+            dialogs = await client(GetDialogsRequest(
+                offset_date=None,
+                offset_id=0,
+                offset_peer=InputPeerEmpty(),
+                limit=100,
+                hash=0
+            ))
+            
+            # 搜索匹配的群组
+            for dialog in dialogs.dialogs:
+                entity = dialogs.chats[dialog.peer.channel_id]
+                if entity.title.lower() == group_name.lower() or getattr(entity, 'username', '').lower() == group_name.lower():
+                    return entity
+            return None
         
         async def main():
             """主同步逻辑"""
@@ -138,12 +165,19 @@ jobs:
             
             try:
                 await client.start()
-                entity = await client.get_entity(CHANNEL)
-                log(f"Connected to Telegram channel: {entity.title}")
+                log("Connected to Telegram")
+                
+                # 查找群组
+                group = await find_group(client, GROUP_NAME)
+                if not group:
+                    log(f"Error: Group '{GROUP_NAME}' not found")
+                    return 1
+                
+                log(f"Found group: {group.title}")
                 
                 # 查找最新APK
                 found = False
-                async for msg in client.iter_messages(entity, limit=20):
+                async for msg in client.iter_messages(group, limit=30):
                     if msg.media and hasattr(msg.media, "document"):
                         for attr in msg.media.document.attributes:
                             if isinstance(attr, DocumentAttributeFilename):
@@ -161,7 +195,7 @@ jobs:
                                     # 检查是否需要更新
                                     if new_value != current:
                                         # 下载APK
-                                        log(f"Downloading new version: {version} ({commit_hash})")
+                                        log(f"Downloading new version: {version} ({commit_hash or 'no hash'})")
                                         await client.download_media(msg, file=APK_FILE)
                                         
                                         # 更新版本文件
@@ -183,7 +217,7 @@ jobs:
                             break
                 
                 if not found:
-                    log("No valid TAuxiliary APK found in channel messages")
+                    log("No valid TAuxiliary APK found in group messages")
                 return 0
             except Exception as e:
                 log(f"Error: {str(e)}")
