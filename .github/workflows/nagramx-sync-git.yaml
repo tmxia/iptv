@@ -45,7 +45,7 @@ jobs:
         SOURCE_REPO: "risin42/NagramX"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用认证令牌
         APK_PATTERN: "arm64-v8a.apk"
-        STABLE_TARGET_NAME: "nagramx.apk"  # 修正为更准确的变量名
+        STABLE_TARGET_NAME: "nagramx.apk"
       run: |
         # 目标文件路径
         STABLE_TARGET_PATH="apk/$STABLE_TARGET_NAME"
@@ -330,34 +330,41 @@ jobs:
             sys.exit(asyncio.run(main()))
         EOF
 
-    # ========== 提交前处理未提交的更改 ==========
-    - name: Stage changes before pull
+    # ========== 可靠的备份和恢复方法 ==========
+    - name: Backup APK and version files
       run: |
-        # 添加所有更改到暂存区
-        git add -A
-        echo "已暂存所有更改"
+        echo "备份重要文件..."
+        mkdir -p /tmp/sync_backup
+        cp -a apk /tmp/sync_backup/ || echo "没有apk目录可备份"
+        cp -a version.txt /tmp/sync_backup/ || echo "没有version.txt可备份"
+        echo "备份完成"
 
-    - name: Reset uncommitted changes
+    - name: Reset to remote main branch
       run: |
-        # 重置所有未提交的更改（保留工作区）
-        git reset --soft HEAD
-        echo "已重置暂存区更改"
+        echo "重置到远程main分支..."
+        git fetch origin main
+        git reset --hard origin/main
+        echo "重置完成"
 
-    - name: Pull latest changes before commit
+    - name: Restore APK and version files
       run: |
-        echo "拉取远程最新更改..."
-        git pull --rebase origin main
-        echo "已同步远程最新更改"
-
-    - name: Restore changes after pull
-      run: |
-        # 恢复工作区更改
-        git checkout -- .
-        echo "已恢复工作区更改"
+        echo "恢复备份文件..."
+        # 恢复APK目录
+        if [ -d "/tmp/sync_backup/apk" ]; then
+          rm -rf apk  # 删除重置后的apk目录
+          mv /tmp/sync_backup/apk .
+          echo "恢复apk目录"
+        fi
         
-        # 重新添加需要提交的文件
-        git add apk/ version.txt
-        echo "重新添加APK和版本文件"
+        # 恢复版本文件
+        if [ -f "/tmp/sync_backup/version.txt" ]; then
+          mv /tmp/sync_backup/version.txt .
+          echo "恢复version.txt"
+        fi
+        
+        # 清理备份
+        rm -rf /tmp/sync_backup
+        echo "恢复完成"
 
     - name: Commit and Push Changes
       run: |
