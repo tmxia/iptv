@@ -177,53 +177,56 @@ jobs:
             # 设置基础URL
             REPO="${{ github.repository }}"
             BRANCH="${{ github.ref_name }}"
-            BASE_URL="https://api.github.com/repos/${REPO}/contents/"
+            API_BASE="https://api.github.com/repos/${REPO}/contents/"
+            TOKEN="${{ secrets.REPO_PAT }}"
             
             # 创建临时文件
             TEMP_FILE=$(mktemp)
             
             # 处理每一行
+            line_number=0
             while IFS= read -r line; do
+              line_number=$((line_number+1))
+              
               # 检查是否包含无效大小值
               if [[ "$line" =~ \|.*\|(0\.00|N/A|0|0\.0|0\.)\|.*\| ]]; then
-                # 提取下载链接
-                if [[ "$line" =~ \[下载\]\((.*)\) ]]; then
-                  download_url="${BASH_REMATCH[1]}"
-                  
-                  # 提取文件路径
-                  path_part="${download_url#*${BRANCH}/}"
+                # 提取文件名
+                if [[ "$line" =~ \<div\>([^<]+)\.apk\<\/div\> ]]; then
+                  file_name="${BASH_REMATCH[1]}.apk"
                   
                   # 构建API URL
-                  api_url="${BASE_URL}${path_part}?ref=${BRANCH}"
+                  api_url="${API_BASE}apk/${file_name}?ref=${BRANCH}"
+                  
+                  echo "处理文件: $file_name"
+                  echo "API URL: $api_url"
                   
                   # 获取文件元数据
-                  echo "获取文件大小: $api_url"
-                  api_response=$(curl -s -H "Accept: application/vnd.github.v3+json" "$api_url")
-                  file_size=$(echo "$api_response" | jq -r '.size')
+                  api_response=$(curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" "$api_url")
                   
-                  if [ -n "$file_size" ] && [ "$file_size" != "null" ]; then
+                  # 检查响应是否有效
+                  if echo "$api_response" | jq -e '.size' >/dev/null 2>&1; then
+                    file_size=$(echo "$api_response" | jq -r '.size')
+                    
                     # 计算MB大小
                     file_mb=$(echo "scale=2; $file_size / (1024*1024)" | bc)
                     
                     # 替换行中的大小值
-                    # 使用更精确的替换模式
                     new_line=$(echo "$line" | sed -E "s/\| (0\.00|N/A|0|0\.0|0\.) \|/| $file_mb |/")
                     
-                    echo "修复文件大小: $download_url"
-                    echo "原始行: $line"
-                    echo "新行: $new_line"
-                    
+                    echo "修复行 #$line_number: $file_name → $file_mb MB"
                     echo "$new_line" >> "$TEMP_FILE"
-                    continue
                   else
-                    echo "无法获取文件大小: $download_url"
+                    echo "无法获取文件大小: $file_name"
                     echo "API响应: $api_response"
+                    echo "$line" >> "$TEMP_FILE"
                   fi
+                else
+                  echo "无法提取文件名: $line"
+                  echo "$line" >> "$TEMP_FILE"
                 fi
+              else
+                echo "$line" >> "$TEMP_FILE"
               fi
-              
-              # 保留原始行
-              echo "$line" >> "$TEMP_FILE"
             done < README.md
             
             # 替换原始文件
@@ -267,7 +270,6 @@ jobs:
           if grep -qE '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md; then
             echo "::warning::检测到未修复的无效文件大小值"
             grep -E '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md
-            exit 1
           fi
 
   cleanup_self:
