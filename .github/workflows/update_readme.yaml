@@ -167,17 +167,17 @@ jobs:
           
           echo "Generated new README.md with APK and Kernel tables (sorted by date)"
 
-      - name: 检测并修复文件大小为0的条目
+      - name: 检测并修复无效文件大小
         if: always() && steps.generate-readme.conclusion == 'success'
         run: |
-          # 检查是否有无效的文件大小（0或N/A）
-          if grep -qE '\| (0\.00|N/A) \|' README.md; then
+          # 检测无效文件大小值 (0, 0.00, N/A, 空值)
+          if grep -qE '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md; then
             echo "检测到无效的文件大小值，尝试修复..."
             
             # 设置基础URL
             REPO="${{ github.repository }}"
             BRANCH="${{ github.ref_name }}"
-            RAW_BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
+            BASE_URL="https://api.github.com/repos/${REPO}/contents/"
             
             # 创建临时文件
             TEMP_FILE=$(mktemp)
@@ -185,33 +185,39 @@ jobs:
             # 处理每一行
             while IFS= read -r line; do
               # 检查是否包含无效大小值
-              if [[ "$line" =~ \|.*\|(0\.00|N/A)\|.*\| ]]; then
-                # 提取下载链接和文件名
+              if [[ "$line" =~ \|.*\|(0\.00|N/A|0|0\.0|0\.)\|.*\| ]]; then
+                # 提取下载链接
                 if [[ "$line" =~ \[下载\]\((.*)\) ]]; then
                   download_url="${BASH_REMATCH[1]}"
                   
-                  # 获取实际GitHub API URL
-                  api_url="${download_url/raw.githubusercontent.com/api.github.com/repos}"
-                  api_url="${api_url/\/${BRANCH}\//\/contents\/}"
-                  api_url="${api_url%%\?*}"
+                  # 提取文件路径
+                  path_part="${download_url#*${BRANCH}/}"
                   
-                  # 获取文件大小（通过GitHub API）
-                  file_size=$(curl -s "$api_url" | jq -r '.size')
+                  # 构建API URL
+                  api_url="${BASE_URL}${path_part}?ref=${BRANCH}"
+                  
+                  # 获取文件元数据
+                  echo "获取文件大小: $api_url"
+                  api_response=$(curl -s -H "Accept: application/vnd.github.v3+json" "$api_url")
+                  file_size=$(echo "$api_response" | jq -r '.size')
                   
                   if [ -n "$file_size" ] && [ "$file_size" != "null" ]; then
                     # 计算MB大小
                     file_mb=$(echo "scale=2; $file_size / (1024*1024)" | bc)
                     
                     # 替换行中的大小值
-                    new_line=$(echo "$line" | sed -E "s/\| (0\.00|N/A) \|/| $file_mb |/")
+                    # 使用更精确的替换模式
+                    new_line=$(echo "$line" | sed -E "s/\| (0\.00|N/A|0|0\.0|0\.) \|/| $file_mb |/")
                     
-                    # 记录修复信息
                     echo "修复文件大小: $download_url"
                     echo "原始行: $line"
                     echo "新行: $new_line"
                     
                     echo "$new_line" >> "$TEMP_FILE"
                     continue
+                  else
+                    echo "无法获取文件大小: $download_url"
+                    echo "API响应: $api_response"
                   fi
                 fi
               fi
@@ -245,7 +251,7 @@ jobs:
           # 使用 PAT 令牌推送
           git push "https://${{ github.actor }}:${{ secrets.REPO_PAT }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
 
-      - name: Simple verification
+      - name: 验证结果
         run: |
           # 简单验证README是否包含关键内容
           if grep -q "应用版本列表" README.md && \
@@ -258,9 +264,10 @@ jobs:
           fi
           
           # 验证是否还有无效文件大小
-          if grep -qE '\| (0\.00|N/A) \|' README.md; then
+          if grep -qE '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md; then
             echo "::warning::检测到未修复的无效文件大小值"
-            grep -E '\| (0\.00|N/A) \|' README.md
+            grep -E '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md
+            exit 1
           fi
 
   cleanup_self:
