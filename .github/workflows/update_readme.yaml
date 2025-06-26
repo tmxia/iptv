@@ -36,7 +36,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc jq curl
+          sudo apt-get install -y bc jq
 
       - name: Validate version files
         id: validate-versions
@@ -76,7 +76,6 @@ jobs:
           fi
 
       - name: Generate new README
-        id: generate-readme
         run: |
           # 设置基础URL
           REPO="${{ github.repository }}"
@@ -167,120 +166,6 @@ jobs:
           
           echo "Generated new README.md with APK and Kernel tables (sorted by date)"
 
-      - name: 检测并修复无效文件大小
-        if: always() && steps.generate-readme.conclusion == 'success'
-        run: |
-          # 在修复前强制刷新本地工作区
-          git reset --hard HEAD
-          git pull origin ${{ github.ref_name }}
-          
-          # 检测无效文件大小值
-          if grep -qE '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md; then
-            echo "检测到无效的文件大小值，尝试修复..."
-            
-            # 设置基础URL
-            REPO="${{ github.repository }}"
-            BRANCH="${{ github.ref_name }}"
-            API_BASE="https://api.github.com/repos/${REPO}/contents/"
-            TOKEN="${{ secrets.REPO_PAT }}"
-            
-            # 创建临时文件
-            TEMP_FILE=$(mktemp)
-            
-            # 获取所有APK文件列表
-            apk_files=$(find apk -type f -name "*.apk" -exec basename {} \;)
-            
-            # 创建文件大小映射
-            declare -A file_sizes
-            echo "获取APK文件大小:"
-            
-            # 双重验证机制：优先使用本地文件，不存在时使用API
-            for file in $apk_files; do
-              file_path="apk/$file"
-              
-              # 首先检查本地文件
-              if [ -f "$file_path" ]; then
-                file_bytes=$(stat -c%s "$file_path")
-                file_mb=$(echo "scale=2; $file_bytes / (1024*1024)" | bc)
-                file_sizes["$file"]=$file_mb
-                echo "  - 本地获取: $file → $file_mb MB"
-              else
-                # 本地不存在时使用API获取
-                api_url="${API_BASE}apk/${file}?ref=${BRANCH}"
-                api_response=$(curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" "$api_url")
-                
-                if size=$(echo "$api_response" | jq -r '.size'); then
-                  if [ "$size" != "null" ]; then
-                    file_mb=$(echo "scale=2; $size / (1024*1024)" | bc)
-                    file_sizes["$file"]=$file_mb
-                    echo "  - API获取: $file → $file_mb MB"
-                  else
-                    echo "::warning::无法获取文件大小: $file"
-                    file_sizes["$file"]="N/A"
-                  fi
-                else
-                  echo "::warning::API请求失败: $file"
-                  file_sizes["$file"]="N/A"
-                fi
-              fi
-            done
-            
-            # 处理README每一行
-            fixed_count=0
-            while IFS= read -r line; do
-              # 只处理表格行
-              if [[ "$line" == *"|"*"|"*"|"*"|"* ]]; then
-                # 分割行为列
-                IFS='|' read -r -a columns <<< "$line"
-                
-                # 检查是否是有效的表格行（至少有5列）
-                if [ ${#columns[@]} -ge 5 ]; then
-                  # 文件名在列索引1
-                  file_col="${columns[1]}"
-                  
-                  # 提取文件名（从第一个列中）
-                  if [[ "$file_col" =~ \<div\>([^<]+)\<\/div\> ]]; then
-                    file_name="${BASH_REMATCH[1]}"
-                    
-                    # 文件大小在列索引2
-                    size_col="${columns[2]// /}"  # 移除空格
-                    
-                    # 检查文件大小列是否无效
-                    if [[ "$size_col" =~ ^(0\.00|N/A|0|0\.0|0\.)$ ]]; then
-                      # 检查是否有对应的大小值
-                      if [[ -n "${file_sizes[$file_name]}" ]]; then
-                        # 替换大小列
-                        new_size="${file_sizes[$file_name]}"
-                        # 确保新值是有效的文件大小
-                        if [[ "$new_size" =~ ^[0-9.]+$ ]]; then
-                          columns[2]=" $new_size "
-                          
-                          # 重建行
-                          new_line="|${columns[1]}|${columns[2]}|${columns[3]}|${columns[4]}|"
-                          
-                          fixed_count=$((fixed_count+1))
-                          echo "修复文件大小值: $file_name: $size_col → $new_size"
-                          
-                          echo "$new_line" >> "$TEMP_FILE"
-                          continue
-                        fi
-                      fi
-                    fi
-                  fi
-                fi
-              fi
-              
-              # 保留原始行
-              echo "$line" >> "$TEMP_FILE"
-            done < README.md
-            
-            # 替换原始文件
-            mv "$TEMP_FILE" README.md
-            echo "已修复 $fixed_count 个无效的文件大小值"
-          else
-            echo "未检测到无效的文件大小值"
-          fi
-
       - name: 提交更改
         run: |
           # 检查是否有需要提交的更改
@@ -299,22 +184,8 @@ jobs:
           # 使用 PAT 令牌推送
           git push "https://${{ github.actor }}:${{ secrets.REPO_PAT }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
 
-      - name: 验证结果
+      - name: Simple verification
         run: |
-          # 强制刷新本地仓库状态
-          git reset --hard HEAD
-          git pull origin ${{ github.ref_name }}
-          
-          # 验证是否还有无效文件大小
-          invalid_count=$(grep -cE '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md || true)
-          if [ "$invalid_count" -gt 0 ]; then
-            echo "::error::仍检测到 $invalid_count 个无效文件大小值"
-            grep -E '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md
-            exit 1
-          else
-            echo "✅ 所有文件大小值有效"
-          fi
-          
           # 简单验证README是否包含关键内容
           if grep -q "应用版本列表" README.md && \
              grep -q "OpenWrt内核列表" README.md; then
