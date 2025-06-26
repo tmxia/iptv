@@ -213,19 +213,24 @@ jobs:
                 # 分割行为列
                 IFS='|' read -r -a columns <<< "$line"
                 
-                # 检查是否是有效的表格行（至少有4列）
-                if [ ${#columns[@]} -ge 4 ]; then
+                # 检查是否是有效的表格行（至少有5列：文件名、大小、版本、日期）
+                if [ ${#columns[@]} -ge 5 ]; then
+                  # 文件名在列索引1（因为索引0是行首空列）
+                  file_col="${columns[1]}"
+                  
                   # 提取文件名（从第一个列中）
-                  if [[ "${columns[0]}" =~ \<div\>([^<]+)\<\/div\> ]]; then
+                  if [[ "$file_col" =~ \<div\>([^<]+)\<\/div\> ]]; then
                     file_name="${BASH_REMATCH[1]}"
                     
+                    # 文件大小在列索引2
+                    size_col="${columns[2]// /}"  # 移除空格
+                    
                     # 检查文件大小列是否无效
-                    size_col="${columns[1]// /}"  # 移除空格
                     if [[ "$size_col" =~ ^(0\.00|N/A|0|0\.0|0\.)$ ]]; then
                       # 检查是否有对应的大小值
                       if [[ -n "${file_sizes[$file_name]}" ]]; then
                         # 替换大小列
-                        columns[1]=" ${file_sizes[$file_name]} "
+                        columns[2]=" ${file_sizes[$file_name]} "
                         
                         # 重建行
                         new_line=$(IFS='|'; echo "${columns[*]}")
@@ -238,7 +243,7 @@ jobs:
                       fi
                     fi
                   else
-                    echo "行 #$line_number: 无法提取文件名: ${columns[0]}"
+                    echo "行 #$line_number: 无法提取文件名: $file_col"
                   fi
                 fi
               fi
