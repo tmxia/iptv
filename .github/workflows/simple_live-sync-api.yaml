@@ -2,7 +2,7 @@ name: Simple_live APK Sync from Source Repository
 
 on:
   schedule:
-    - cron: '0 */1 * * *'  # 每1小时运行一次
+    - cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:
 
 permissions:
