@@ -1,4 +1,4 @@
-name: TAuxiliary Sync from TELEGRAM
+name: TAuxiliary APK Sync
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   sync:
@@ -21,8 +20,7 @@ jobs:
       uses: softprops/turnstyle@v1
       with:
         same-branch-only: true
-        poll-interval-seconds: 30
-        abort-after-seconds: 1200
+        abort-after-seconds: 600
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -37,9 +35,9 @@ jobs:
         python-version: '3.10'
 
     - name: Install dependencies
-      run: pip install telethon pytz
+      run: pip install telethon pytz > /dev/null
 
-    - name: Run TAuxiliary Version Sync
+    - name: Sync TAuxiliary APK
       env:
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
@@ -59,59 +57,44 @@ jobs:
         import pytz
         
         # 配置参数
-        TELEGRAM_CHANNEL = "TAuxiliary"
-        VERSION_FILE = "TAuxiliary.apk"
-        MESSAGE_LIMIT = 15
+        CHANNEL = "TAuxiliary"
+        APK_FILE = "TAuxiliary.apk"
+        VERSION_FILE = "version.txt"
+        VERSION_KEY = "TAuxiliary.apk"
         
-        # 配置日志
-        def log(message):
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{timestamp}] {message}")
-        
-        log("="*50 + "\nTAuxiliary 版本同步工具启动\n" + "="*50)
+        def log(msg):
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
         
         def git_setup():
-            """配置Git环境"""
-            try:
-                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
-                email = f"{actor}@users.noreply.github.com"
-                
-                subprocess.run(["git", "config", "user.name", actor], check=True)
-                subprocess.run(["git", "config", "user.email", email], check=True)
-                
-                # 拉取最新更改
-                subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
-                log("Git配置完成")
-                return True
-            except Exception as e:
-                log(f"Git设置失败: {str(e)}")
-                return False
+            """静默配置Git"""
+            actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
+            email = f"{actor}@users.noreply.github.com"
+            subprocess.run(["git", "config", "user.name", actor], 
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["git", "config", "user.email", email], 
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["git", "pull", "origin", "main", "--rebase"], 
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        def git_commit_push(message):
-            """提交并推送更改"""
-            try:
-                # 添加更改
-                subprocess.run(["git", "add", VERSION_FILE], check=True)
-                
-                # 检查是否有更改
-                status = subprocess.run(["git", "status", "--porcelain"], 
-                                       capture_output=True, text=True)
-                if not status.stdout.strip():
-                    log("没有更改需要提交")
-                    return True
-                
-                # 提交
-                subprocess.run(["git", "commit", "-m", message], check=True)
-                
-                # 推送
-                token = os.environ['GITHUB_TOKEN']
-                repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
-                subprocess.run(["git", "push", repo_url, "HEAD:main"], check=True)
-                log("推送成功")
-                return True
-            except Exception as e:
-                log(f"Git操作失败: {str(e)}")
+        def git_commit_push():
+            """静默提交更改"""
+            subprocess.run(["git", "add", APK_FILE, VERSION_FILE], 
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            # 检查是否有更改
+            status = subprocess.run(["git", "status", "--porcelain"], 
+                                   capture_output=True, text=True)
+            if not status.stdout.strip():
                 return False
+            
+            token = os.environ['GITHUB_TOKEN']
+            repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
+            
+            subprocess.run(["git", "commit", "-m", "Update TAuxiliary APK"], 
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["git", "push", repo_url, "HEAD:main"], 
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
         
         def get_current_version():
             """获取当前版本信息"""
@@ -121,63 +104,30 @@ jobs:
             try:
                 with open(VERSION_FILE, "r") as f:
                     return json.load(f)
-            except Exception:
+            except json.JSONDecodeError:
                 return {}
         
-        def extract_version_info(filename):
-            """从文件名提取版本信息"""
-            pattern = r"TAuxiliary-([\d.]+)_([a-f0-9]+)\.apk"
-            match = re.match(pattern, filename)
+        def extract_version(filename):
+            """从文件名提取版本号"""
+            # 修复正则表达式，支持更多格式
+            match = re.search(r'TAuxiliary[-_]?([\d.]+)[_-]([a-f0-9]+)\.apk', filename, re.IGNORECASE)
             if match:
-                return {
-                    "version": match.group(1),
-                    "commit_hash": match.group(2)
-                }
-            return None
+                version = match.group(1)
+                commit_hash = match.group(2)
+                return f"v{version}", commit_hash
+            return None, None
         
-        async def find_latest_release(client, entity):
-            """查找最新的发布消息"""
-            async for msg in client.iter_messages(entity, limit=MESSAGE_LIMIT):
-                if not (msg.media and hasattr(msg.media, "document")):
-                    continue
-                
-                # 检查文件名属性
-                for attr in msg.media.document.attributes:
-                    if not isinstance(attr, DocumentAttributeFilename):
-                        continue
-                    
-                    filename = attr.file_name
-                    version_info = extract_version_info(filename)
-                    
-                    if version_info:
-                        return {
-                            "filename": filename,
-                            "version": version_info["version"],
-                            "commit_hash": version_info["commit_hash"],
-                            "date": msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
-                        }
-            return None
-        
-        async def main_async():
-            """异步主函数"""
-            # 验证环境变量
-            required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION']
-            if missing := [var for var in required if not os.environ.get(var)]:
-                log(f"错误: 缺少环境变量: {', '.join(missing)}")
-                return 1
-            
-            # 设置Git
-            if not git_setup():
-                return 2
+        async def main():
+            """主同步逻辑"""
+            # 初始化
+            log("Starting TAuxiliary APK sync")
+            git_setup()
             
             # 获取当前版本
-            current_version = get_current_version()
-            if current_version:
-                log(f"当前版本: {current_version.get('version', '未知')}")
-                log(f"当前提交哈希: {current_version.get('commit_hash', '未知')}")
-                log(f"最后更新: {current_version.get('date', '未知')}")
-            else:
-                log("当前无版本信息")
+            versions = get_current_version()
+            current = versions.get(VERSION_KEY, "")
+            if current:
+                log(f"Current version: {current.split(',')[0]}")
             
             # 连接Telegram
             client = TelegramClient(
@@ -188,54 +138,68 @@ jobs:
             
             try:
                 await client.start()
-                log(f"连接Telegram频道: {TELEGRAM_CHANNEL}")
-                entity = await client.get_entity(TELEGRAM_CHANNEL)
+                entity = await client.get_entity(CHANNEL)
+                log(f"Connected to Telegram channel: {entity.title}")
                 
-                # 查找最新发布
-                release = await find_latest_release(client, entity)
-                if not release:
-                    log("未找到TAuxiliary发布消息")
-                    return 0
+                # 查找最新APK
+                found = False
+                async for msg in client.iter_messages(entity, limit=20):
+                    if msg.media and hasattr(msg.media, "document"):
+                        for attr in msg.media.document.attributes:
+                            if isinstance(attr, DocumentAttributeFilename):
+                                filename = attr.file_name
+                                if "TAuxiliary" in filename and filename.endswith(".apk"):
+                                    # 提取版本信息
+                                    version, commit_hash = extract_version(filename)
+                                    if not version:
+                                        log(f"Skipping file: {filename} (invalid format)")
+                                        continue
+                                    
+                                    date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
+                                    new_value = f"{version},{date}"
+                                    
+                                    # 检查是否需要更新
+                                    if new_value != current:
+                                        # 下载APK
+                                        log(f"Downloading new version: {version} ({commit_hash})")
+                                        await client.download_media(msg, file=APK_FILE)
+                                        
+                                        # 更新版本文件
+                                        versions[VERSION_KEY] = new_value
+                                        with open(VERSION_FILE, "w") as f:
+                                            json.dump(versions, f)
+                                        
+                                        # 提交更改
+                                        if git_commit_push():
+                                            log(f"Successfully updated to {version}")
+                                        else:
+                                            log("No changes to commit")
+                                    else:
+                                        log("Already on latest version")
+                                    
+                                    found = True
+                                    break
+                        if found:
+                            break
                 
-                log(f"发现新版本: {release['version']}")
-                log(f"提交哈希: {release['commit_hash']}")
-                log(f"发布日期: {release['date']}")
-                
-                # 检查是否需要更新
-                if (current_version.get("version") == release["version"] and 
-                    current_version.get("commit_hash") == release["commit_hash"]):
-                    log("当前已是最新版本，无需更新")
-                    return 0
-                
-                # 更新版本文件
-                with open(VERSION_FILE, "w") as f:
-                    json.dump(release, f, indent=2)
-                
-                # 提交更改
-                commit_message = f"更新TAuxiliary版本: {release['version']} ({release['commit_hash']})"
-                if git_commit_push(commit_message):
-                    log("同步成功!")
-                else:
-                    log("提交失败")
-                    return 3
-                
+                if not found:
+                    log("No valid TAuxiliary APK found in channel messages")
                 return 0
             except Exception as e:
-                log(f"处理错误: {str(e)}")
-                return 4
+                log(f"Error: {str(e)}")
+                return 1
             finally:
                 await client.disconnect()
         
         if __name__ == "__main__":
             import asyncio
-            sys.exit(asyncio.run(main_async()))
+            sys.exit(asyncio.run(main()))
         EOF
 
     - name: Release Repository Lock
       if: always()
       uses: softprops/turnstyle@v1
       with:
-        continue-on-error: true
         action: unlock
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -249,23 +213,5 @@ jobs:
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: `🚨 TAuxiliary版本同步失败！工作流运行详情: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+            body: `🚨 TAuxiliary同步失败！[查看详情](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
           })
-
-  cleanup_self:
-    name: Cleanup Self Workflow History
-    runs-on: ubuntu-latest
-    needs: sync
-    if: ${{ always() }}
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Delete old workflow runs
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0
-          retain_days: 0
-          delete_workflow_pattern: "TAuxiliary Sync from TELEGRAM"
-          repository: ${{ github.repository }}
