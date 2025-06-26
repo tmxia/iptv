@@ -18,7 +18,7 @@
   "hiddify-beta.apk": "v2.5.7,2024-10-03",
   "termux.apk": "v0.118.3,2025-05-22",
   "termux-beta.apk": "v0.119.0,2025-05-22",
-  "nagramx-beta.apk": "v11.12.0-471c3c2,2025-06-21",
+  "nagramx-beta.apk": "v11.12.0,2025-06-21",
   "leanback-pro.apk": "v3.3.6,2025-06-20",
   "mobile-pro.apk": "v3.3.6,2025-06-20",
   "19.07_luci-passwall.zip": "25.6.1-1,2025-05-31",
