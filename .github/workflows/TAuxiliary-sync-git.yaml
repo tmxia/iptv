@@ -35,7 +35,7 @@ jobs:
         python-version: '3.10'
 
     - name: Install dependencies
-      run: pip install telethon pytz > /dev/null
+      run: pip install telethon pytz requests > /dev/null
 
     - name: Sync TAuxiliary APK
       env:
@@ -43,13 +43,15 @@ jobs:
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
         python - << "EOF"
         import os
         import re
         import json
         import sys
-        import subprocess
+        import base64
+        import requests
         from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
@@ -59,72 +61,67 @@ jobs:
         # 配置参数
         GROUP = "TAuxiliary"  # 群组用户名
         TOPIC_ID = 3763       # 话题ID
-        APK_DIR = "apk"       # APK存储目录
-        APK_FILE = "TAuxiliary.apk"
-        APK_PATH = os.path.join(APK_DIR, APK_FILE)  # 完整路径
+        APK_PATH = "apk/TAuxiliary.apk"
         VERSION_FILE = "version.txt"
         VERSION_KEY = "TAuxiliary.apk"
+        API_BASE = "https://api.github.com"
         
         def log(msg):
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
         
-        def git_setup():
-            """配置Git环境"""
-            actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
-            email = f"{actor}@users.noreply.github.com"
-            subprocess.run(["git", "config", "user.name", actor], 
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["git", "config", "user.email", email], 
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["git", "pull", "origin", "main", "--rebase"], 
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        def git_commit_push():
-            """提交更改"""
-            # 添加文件 - 使用完整路径
-            subprocess.run(["git", "add", APK_PATH, VERSION_FILE], 
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # 检查是否有更改
-            status = subprocess.run(["git", "status", "--porcelain"], 
-                                   capture_output=True, text=True)
-            if not status.stdout.strip():
-                return False
-            
-            # 提交并推送
+        def github_api_upload(path, content, message, is_binary=False):
+            """使用GitHub API上传文件"""
             token = os.environ['GITHUB_TOKEN']
-            repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
+            repo = os.environ['GITHUB_REPOSITORY']
+            url = f"{API_BASE}/repos/{repo}/contents/{path}"
             
-            subprocess.run(["git", "commit", "-m", "Update TAuxiliary APK"], 
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["git", "push", repo_url, "HEAD:main"], 
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        
-        def get_current_version():
-            """获取当前版本信息"""
-            if not os.path.exists(VERSION_FILE):
-                return {}
+            # 获取当前文件SHA（如果存在）
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            res = requests.get(url, headers=headers)
+            sha = res.json().get("sha", "") if res.status_code == 200 else ""
             
-            try:
-                with open(VERSION_FILE, "r") as f:
-                    return json.load(f)
-            except json.JSONDecodeError:
-                return {}
+            # 准备上传数据
+            data = {
+                "message": message,
+                "content": base64.b64encode(content).decode("utf-8") if is_binary else content,
+                "sha": sha
+            }
+            
+            # 上传文件
+            res = requests.put(url, headers=headers, json=data)
+            if res.status_code in [200, 201]:
+                log(f"Successfully uploaded {path}")
+                return True
+            else:
+                log(f"Failed to upload {path}: {res.status_code} - {res.text}")
+                return False
         
         async def main():
             """主同步逻辑"""
             log("Starting TAuxiliary APK sync")
-            git_setup()
-            
-            # 创建APK目录（如果不存在）
-            os.makedirs(APK_DIR, exist_ok=True)
             
             # 获取当前版本
-            versions = get_current_version()
-            current = versions.get(VERSION_KEY, "")
-            if current:
-                log(f"Current version: {current.split(',')[0]}")
+            versions = {}
+            try:
+                # 从GitHub获取版本文件
+                token = os.environ['GITHUB_TOKEN']
+                repo = os.environ['GITHUB_REPOSITORY']
+                url = f"{API_BASE}/repos/{repo}/contents/{VERSION_FILE}"
+                headers = {"Authorization": f"Bearer {token}"}
+                res = requests.get(url, headers=headers)
+                
+                if res.status_code == 200:
+                    content = base64.b64decode(res.json()["content"]).decode("utf-8")
+                    versions = json.loads(content)
+                    current = versions.get(VERSION_KEY, "")
+                    log(f"Current version: {current.split(',')[0]}")
+                else:
+                    log("No existing version file found")
+            except Exception as e:
+                log(f"Error getting version file: {str(e)}")
             
             # 连接Telegram
             client = TelegramClient(
@@ -166,21 +163,25 @@ jobs:
                         new_value = f"{version},{date}"
                         
                         # 检查是否需要更新
+                        current = versions.get(VERSION_KEY, "")
                         if new_value != current:
-                            # 下载APK到指定目录
-                            log(f"Downloading new version: {version} to {APK_DIR}")
-                            await client.download_media(msg, file=APK_PATH)
+                            # 下载APK到内存
+                            log(f"Downloading new version: {version}")
+                            apk_content = await client.download_media(msg, file=bytes)
                             
-                            # 更新版本文件
-                            versions[VERSION_KEY] = new_value
-                            with open(VERSION_FILE, "w") as f:
-                                json.dump(versions, f)
-                            
-                            # 提交更改
-                            if git_commit_push():
+                            # 上传APK文件
+                            if github_api_upload(APK_PATH, apk_content, f"Update TAuxiliary APK to {version}", is_binary=True):
+                                # 更新版本信息
+                                versions[VERSION_KEY] = new_value
+                                version_content = json.dumps(versions, indent=2)
+                                
+                                # 上传版本文件
+                                github_api_upload(
+                                    VERSION_FILE, 
+                                    version_content.encode("utf-8"), 
+                                    f"Update TAuxiliary version to {version}"
+                                )
                                 log(f"Successfully updated to {version}")
-                            else:
-                                log("No changes to commit")
                         else:
                             log("Already on latest version")
                         
