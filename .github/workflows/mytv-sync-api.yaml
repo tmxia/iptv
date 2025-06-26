@@ -37,8 +37,22 @@ jobs:
           "https://api.github.com/repos/$TARGET_REPO" | grep -q '"id"' || \
           { echo "错误: 令牌无效"; exit 1; }
         
-        # 获取源仓库发布信息
-        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
+        # 获取源仓库发布信息 (增加错误处理)
+        RESPONSE=$(curl -sL -w "\n%{http_code}" "https://api.github.com/repos/$SOURCE_REPO/releases")
+        HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+        RELEASES_JSON=$(echo "$RESPONSE" | sed '$d')
+        
+        if [ "$HTTP_STATUS" != "200" ]; then
+          echo "错误: 获取发布信息失败 (状态码 $HTTP_STATUS)"
+          echo "响应内容: $RELEASES_JSON"
+          exit 1
+        fi
+        
+        # 检查是否为空数组
+        if [ "$(echo "$RELEASES_JSON" | jq 'length')" -eq 0 ]; then
+          echo "错误: 源仓库无发布版本"
+          exit 1
+        fi
         
         # 函数：规范化版本号
         normalize_version() {
@@ -53,24 +67,32 @@ jobs:
           echo "$(normalize_version "$version") $date_utc8"
         }
         
-        # 获取稳定版信息
-        LATEST_STABLE=$(jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]' <<< "$RELEASES_JSON")
-        if [ -z "$LATEST_STABLE" ] || [ "$LATEST_STABLE" = "null" ]; then
-          echo "错误: 无法提取稳定版发布信息"
-          exit 1
+        # 获取稳定版信息 (增加空值检查)
+        LATEST_STABLE=$(jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0] // empty' <<< "$RELEASES_JSON")
+        if [ -z "$LATEST_STABLE" ]; then
+          echo "警告: 未找到稳定版"
+          SYNC_STABLE=false
+        else
+          read STABLE_VERSION STABLE_DATE <<< $(get_release_info "$LATEST_STABLE")
+          echo "源仓库稳定版: $STABLE_VERSION ($STABLE_DATE)"
+          SYNC_STABLE=true
         fi
-        read STABLE_VERSION STABLE_DATE <<< $(get_release_info "$LATEST_STABLE")
-        echo "源仓库稳定版: $STABLE_VERSION ($STABLE_DATE)"
         
-        # 获取预发行版信息
-        LATEST_PRE=$(jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]' <<< "$RELEASES_JSON")
-        if [ -z "$LATEST_PRE" ] || [ "$LATEST_PRE" = "null" ]; then
+        # 获取预发行版信息 (增加空值检查)
+        LATEST_PRE=$(jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0] // empty' <<< "$RELEASES_JSON")
+        if [ -z "$LATEST_PRE" ]; then
           echo "警告: 未找到预发行版"
           SYNC_PRE_RELEASE=false
         else
           read PRE_RELEASE_VERSION PRE_RELEASE_DATE <<< $(get_release_info "$LATEST_PRE")
           echo "源仓库预发行版: $PRE_RELEASE_VERSION ($PRE_RELEASE_DATE)"
           SYNC_PRE_RELEASE=true
+        fi
+        
+        # 如果两个版本都不存在则退出
+        if ! $SYNC_STABLE && ! $SYNC_PRE_RELEASE; then
+          echo "错误: 未找到任何有效版本"
+          exit 1
         fi
         
         # 获取目标版本文件
@@ -134,7 +156,7 @@ jobs:
         
         # 处理稳定版
         STABLE_NEED_UPDATE=false
-        if download_apk "$LATEST_STABLE" "$STABLE_KEY_NAME" "$CURRENT_STABLE"; then
+        if $SYNC_STABLE && download_apk "$LATEST_STABLE" "$STABLE_KEY_NAME" "$CURRENT_STABLE"; then
           STABLE_NEED_UPDATE=true
           NEW_STABLE_VERSION="$STABLE_VERSION"
           NEW_STABLE_DATE="$STABLE_DATE"
@@ -202,7 +224,7 @@ jobs:
         
         # 输出结果
         echo "同步完成!"
-        echo "稳定版: $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
+        $SYNC_STABLE && echo "稳定版: $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
         $SYNC_PRE_RELEASE && echo "预发行版: $NEW_PRE_VERSION ($NEW_PRE_DATE)"
         exit 0
 
