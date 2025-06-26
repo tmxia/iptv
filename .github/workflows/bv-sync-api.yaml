@@ -228,7 +228,7 @@ jobs:
             --arg content "$ENCODED_CONTENT" \
             --arg sha "$SHA_VERSION" \
             '{message: $msg, content: $content, sha: $sha}')" \
-          "https://api.github.com/repos/$TARGET_REPO/contents/version.txt"
+          "https://api.github.com/repos/$TARGET_REPO/contents/version.txt" > /dev/null
         
         # 上传APK文件
         upload_apk() {
@@ -247,7 +247,7 @@ jobs:
               --arg content "$(base64 -w0 "$WORK_DIR/$key")" \
               --arg sha "$sha" \
               '{message: $msg, content: $content, sha: $sha}')" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/$target"
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target" > /dev/null
         }
         
         $STABLE_NEED_UPDATE && upload_apk "$STABLE_KEY_NAME" "$NEW_STABLE_VERSION"
