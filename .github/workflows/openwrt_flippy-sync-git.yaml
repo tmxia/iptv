@@ -6,7 +6,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: '0 18 * * 1' # 周一凌晨2点（北京时间）
+    - cron: '0 18 * * 1' # 周一凌晨2点（北京时间）  
     - cron: '0 11 * * 1' # 周一下午7点（北京时间）
   workflow_dispatch:
 
@@ -23,7 +23,7 @@ jobs:
       with:
         same-branch-only: true
         poll-interval-seconds: 30
-        abort-after-seconds: 1200
+        abort-after-seconds: 1200  # 20分钟超时
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -40,9 +40,9 @@ jobs:
 
     - name: Install dependencies
       run: |
-        sudo apt-get update > /dev/null
-        sudo apt-get install -y jq curl unzip zip > /dev/null
-        pip install telethon requests pytz > /dev/null
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip zip
+        pip install telethon requests pytz
 
     - name: Run Kernel Sync
       env:
@@ -59,10 +59,10 @@ jobs:
         import sys
         import subprocess
         import shutil
+        import time
         import re
         import logging
         import zipfile
-        import asyncio
         from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
@@ -100,377 +100,371 @@ jobs:
         
         KERNEL_DIR = "kernels"
         KERNEL_VERSION_FILE = "kernel_versions.json"
-        WORK_DIR = "temp_kernels"
         
-        # 日志配置
+        # 环境变量
+        WORK_DIR = os.path.join(os.getcwd(), "temp_kernels")
+        GIT_DIR = os.getcwd()
+        os.makedirs(WORK_DIR, exist_ok=True)
+        
+        # 配置日志
         logging.basicConfig(
             level=logging.INFO,
             format='[%(asctime)s] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
-        logger = logging.getLogger()
+        log = logging.getLogger()
         
-        class KernelSyncer:
-            def __init__(self):
-                self.git_dir = os.getcwd()
-                self.work_dir = os.path.join(self.git_dir, WORK_DIR)
-                self.kernel_dir = os.path.join(self.git_dir, KERNEL_DIR)
-                self.version_file = os.path.join(self.git_dir, KERNEL_VERSION_FILE)
-                self.versions = self.load_versions()
+        def setup_git():
+            try:
+                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
+                email = os.environ.get('GITHUB_EMAIL', f'{actor}@users.noreply.github.com')
                 
-            def load_versions(self):
-                """加载版本文件，确保包含所有组"""
-                if os.path.exists(self.version_file):
-                    try:
-                        with open(self.version_file, "r") as f:
-                            return json.load(f)
-                    except:
-                        pass
+                subprocess.run(["git", "config", "user.name", actor], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "config", "user.email", email], cwd=GIT_DIR, check=True)
                 
-                # 确保所有组都存在
-                versions = {}
-                for group in KERNEL_GROUPS:
-                    versions[group] = {"version": "", "date": ""}
-                return versions
-            
-            def save_versions(self):
-                """保存版本文件，保留其他组信息"""
-                with open(self.version_file, "w") as f:
-                    json.dump(self.versions, f, indent=2)
-            
-            def setup_git(self):
-                """配置Git用户信息并拉取最新代码"""
-                try:
-                    actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
-                    email = f'{actor}@users.noreply.github.com'
-                    
-                    subprocess.run(
-                        ["git", "config", "user.name", actor], 
-                        cwd=self.git_dir, check=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    subprocess.run(
-                        ["git", "config", "user.email", email], 
-                        cwd=self.git_dir, check=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    
-                    # 拉取最新更改
-                    subprocess.run(
-                        ["git", "pull", "origin", "main", "--rebase"], 
-                        cwd=self.git_dir, check=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    return True
-                except Exception as e:
-                    logger.error(f"Git设置失败: {str(e)}")
-                    return False
-            
-            def commit_and_push(self, message):
-                """提交更改并推送到仓库"""
-                try:
-                    # 添加更改
-                    subprocess.run(
-                        ["git", "add", KERNEL_DIR, KERNEL_VERSION_FILE], 
-                        cwd=self.git_dir, check=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    
-                    # 检查是否有更改
-                    status = subprocess.run(
-                        ["git", "status", "--porcelain"], 
-                        cwd=self.git_dir, capture_output=True, text=True
-                    )
-                    if not status.stdout.strip():
-                        logger.info("无更改需要提交")
-                        return True
-                    
-                    # 提交更改
-                    subprocess.run(
-                        ["git", "commit", "-m", message], 
-                        cwd=self.git_dir, check=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    
-                    # 推送更改
-                    token = os.environ['GITHUB_TOKEN']
-                    actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
-                    repo = os.environ['TARGET_REPO']
-                    repo_url = f"https://{actor}:{token}@github.com/{repo}.git"
-                    
-                    subprocess.run(
-                        ["git", "pull", "--rebase", "origin", "main"], 
-                        cwd=self.git_dir, check=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    subprocess.run(
-                        ["git", "push", repo_url, "HEAD:main"], 
-                        cwd=self.git_dir, check=True,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    return True
-                except Exception as e:
-                    logger.error(f"Git操作失败: {str(e)}")
-                    return False
-            
-            def pattern_match(self, filename, pattern):
-                """检查文件名是否匹配模式"""
-                return re.match(pattern, filename) is not None
-            
-            def find_matching_group(self, filename):
-                """查找匹配的内核组"""
-                for group, patterns in KERNEL_GROUPS.items():
-                    for pattern in patterns:
-                        if self.pattern_match(filename, pattern):
-                            return group
-                return None
-            
-            def extract_version(self, filename):
-                """从文件名提取版本号"""
-                # 匹配格式如: 6.1.141-flippy-93+o 或 6.6.94-flippy-93+
-                match = re.search(r'(\d+\.\d+\.\d+-flippy-\d+\+[a-z]*)', filename) or \
-                       re.search(r'(\d+\.\d+\.\d+-flippy-\d+\+)', filename)
-                return match.group(1) if match else None
-            
-            async def download_file(self, client, message, path):
-                """下载文件到指定路径"""
-                await client.download_media(message, file=path)
+                # 拉取最新更改
+                subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=GIT_DIR, check=True)
                 return True
-            
-            def get_latest_date(self, messages):
-                """获取消息列表中的最新日期"""
-                return max(msg.date for msg in messages) if messages else None
-            
-            async def process_group(self, client, group, version, files, group_dir):
-                """处理完整的内核组"""
-                os.makedirs(group_dir, exist_ok=True)
-                messages = [msg for _, msg in files]
+            except Exception as e:
+                log.error(f"Git设置失败: {str(e)}")
+                return False
+        
+        def commit_and_push(message):
+            try:
+                # 添加内核目录和版本文件
+                subprocess.run(["git", "add", KERNEL_DIR, KERNEL_VERSION_FILE], cwd=GIT_DIR, check=True)
                 
-                # 下载所有文件
-                for filename, msg in files:
-                    file_path = os.path.join(group_dir, filename)
-                    await self.download_file(client, msg, file_path)
+                # 检查是否有更改
+                status = subprocess.run(["git", "status", "--porcelain"], cwd=GIT_DIR, capture_output=True, text=True)
+                if not status.stdout.strip():
+                    return True
                 
-                # 创建ZIP文件
-                zip_filename = f"{group}_{version}.zip"
-                zip_path = os.path.join(self.work_dir, zip_filename)
-                with zipfile.ZipFile(zip_path, 'w') as zipf:
-                    for filename in os.listdir(group_dir):
-                        file_path = os.path.join(group_dir, filename)
-                        zipf.write(file_path, arcname=filename)
+                # 提交更改
+                subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
                 
-                # 获取最新日期（UTC+8）
-                latest_date = self.get_latest_date(messages)
-                if latest_date:
-                    date_str = latest_date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
-                else:
-                    date_str = datetime.now().strftime("%Y-%m-%d")
+                token = os.environ['GITHUB_TOKEN']
+                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
+                repo = os.environ['TARGET_REPO']
+                repo_url = f"https://{actor}:{token}@github.com/{repo}.git"
                 
-                return zip_path, date_str
+                # 重试机制
+                max_attempts = 3
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=GIT_DIR, check=True)
+                        subprocess.run(
+                            ["git", "push", repo_url, "HEAD:main"],
+                            cwd=GIT_DIR,
+                            check=True
+                        )
+                        return True
+                    except subprocess.CalledProcessError:
+                        if attempt < max_attempts:
+                            time.sleep(10)
+                        else:
+                            log.error(f"推送更改失败")
+                            return False
+            except Exception as e:
+                log.error(f"Git操作失败: {str(e)}")
+                return False
+        
+        def get_kernel_versions():
+            """获取内核版本信息，确保包含所有组"""
+            version_path = os.path.join(GIT_DIR, KERNEL_VERSION_FILE)
+            default_versions = {group: {"version": "", "date": ""} for group in KERNEL_GROUPS}
             
-            def needs_update(self, group, new_version, new_date):
-                """检查是否需要更新"""
-                current = self.versions.get(group, {"version": "", "date": ""})
-                # 新版本不同 或 版本相同但日期更新
-                return (new_version != current["version"]) or \
-                       (new_version == current["version"] and new_date > current["date"])
+            if os.path.exists(version_path):
+                try:
+                    with open(version_path, "r") as f:
+                        versions = json.load(f)
+                        # 确保所有组都存在
+                        for group in KERNEL_GROUPS:
+                            if group not in versions:
+                                versions[group] = {"version": "", "date": ""}
+                        return versions
+                except:
+                    return default_versions
+            return default_versions
+        
+        def save_kernel_versions(versions):
+            version_path = os.path.join(GIT_DIR, KERNEL_VERSION_FILE)
+            with open(version_path, "w") as f:
+                json.dump(versions, f, indent=2)
+        
+        def pattern_match(filename, pattern):
+            return re.match(pattern, filename) is not None
+        
+        def find_matching_group(filename):
+            for group, patterns in KERNEL_GROUPS.items():
+                for pattern in patterns:
+                    if pattern_match(filename, pattern):
+                        return group
+            return None
+        
+        def extract_version_from_filename(filename):
+            # 扩展版本匹配模式，支持6.6.93-flippy-93+格式
+            match = re.search(r'(\d+\.\d+\.\d+-flippy-\d+\+[a-z]*)', filename)
+            if not match:
+                # 尝试匹配没有后缀字母的版本（如6.6.93-flippy-93+）
+                match = re.search(r'(\d+\.\d+\.\d+-flippy-\d+\+)', filename)
+            return match.group(1) if match else None
+        
+        async def download_file(client, message, filename, download_path):
+            await client.download_media(message, file=download_path)
+            return True
+        
+        def get_latest_date(messages):
+            latest_date = None
+            for msg in messages:
+                if latest_date is None or msg.date > latest_date:
+                    latest_date = msg.date
+            return latest_date
+        
+        async def process_group(client, group_name, version, files_to_download, group_dir):
+            # 获取组内所有消息的最新日期
+            all_messages = [msg for _, msg in files_to_download]
+            latest_date = get_latest_date(all_messages)
             
-            def cleanup_group(self, group, keep_version):
-                """清理旧版本的内核文件"""
-                if not os.path.exists(self.kernel_dir):
-                    return 0
+            # 转换为UTC+8时区
+            utc8 = pytz.timezone('Asia/Shanghai')
+            date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
+            
+            os.makedirs(group_dir, exist_ok=True)
+            
+            # 下载组内所有文件
+            for filename, msg in files_to_download:
+                download_path = os.path.join(group_dir, filename)
+                await download_file(client, msg, filename, download_path)
+            
+            # 创建ZIP文件
+            zip_filename = f"{group_name}_{version}.zip"
+            zip_path = os.path.join(WORK_DIR, zip_filename)
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                for root, _, files in os.walk(group_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        zipf.write(file_path, os.path.basename(file_path))
+            
+            return zip_path, date_utc8
+        
+        async def find_new_kernels(client, kernel_versions):
+            log.info("连接Telegram频道")
+            try:
+                await client.connect()
+                if not await client.is_user_authorized():
+                    log.error("Telegram会话无效")
+                    return None
                 
-                deleted = 0
-                keep_filename = f"{group}_{keep_version}.zip"
-                for filename in os.listdir(self.kernel_dir):
-                    if filename.startswith(f"{group}_") and filename != keep_filename:
-                        os.remove(os.path.join(self.kernel_dir, filename))
-                        deleted += 1
-                        logger.info(f"删除旧版本: {filename}")
-                return deleted
-            
-            async def find_new_kernels(self, client):
-                """在Telegram频道查找新内核"""
                 channel = os.environ.get('TELEGRAM_CHANNEL', 'openwrt_flippy')
-                try:
-                    entity = await client.get_entity(channel)
-                except Exception as e:
-                    logger.error(f"获取Telegram频道失败: {str(e)}")
-                    return {}
+                entity = await client.get_entity(channel)
                 
-                # 存储找到的文件 {group: {version: {filename: message}}}
-                found = {group: {} for group in KERNEL_GROUPS}
+                updates = {}
                 
-                # 扫描最新的50条消息
-                try:
-                    async for msg in client.iter_messages(entity, limit=50):
-                        if not (msg.media and hasattr(msg.media, "document")):
-                            continue
-                        
+                # 存储找到的文件
+                found_groups = {group: {} for group in KERNEL_GROUPS.keys()}
+                
+                # 获取频道中最新的50条消息
+                async for msg in client.iter_messages(entity, limit=50):
+                    if msg.media and hasattr(msg.media, "document"):
                         for attr in msg.media.document.attributes:
                             if isinstance(attr, DocumentAttributeFilename):
                                 filename = attr.file_name
-                                group = self.find_matching_group(filename)
-                                if not group:
-                                    continue
-                                
-                                version = self.extract_version(filename)
-                                if not version:
-                                    continue
-                                
-                                # 添加到found结构
-                                if version not in found[group]:
-                                    found[group][version] = {}
-                                found[group][version][filename] = msg
-                except Exception as e:
-                    logger.error(f"读取Telegram消息失败: {str(e)}")
-                    return {}
+                                group = find_matching_group(filename)
+                                if group:
+                                    version = extract_version_from_filename(filename)
+                                    if not version:
+                                        continue
+                                    
+                                    if version not in found_groups[group]:
+                                        found_groups[group][version] = {}
+                                    
+                                    found_groups[group][version][filename] = msg
                 
-                updates = {}
-                for group, versions in found.items():
+                # 检查每个组的完整性
+                for group, versions in found_groups.items():
                     if not versions:
                         continue
-                    
-                    # 按版本号降序排序
-                    for version in sorted(versions.keys(), reverse=True):
-                        files = versions[version]
-                        patterns = KERNEL_GROUPS[group]
                         
-                        # 检查是否包含所有必需文件
-                        matched_patterns = 0
-                        for pattern in patterns:
-                            for filename in files:
-                                if self.pattern_match(filename, pattern):
-                                    matched_patterns += 1
+                    sorted_versions = sorted(versions.keys(), reverse=True)
+                    for version in sorted_versions:
+                        files = versions[version]
+                        
+                        # 检查是否包含所有必需的文件
+                        required_patterns = KERNEL_GROUPS[group]
+                        matched_files = {}
+                        
+                        for pattern in required_patterns:
+                            for filename in files.keys():
+                                if pattern_match(filename, pattern):
+                                    matched_files[pattern] = filename
                                     break
                         
-                        if matched_patterns < REQUIRED_FILE_COUNT:
-                            logger.info(f"{group}@{version} 缺少必需文件 ({matched_patterns}/{REQUIRED_FILE_COUNT})")
-                            continue
-                        
-                        # 检查是否需要更新
-                        latest_date = self.get_latest_date(list(files.values()))
-                        if not latest_date:
-                            logger.warning(f"无法获取{group}@{version}的日期")
-                            continue
-                        
-                        date_str = latest_date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
-                        if not self.needs_update(group, version, date_str):
-                            logger.info(f"{group}@{version} 已是最新版本")
+                        if len(matched_files) == REQUIRED_FILE_COUNT:
+                            log.info(f"发现完整内核组: {group}@{version}")
+                            
+                            # 获取当前版本信息
+                            current_version = kernel_versions.get(group, {}).get("version", "")
+                            current_date = kernel_versions.get(group, {}).get("date", "")
+                            
+                            # 获取组内所有消息的最新日期
+                            all_messages = list(files.values())
+                            latest_date = get_latest_date(all_messages)
+                            
+                            # 转换为日期字符串
+                            utc8 = pytz.timezone('Asia/Shanghai')
+                            date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
+                            
+                            # 检查是否需要更新
+                            version_updated = False
+                            if not current_version:
+                                version_updated = True
+                                log.info(f"首次添加新内核组: {group}")
+                            elif version != current_version:
+                                version_updated = True
+                                log.info(f"发现新版本: {version} (当前: {current_version})")
+                            elif date_utc8 > current_date:
+                                version_updated = True
+                                log.info(f"相同版本但更新日期: {date_utc8} > {current_date}")
+                            
+                            if version_updated:
+                                try:
+                                    files_to_download = [(filename, msg) for filename, msg in files.items()]
+                                    group_dir = os.path.join(WORK_DIR, f"group_{group}_{version}")
+                                    
+                                    zip_path, zip_date = await process_group(client, group, version, files_to_download, group_dir)
+                                    updates[group] = {
+                                        "version": version,
+                                        "date": zip_date,
+                                        "zip_path": zip_path
+                                    }
+                                except Exception as e:
+                                    log.error(f"处理{group}时出错: {str(e)}")
+                            
+                            # 只处理最新版本
                             break
-                        
-                        # 处理更新
-                        group_dir = os.path.join(self.work_dir, f"{group}_{version}")
-                        try:
-                            zip_path, zip_date = await self.process_group(
-                                client, group, version, 
-                                list(files.items()), group_dir
-                            )
-                            updates[group] = {
-                                "version": version,
-                                "date": zip_date,
-                                "zip_path": zip_path
-                            }
-                            logger.info(f"准备更新 {group}@{version} ({zip_date})")
-                        except Exception as e:
-                            logger.error(f"处理{group}失败: {str(e)}")
-                        break
-                return updates
+                
+                return updates if updates else None
+            finally:
+                # 确保连接关闭
+                await client.disconnect()
+        
+        def delete_old_kernel_versions(group, current_version):
+            target_dir = os.path.join(GIT_DIR, KERNEL_DIR)
+            if not os.path.exists(target_dir):
+                return []
             
-            async def sync_kernels(self):
-                """执行同步主流程"""
-                # 验证环境变量
-                required_vars = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GITHUB_TOKEN']
-                missing = [v for v in required_vars if not os.environ.get(v)]
-                if missing:
-                    logger.error(f"缺少环境变量: {', '.join(missing)}")
-                    return 1
+            # 查找所有同组文件
+            group_files = []
+            for filename in os.listdir(target_dir):
+                if filename.startswith(f"{group}_") and filename.endswith(".zip"):
+                    group_files.append(filename)
+            
+            if not group_files:
+                return []
+            
+            # 删除旧版本文件
+            deleted = []
+            for filename in group_files:
+                if current_version in filename:
+                    continue
                 
-                if not self.setup_git():
-                    return 2
+                file_path = os.path.join(target_dir, filename)
+                os.remove(file_path)
+                deleted.append(filename)
+            
+            return deleted
+        
+        def main():
+            log.info("OpenWrt 内核同步工具启动")
+            
+            # 验证环境变量
+            required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GITHUB_TOKEN']
+            missing = [var for var in required if not os.environ.get(var)]
+            if missing:
+                log.error(f"缺少环境变量: {', '.join(missing)}")
+                return 1
+            
+            if not setup_git():
+                return 2
+            
+            # 获取内核版本信息
+            kernel_versions = get_kernel_versions()
+            
+            client = TelegramClient(
+                StringSession(os.environ['TELEGRAM_SESSION']),
+                int(os.environ['TELEGRAM_API_ID']),
+                os.environ['TELEGRAM_API_HASH']
+            )
+            
+            try:
+                # 使用上下文管理器确保连接正确关闭
+                with client:
+                    new_kernels = client.loop.run_until_complete(
+                        find_new_kernels(client, kernel_versions))
+            except Exception as e:
+                log.error(f"Telegram操作错误: {str(e)}")
+                return 3
+            
+            updated = False
+            deleted_count = 0
+            
+            if new_kernels:
+                target_dir = os.path.join(GIT_DIR, KERNEL_DIR)
+                os.makedirs(target_dir, exist_ok=True)
                 
-                # 创建临时目录
-                os.makedirs(self.work_dir, exist_ok=True)
-                os.makedirs(self.kernel_dir, exist_ok=True)
-                
-                # 初始化Telegram客户端
-                client = TelegramClient(
-                    StringSession(os.environ['TELEGRAM_SESSION']),
-                    int(os.environ['TELEGRAM_API_ID']),
-                    os.environ['TELEGRAM_API_HASH']
-                )
-                
-                try:
-                    await client.start()
-                    updates = await self.find_new_kernels(client)
-                except Exception as e:
-                    logger.error(f"Telegram错误: {str(e)}")
-                    return 3
-                finally:
-                    if client.is_connected():
-                        await client.disconnect()
-                
-                if not updates:
-                    logger.info("没有需要更新的内核")
-                    if os.path.exists(self.work_dir):
-                        shutil.rmtree(self.work_dir)
-                    return 0
-                
-                # 应用更新
-                updated_groups = []
-                total_deleted = 0
-                
-                for group, data in updates.items():
+                for group, data in new_kernels.items():
                     try:
                         # 复制ZIP文件到仓库
-                        dest_path = os.path.join(self.kernel_dir, os.path.basename(data["zip_path"]))
-                        shutil.copy2(data["zip_path"], dest_path)
+                        target_path = os.path.join(target_dir, os.path.basename(data["zip_path"]))
+                        shutil.copy2(data["zip_path"], target_path)
                         
                         # 更新版本信息
-                        self.versions[group] = {
+                        kernel_versions[group] = {
                             "version": data["version"],
                             "date": data["date"]
                         }
+                        log.info(f"已更新: {group}@{data['version']}")
                         
-                        # 清理旧版本
-                        deleted = self.cleanup_group(group, data["version"])
-                        total_deleted += deleted
+                        # 删除旧版本
+                        deleted = delete_old_kernel_versions(group, data["version"])
+                        deleted_count += len(deleted)
                         
-                        updated_groups.append(f"{group}@{data['version']}")
-                        logger.info(f"已更新 {group}，删除 {deleted} 个旧文件")
+                        updated = True
                     except Exception as e:
-                        logger.error(f"更新{group}失败: {str(e)}")
+                        log.error(f"更新{group}时出错: {str(e)}")
                 
-                if not updated_groups:
-                    logger.info("没有成功更新的组")
-                    return 4
-                
-                # 保存版本信息
-                self.save_versions()
-                
-                # 提交更改
-                commit_msg = f"更新内核: {', '.join(updated_groups)}"
-                if total_deleted:
-                    commit_msg += f"\n删除 {total_deleted} 个旧版本"
-                
-                if self.commit_and_push(commit_msg):
-                    logger.info(f"成功更新 {len(updated_groups)} 个组")
+                if updated:
+                    # 保存内核版本信息
+                    save_kernel_versions(kernel_versions)
+                    
+                    # 生成提交信息
+                    group_versions = []
+                    for group, data in new_kernels.items():
+                        group_versions.append(f"{group}@{data['version']}")
+                    
+                    commit_msg = f"更新OpenWrt内核: {', '.join(group_versions)}"
+                    if deleted_count:
+                        commit_msg += f"\n删除 {deleted_count} 个旧版本"
+                    
+                    if commit_and_push(commit_msg):
+                        log.info(f"同步成功! 更新 {len(new_kernels)} 组, 删除 {deleted_count} 旧版本")
+                    else:
+                        log.error("提交失败")
+                        return 4
                 else:
-                    logger.error("提交更改失败")
-                    return 5
-                
-                # 清理临时文件
-                if os.path.exists(self.work_dir):
-                    shutil.rmtree(self.work_dir)
-                return 0
-        
-        async def main():
-            syncer = KernelSyncer()
-            return await syncer.sync_kernels()
+                    log.info("所有更新尝试失败")
+            else:
+                log.info("没有需要更新的内核文件")
+            
+            # 清理临时目录
+            if os.path.exists(WORK_DIR):
+                shutil.rmtree(WORK_DIR)
+            
+            log.info("同步任务完成")
+            return 0
         
         if __name__ == "__main__":
-            exit_code = asyncio.run(main())
-            sys.exit(exit_code)
+            sys.exit(main())
         EOF
 
     - name: Release Repository Lock 🔓
