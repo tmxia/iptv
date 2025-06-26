@@ -59,7 +59,9 @@ jobs:
         # 配置参数
         GROUP = "TAuxiliary"  # 群组用户名
         TOPIC_ID = 3763       # 话题ID
+        APK_DIR = "apk"       # APK存储目录
         APK_FILE = "TAuxiliary.apk"
+        APK_PATH = os.path.join(APK_DIR, APK_FILE)  # 完整路径
         VERSION_FILE = "version.txt"
         VERSION_KEY = "TAuxiliary.apk"
         
@@ -79,8 +81,8 @@ jobs:
         
         def git_commit_push():
             """提交更改"""
-            # 添加文件
-            subprocess.run(["git", "add", APK_FILE, VERSION_FILE], 
+            # 添加文件 - 使用完整路径
+            subprocess.run(["git", "add", APK_PATH, VERSION_FILE], 
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             # 检查是否有更改
@@ -114,6 +116,9 @@ jobs:
             """主同步逻辑"""
             log("Starting TAuxiliary APK sync")
             git_setup()
+            
+            # 创建APK目录（如果不存在）
+            os.makedirs(APK_DIR, exist_ok=True)
             
             # 获取当前版本
             versions = get_current_version()
@@ -162,9 +167,9 @@ jobs:
                         
                         # 检查是否需要更新
                         if new_value != current:
-                            # 下载APK
-                            log(f"Downloading new version: {version}")
-                            await client.download_media(msg, file=APK_FILE)
+                            # 下载APK到指定目录
+                            log(f"Downloading new version: {version} to {APK_DIR}")
+                            await client.download_media(msg, file=APK_PATH)
                             
                             # 更新版本文件
                             versions[VERSION_KEY] = new_value
