@@ -18,7 +18,7 @@ jobs:
 
     - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install -y jq curl
-        
+
     - name: Configure Git
       run: |
         git config --global user.name "GitHub Actions"
@@ -91,7 +91,7 @@ jobs:
           echo "警告: 未找到稳定版发布"
         else
           read STABLE_VERSION STABLE_DATE_UTC8 <<< $(extract_version "$LATEST_STABLE")
-          echo "稳定版: $STABLE_VERSION (发布于: $STABLE_DATE_UTC8)"
+          echo "源仓库稳定版: $STABLE_VERSION (发布于: $STABLE_DATE_UTC8)"
         fi
         
         # 处理预发行版
@@ -102,39 +102,53 @@ jobs:
           echo "警告: 未找到预发行版发布"
         else
           read PRE_RELEASE_VERSION PRE_RELEASE_DATE_UTC8 <<< $(extract_version "$LATEST_PRE_RELEASE")
-          echo "预发行版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE_UTC8)"
+          echo "源仓库预发行版: $PRE_RELEASE_VERSION (发布于: $PRE_RELEASE_DATE_UTC8)"
         fi
         
-        # 获取目标仓库当前版本
+        # 获取目标仓库当前版本文件 (固定为version.txt)
         VERSION_FILE=$(curl -s -H "Authorization: token $TOKEN" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
-        declare -A CURRENT_VERSIONS
+        # 解析当前版本文件 (保留所有键值对)
         if [ "$(jq -r '.message' <<< "$VERSION_FILE")" != "Not Found" ]; then
           CONTENT=$(jq -r '.content' <<< "$VERSION_FILE" | base64 -d)
-          echo "当前版本文件: $CONTENT"
           
-          while IFS="=" read -r key value; do
-            [[ $key ]] && CURRENT_VERSIONS[$key]=$value
-          done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' <<< "$CONTENT" 2>/dev/null)
+          # 解析为JSON对象 (保留所有键)
+          if CURRENT_VERSION_JSON=$(echo "$CONTENT" | jq . 2>/dev/null); then
+            echo "版本文件解析成功"
+          else
+            echo "警告: 版本文件格式无效，重置为JSON格式"
+            CURRENT_VERSION_JSON="{}"
+          fi
+        else
+          echo "目标仓库无版本文件，将创建新文件"
+          CURRENT_VERSION_JSON="{}"
         fi
+        
+        # 提取当前版本信息 (不删除其他键)
+        CURRENT_STABLE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f1)
+        CURRENT_STABLE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f2)
+        CURRENT_PRE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f1)
+        CURRENT_PRE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f2)
+        
+        echo "目标稳定版: ${CURRENT_STABLE:-无} (${CURRENT_STABLE_DATE:-无日期})"
+        echo "目标预发行版: ${CURRENT_PRE:-无} (${CURRENT_PRE_DATE:-无日期})"
         
         # 函数: 检查并下载APK
         process_apk() {
           local release_json="$1"
           local pattern="$2"
           local key="$3"
+          local current_version="$4"
           local target="apk/$key"
           
-          local current="${CURRENT_VERSIONS[$key]%,*}"
-          local latest=$(jq -r '.tag_name' <<< "$release_json")
-          
           # 检查是否需要更新
+          local latest=$(jq -r '.tag_name' <<< "$release_json")
           local status_code=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/$TARGET_REPO/contents/$target")
             
-          if [ "$status_code" != "200" ] || [ "$latest" != "$current" ]; then
+          if [ "$status_code" != "200" ] || [ "$latest" != "$current_version" ]; then
             # 获取下载链接
             local url=$(jq -r '.assets[] | select(.name | contains("'"$pattern"'")) | .browser_download_url' <<< "$release_json" | head -1)
             [ -z "$url" ] && { echo "警告: 未找到匹配的APK文件"; return 1; }
@@ -148,15 +162,15 @@ jobs:
         
         # 处理稳定版APK
         if $SYNC_STABLE; then
-          if process_apk "$LATEST_STABLE" "$STABLE_APK_PATTERN" "$STABLE_KEY_NAME"; then
+          if process_apk "$LATEST_STABLE" "$STABLE_APK_PATTERN" "$STABLE_KEY_NAME" "$CURRENT_STABLE"; then
             STABLE_NEED_UPDATE=true
             NEW_STABLE_VERSION="$STABLE_VERSION"
             NEW_STABLE_DATE="$STABLE_DATE_UTC8"
           else
             # 使用当前版本
-            if [ -n "${CURRENT_VERSIONS[$STABLE_KEY_NAME]}" ]; then
-              NEW_STABLE_VERSION="${CURRENT_VERSIONS[$STABLE_KEY_NAME]%,*}"
-              NEW_STABLE_DATE="${CURRENT_VERSIONS[$STABLE_KEY_NAME]#*,}"
+            if [ -n "$CURRENT_STABLE" ]; then
+              NEW_STABLE_VERSION="$CURRENT_STABLE"
+              NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
             else
               NEW_STABLE_VERSION=""
               NEW_STABLE_DATE=""
@@ -164,23 +178,23 @@ jobs:
           fi
         else
           # 使用当前版本
-          if [ -n "${CURRENT_VERSIONS[$STABLE_KEY_NAME]}" ]; then
-            NEW_STABLE_VERSION="${CURRENT_VERSIONS[$STABLE_KEY_NAME]%,*}"
-            NEW_STABLE_DATE="${CURRENT_VERSIONS[$STABLE_KEY_NAME]#*,}"
+          if [ -n "$CURRENT_STABLE" ]; then
+            NEW_STABLE_VERSION="$CURRENT_STABLE"
+            NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
           fi
         fi
         
         # 处理预发行版APK
         if $SYNC_PRE_RELEASE; then
-          if process_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_KEY_NAME"; then
+          if process_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE"; then
             PRE_RELEASE_NEED_UPDATE=true
             NEW_PRE_RELEASE_VERSION="$PRE_RELEASE_VERSION"
             NEW_PRE_RELEASE_DATE="$PRE_RELEASE_DATE_UTC8"
           else
             # 使用当前版本
-            if [ -n "${CURRENT_VERSIONS[$PRE_RELEASE_KEY_NAME]}" ]; then
-              NEW_PRE_RELEASE_VERSION="${CURRENT_VERSIONS[$PRE_RELEASE_KEY_NAME]%,*}"
-              NEW_PRE_RELEASE_DATE="${CURRENT_VERSIONS[$PRE_RELEASE_KEY_NAME]#*,}"
+            if [ -n "$CURRENT_PRE" ]; then
+              NEW_PRE_RELEASE_VERSION="$CURRENT_PRE"
+              NEW_PRE_RELEASE_DATE="$CURRENT_PRE_DATE"
             else
               NEW_PRE_RELEASE_VERSION=""
               NEW_PRE_RELEASE_DATE=""
@@ -188,21 +202,23 @@ jobs:
           fi
         else
           # 使用当前版本
-          if [ -n "${CURRENT_VERSIONS[$PRE_RELEASE_KEY_NAME]}" ]; then
-            NEW_PRE_RELEASE_VERSION="${CURRENT_VERSIONS[$PRE_RELEASE_KEY_NAME]%,*}"
-            NEW_PRE_RELEASE_DATE="${CURRENT_VERSIONS[$PRE_RELEASE_KEY_NAME]#*,}"
+          if [ -n "$CURRENT_PRE" ]; then
+            NEW_PRE_RELEASE_VERSION="$CURRENT_PRE"
+            NEW_PRE_RELEASE_DATE="$CURRENT_PRE_DATE"
           fi
         fi
         
-        # 更新版本数据
-        declare -A NEW_VERSION_DATA
-        [ -n "$NEW_STABLE_VERSION" ] && NEW_VERSION_DATA["$STABLE_KEY_NAME"]="$NEW_STABLE_VERSION,$NEW_STABLE_DATE"
-        [ -n "$NEW_PRE_RELEASE_VERSION" ] && NEW_VERSION_DATA["$PRE_RELEASE_KEY_NAME"]="$NEW_PRE_RELEASE_VERSION,$NEW_PRE_RELEASE_DATE"
+        # 更新版本数据 (保留所有现有键)
+        UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
+          --arg stable_key "$STABLE_KEY_NAME" \
+          --arg stable_value "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
+          --arg pre_key "$PRE_RELEASE_KEY_NAME" \
+          --arg pre_value "$NEW_PRE_RELEASE_VERSION,$NEW_PRE_RELEASE_DATE" \
+          '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
         
-        # 上传版本文件
+        # 上传版本文件 (固定为version.txt)
         SHA_VERSION=$(jq -r '.sha // empty' <<< "$VERSION_FILE")
-        VERSION_CONTENT=$(jq -n '$ARGS.positional' --args "${NEW_VERSION_DATA[@]}")
-        ENCODED_CONTENT=$(echo -n "$VERSION_CONTENT" | base64 -w0)
+        ENCODED_CONTENT=$(echo -n "$UPDATED_VERSION_JSON" | base64 -w0)
         
         curl -s -X PUT \
           -H "Authorization: token $TOKEN" \
