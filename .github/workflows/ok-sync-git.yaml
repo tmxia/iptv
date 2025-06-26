@@ -2,7 +2,7 @@ name: OK APK Sync from Source Repository
 
 on:
   schedule:
-    - cron: '0 */2 * * *'  # 每2小时运行一次
+    - cron: '0 */4 * * *'  # 每4小时运行一次
   workflow_dispatch:
 
 concurrency: 
