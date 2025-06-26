@@ -204,25 +204,42 @@ jobs:
             done
             
             # 处理README每一行
+            line_number=0
             while IFS= read -r line; do
-              # 检查是否包含无效大小值
-              if [[ "$line" =~ \|.*\|(0\.00|N/A|0|0\.0|0\.)\|.*\| ]]; then
-                # 提取文件名 - 修复正则表达式
-                if [[ "$line" =~ \<div\>([^<]+\.apk)\<\/div\> ]]; then
-                  file_name="${BASH_REMATCH[1]}"
-                  
-                  # 检查文件名是否在大小映射中
-                  if [[ -n "${file_sizes[$file_name]}" ]]; then
-                    # 替换行中的大小值
-                    new_line=$(echo "$line" | sed -E "s/\| (0\.00|N/A|0|0\.0|0\.) \|/| ${file_sizes[$file_name]} |/")
-                    echo "修复: $file_name → ${file_sizes[$file_name]} MB"
-                    echo "$new_line" >> "$TEMP_FILE"
-                    continue
+              line_number=$((line_number+1))
+              
+              # 只处理表格行
+              if [[ "$line" == *"|"*"|"*"|"*"|"* ]]; then
+                # 分割行为列
+                IFS='|' read -r -a columns <<< "$line"
+                
+                # 检查是否是有效的表格行（至少有4列）
+                if [ ${#columns[@]} -ge 4 ]; then
+                  # 提取文件名（从第一个列中）
+                  if [[ "${columns[0]}" =~ \<div\>([^<]+)\<\/div\> ]]; then
+                    file_name="${BASH_REMATCH[1]}"
+                    
+                    # 检查文件大小列是否无效
+                    size_col="${columns[1]// /}"  # 移除空格
+                    if [[ "$size_col" =~ ^(0\.00|N/A|0|0\.0|0\.)$ ]]; then
+                      # 检查是否有对应的大小值
+                      if [[ -n "${file_sizes[$file_name]}" ]]; then
+                        # 替换大小列
+                        columns[1]=" ${file_sizes[$file_name]} "
+                        
+                        # 重建行
+                        new_line=$(IFS='|'; echo "${columns[*]}")
+                        
+                        echo "修复行 #$line_number: $file_name → ${file_sizes[$file_name]} MB"
+                        echo "$new_line" >> "$TEMP_FILE"
+                        continue
+                      else
+                        echo "行 #$line_number: 未找到文件大小: $file_name"
+                      fi
+                    fi
                   else
-                    echo "未找到文件大小: $file_name"
+                    echo "行 #$line_number: 无法提取文件名: ${columns[0]}"
                   fi
-                else
-                  echo "无法提取文件名: $line"
                 fi
               fi
               
@@ -271,6 +288,9 @@ jobs:
           if grep -qE '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md; then
             echo "::warning::检测到未修复的无效文件大小值"
             grep -E '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md
+            exit 1
+          else
+            echo "✅ 所有文件大小值有效"
           fi
 
   cleanup_self:
