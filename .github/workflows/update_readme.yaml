@@ -207,18 +207,22 @@ jobs:
             while IFS= read -r line; do
               # 检查是否包含无效大小值
               if [[ "$line" =~ \|.*\|(0\.00|N/A|0|0\.0|0\.)\|.*\| ]]; then
-                # 提取文件名
-                if [[ "$line" =~ \<div\>([^<]+)\<\/div\> ]]; then
+                # 提取文件名 - 修复正则表达式
+                if [[ "$line" =~ \<div\>([^<]+\.apk)\<\/div\> ]]; then
                   file_name="${BASH_REMATCH[1]}"
                   
-                  # 检查是否有对应的大小值
-                  if [ -n "${file_sizes[$file_name]}" ]; then
+                  # 检查文件名是否在大小映射中
+                  if [[ -n "${file_sizes[$file_name]}" ]]; then
                     # 替换行中的大小值
                     new_line=$(echo "$line" | sed -E "s/\| (0\.00|N/A|0|0\.0|0\.) \|/| ${file_sizes[$file_name]} |/")
                     echo "修复: $file_name → ${file_sizes[$file_name]} MB"
                     echo "$new_line" >> "$TEMP_FILE"
                     continue
+                  else
+                    echo "未找到文件大小: $file_name"
                   fi
+                else
+                  echo "无法提取文件名: $line"
                 fi
               fi
               
