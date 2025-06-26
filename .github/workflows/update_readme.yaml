@@ -110,6 +110,13 @@ jobs:
                 if [ -f "$file_path" ]; then
                   file_bytes=$(stat -c%s "$file_path")
                   file_size=$(echo "scale=2; $file_bytes / (1024*1024)" | bc)
+                  # 确保文件大小格式正确（避免0.等格式）
+                  if [[ "$file_size" == "0" ]]; then
+                    file_size="0.00"
+                  elif [[ "$file_size" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+                    # 添加小数点后两位
+                    file_size=$(printf "%.2f" "$file_size")
+                  fi
                 else
                   file_size="N/A"
                 fi
@@ -148,6 +155,12 @@ jobs:
                 if [ -f "$file_path" ]; then
                   file_bytes=$(stat -c%s "$file_path")
                   file_size=$(echo "scale=2; $file_bytes / (1024*1024)" | bc)
+                  # 确保文件大小格式正确
+                  if [[ "$file_size" == "0" ]]; then
+                    file_size="0.00"
+                  elif [[ "$file_size" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+                    file_size=$(printf "%.2f" "$file_size")
+                  fi
                 else
                   file_size="N/A"
                 fi
@@ -170,8 +183,8 @@ jobs:
       - name: 检测并修复无效文件大小
         if: always() && steps.generate-readme.conclusion == 'success'
         run: |
-          # 检测无效文件大小值
-          if grep -qE '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md; then
+          # 精确检测无效0值：只匹配整数0或0.0格式
+          if grep -qE '\| (0|0\.0) \|' README.md; then
             echo "检测到无效的文件大小值，尝试修复..."
             
             # 设置基础URL
@@ -196,7 +209,7 @@ jobs:
               
               if size=$(echo "$api_response" | jq -r '.size'); then
                 if [ "$size" != "null" ]; then
-                  # 计算MB大小
+                  # 计算MB大小并格式化为两位小数
                   file_mb=$(echo "scale=2; $size / (1024*1024)" | bc)
                   file_sizes["$file"]=$file_mb
                   echo "  - $file: $file_mb MB"
@@ -224,8 +237,8 @@ jobs:
                     # 文件大小在列索引2
                     size_col="${columns[2]// /}"  # 移除空格
                     
-                    # 检查文件大小列是否无效
-                    if [[ "$size_col" =~ ^(0\.00|N/A|0|0\.0|0\.)$ ]]; then
+                    # 检查文件大小列是否无效（精确匹配0或0.0）
+                    if [[ "$size_col" =~ ^(0|0\.0)$ ]]; then
                       # 检查是否有对应的大小值
                       if [[ -n "${file_sizes[$file_name]}" ]]; then
                         # 替换大小列
@@ -290,10 +303,10 @@ jobs:
             exit 1
           fi
           
-          # 验证是否还有无效文件大小
-          if grep -qE '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md; then
-            echo "::warning::检测到未修复的无效文件大小值"
-            grep -E '\| (0\.00|N/A|0|0\.0|0\.) \|' README.md
+          # 精确验证：只检查绝对0值（排除0.00等有效值）
+          if grep -qE '\| (0|0\.0) \|' README.md; then
+            echo "::error::检测到未修复的无效文件大小值"
+            grep -E '\| (0|0\.0) \|' README.md
             exit 1
           else
             echo "✅ 所有文件大小值有效"
