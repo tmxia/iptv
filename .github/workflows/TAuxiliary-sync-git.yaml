@@ -78,7 +78,7 @@ jobs:
             res = requests.get(url, headers=headers)
             return res.status_code == 200
         
-        def github_api_upload(path, content, message, is_binary=False):
+        def github_api_upload(path, content, message):
             """使用GitHub API上传文件"""
             token = os.environ['GITHUB_TOKEN']
             repo = os.environ['GITHUB_REPOSITORY']
@@ -92,10 +92,20 @@ jobs:
             res = requests.get(url, headers=headers)
             sha = res.json().get("sha", "") if res.status_code == 200 else ""
             
-            # 准备上传数据
+            # 准备上传数据 - 统一处理内容编码
+            if isinstance(content, str):
+                # 文本内容直接编码为base64
+                encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+            elif isinstance(content, bytes):
+                # 二进制内容直接编码为base64
+                encoded_content = base64.b64encode(content).decode("utf-8")
+            else:
+                log(f"Unsupported content type: {type(content)}")
+                return False
+                
             data = {
                 "message": message,
-                "content": base64.b64encode(content).decode("utf-8") if is_binary else content,
+                "content": encoded_content,
                 "sha": sha
             }
             
@@ -184,7 +194,7 @@ jobs:
                             apk_content = await client.download_media(msg, file=bytes)
                             
                             # 上传APK文件
-                            if github_api_upload(APK_PATH, apk_content, f"Update TAuxiliary APK to {version}", is_binary=True):
+                            if github_api_upload(APK_PATH, apk_content, f"Update TAuxiliary APK to {version}"):
                                 # 更新版本信息
                                 versions[VERSION_KEY] = new_value
                                 version_content = json.dumps(versions, indent=2)
@@ -192,7 +202,7 @@ jobs:
                                 # 上传版本文件
                                 github_api_upload(
                                     VERSION_FILE, 
-                                    version_content.encode("utf-8"), 
+                                    version_content,  # 直接传递字符串
                                     f"Update TAuxiliary version to {version}"
                                 )
                                 log(f"Successfully updated to {version}")
