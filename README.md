@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-06-26 15:38:43 (北京时间)
+最后更新: 2025-06-26 15:49:00 (北京时间)
 
 ## 应用
 
@@ -12,7 +12,7 @@
 | <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 0 | v2.9.6 | 2025-06-25 |
 | <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 0 | v2.9.6 | 2025-06-25 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 12.92 | v1.2.0.156 | 2025-06-24 |
-| <div>TAuxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/TAuxiliary.apk)</small></div> | N/A | v3.1.6 | 2025-06-23 |
+| <div>TAuxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/TAuxiliary.apk)</small></div> | 2.08 | v3.1.6 | 2025-06-23 |
 | <div>bv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk)</small></div> | 13.35 | v0.3.0 | 2025-06-22 |
 | <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 47.54 | v11.12.0-471c3c2 | 2025-06-21 |
 | <div>mobile-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk)</small></div> | 85.14 | v3.3.6 | 2025-06-20 |
