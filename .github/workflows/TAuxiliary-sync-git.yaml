@@ -57,8 +57,8 @@ jobs:
         import pytz
         
         # 配置参数
-        GROUP_USERNAME = "TAuxiliary"  # 群组用户名
-        TOPIC_ID = 3763                # 话题ID
+        GROUP = "TAuxiliary"  # 群组用户名
+        TOPIC_ID = 3763       # 话题ID
         APK_FILE = "TAuxiliary.apk"
         VERSION_FILE = "version.txt"
         VERSION_KEY = "TAuxiliary.apk"
@@ -67,7 +67,7 @@ jobs:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
         
         def git_setup():
-            """静默配置Git"""
+            """配置Git环境"""
             actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
             email = f"{actor}@users.noreply.github.com"
             subprocess.run(["git", "config", "user.name", actor], 
@@ -78,7 +78,8 @@ jobs:
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         def git_commit_push():
-            """静默提交更改"""
+            """提交更改"""
+            # 添加文件
             subprocess.run(["git", "add", APK_FILE, VERSION_FILE], 
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
@@ -88,6 +89,7 @@ jobs:
             if not status.stdout.strip():
                 return False
             
+            # 提交并推送
             token = os.environ['GITHUB_TOKEN']
             repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
             
@@ -108,26 +110,8 @@ jobs:
             except json.JSONDecodeError:
                 return {}
         
-        def extract_version(filename):
-            """从文件名提取版本号"""
-            # 支持多种格式的文件名
-            patterns = [
-                r'TAuxiliary[-_]?([\d.]+)[_-]([a-f0-9]+)\.apk',
-                r'TAuxiliary[-_]?([\d.]+)\.apk',
-                r'TAuxiliary[-_]?([\d.]+)_([a-f0-9]+)\.apk'
-            ]
-            
-            for pattern in patterns:
-                match = re.search(pattern, filename, re.IGNORECASE)
-                if match:
-                    version = match.group(1)
-                    commit_hash = match.group(2) if match.lastindex > 1 else None
-                    return f"v{version}", commit_hash
-            return None, None
-        
         async def main():
             """主同步逻辑"""
-            # 初始化
             log("Starting TAuxiliary APK sync")
             git_setup()
             
@@ -149,78 +133,65 @@ jobs:
                 log("Connected to Telegram")
                 
                 # 获取群组实体
-                try:
-                    group = await client.get_entity(GROUP_USERNAME)
-                    log(f"Found group: {group.title}")
-                except Exception as e:
-                    log(f"Failed to get group: {str(e)}")
-                    return 1
-                
-                # 获取话题实体
-                try:
-                    # 在Telethon中，话题通过消息ID标识
-                    topic = await client.get_messages(group, ids=TOPIC_ID)
-                    if not topic:
-                        log(f"Topic with ID {TOPIC_ID} not found")
-                        return 1
-                    
-                    log(f"Accessing topic: {topic.text[:50] if topic.text else 'No title'}")
-                except Exception as e:
-                    log(f"Failed to get topic: {str(e)}")
-                    return 1
+                group = await client.get_entity(GROUP)
                 
                 # 查找话题中的最新APK
                 found = False
-                async for msg in client.iter_messages(group, reply_to=TOPIC_ID, limit=30):
-                    if msg.media and hasattr(msg.media, "document"):
-                        for attr in msg.media.document.attributes:
-                            if isinstance(attr, DocumentAttributeFilename):
-                                filename = attr.file_name
-                                if "TAuxiliary" in filename and filename.lower().endswith(".apk"):
-                                    # 提取版本信息
-                                    version, commit_hash = extract_version(filename)
-                                    if not version:
-                                        log(f"Skipping file: {filename} (invalid format)")
-                                        continue
-                                    
-                                    date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
-                                    new_value = f"{version},{date}"
-                                    
-                                    # 检查是否需要更新
-                                    if new_value != current:
-                                        # 下载APK
-                                        log(f"Downloading new version: {version} ({commit_hash or 'no hash'})")
-                                        await client.download_media(msg, file=APK_FILE)
-                                        
-                                        # 更新版本文件
-                                        versions[VERSION_KEY] = new_value
-                                        with open(VERSION_FILE, "w") as f:
-                                            json.dump(versions, f)
-                                        
-                                        # 提交更改
-                                        if git_commit_push():
-                                            log(f"Successfully updated to {version}")
-                                        else:
-                                            log("No changes to commit")
-                                    else:
-                                        log("Already on latest version")
-                                    
-                                    found = True
-                                    break
-                        if found:
-                            break
+                async for msg in client.iter_messages(group, reply_to=TOPIC_ID, limit=10):
+                    if not msg.media or not hasattr(msg.media, "document"):
+                        continue
+                    
+                    # 查找文件名属性
+                    for attr in msg.media.document.attributes:
+                        if not isinstance(attr, DocumentAttributeFilename):
+                            continue
+                        
+                        filename = attr.file_name
+                        if not filename.endswith(".apk"):
+                            continue
+                        
+                        # 使用精确的正则表达式匹配文件名
+                        match = re.search(r'TAuxiliary-([\d.]+)_([a-f0-9]+)\.apk$', filename)
+                        if not match:
+                            continue
+                        
+                        version = f"v{match.group(1)}"
+                        commit_hash = match.group(2)
+                        date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
+                        new_value = f"{version},{date}"
+                        
+                        # 检查是否需要更新
+                        if new_value != current:
+                            # 下载APK
+                            log(f"Downloading new version: {version}")
+                            await client.download_media(msg, file=APK_FILE)
+                            
+                            # 更新版本文件
+                            versions[VERSION_KEY] = new_value
+                            with open(VERSION_FILE, "w") as f:
+                                json.dump(versions, f)
+                            
+                            # 提交更改
+                            if git_commit_push():
+                                log(f"Successfully updated to {version}")
+                            else:
+                                log("No changes to commit")
+                        else:
+                            log("Already on latest version")
+                        
+                        found = True
+                        break
+                    if found:
+                        break
                 
                 if not found:
-                    log("No valid TAuxiliary APK found in topic messages")
+                    log("No valid TAuxiliary APK found in topic")
                 return 0
             except Exception as e:
                 log(f"Error: {str(e)}")
                 return 1
             finally:
-                try:
-                    await client.disconnect()
-                except:
-                    pass
+                await client.disconnect()
         
         if __name__ == "__main__":
             import asyncio
