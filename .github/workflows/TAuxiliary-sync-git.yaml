@@ -69,6 +69,15 @@ jobs:
         def log(msg):
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
         
+        def github_api_file_exists(path):
+            """检查文件是否存在"""
+            token = os.environ['GITHUB_TOKEN']
+            repo = os.environ['GITHUB_REPOSITORY']
+            url = f"{API_BASE}/repos/{repo}/contents/{path}"
+            headers = {"Authorization": f"Bearer {token}"}
+            res = requests.get(url, headers=headers)
+            return res.status_code == 200
+        
         def github_api_upload(path, content, message, is_binary=False):
             """使用GitHub API上传文件"""
             token = os.environ['GITHUB_TOKEN']
@@ -103,10 +112,12 @@ jobs:
             """主同步逻辑"""
             log("Starting TAuxiliary APK sync")
             
-            # 获取当前版本
+            # 初始化版本信息
             versions = {}
+            current = ""
+            
+            # 尝试获取当前版本信息
             try:
-                # 从GitHub获取版本文件
                 token = os.environ['GITHUB_TOKEN']
                 repo = os.environ['GITHUB_REPOSITORY']
                 url = f"{API_BASE}/repos/{repo}/contents/{VERSION_FILE}"
@@ -117,11 +128,15 @@ jobs:
                     content = base64.b64decode(res.json()["content"]).decode("utf-8")
                     versions = json.loads(content)
                     current = versions.get(VERSION_KEY, "")
-                    log(f"Current version: {current.split(',')[0]}")
+                    log(f"Current version: {current.split(',')[0] if current else 'None'}")
                 else:
                     log("No existing version file found")
             except Exception as e:
                 log(f"Error getting version file: {str(e)}")
+            
+            # 检查APK文件是否存在
+            apk_exists = github_api_file_exists(APK_PATH)
+            log(f"APK file exists: {apk_exists}")
             
             # 连接Telegram
             client = TelegramClient(
@@ -162,9 +177,8 @@ jobs:
                         date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                         new_value = f"{version},{date}"
                         
-                        # 检查是否需要更新
-                        current = versions.get(VERSION_KEY, "")
-                        if new_value != current:
+                        # 检查是否需要更新（目标文件不存在或版本不匹配）
+                        if not apk_exists or not current or new_value != current:
                             # 下载APK到内存
                             log(f"Downloading new version: {version}")
                             apk_content = await client.download_media(msg, file=bytes)
