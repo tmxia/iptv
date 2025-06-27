@@ -31,7 +31,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq
+        sudo apt-get install -y jq python3
         
     - name: Run APK sync script
       env:
@@ -88,14 +88,13 @@ jobs:
           sync_pre_release=false
         fi
         
-        # 3. 获取目标仓库版本文件（使用文件处理）
+        # 3. 获取目标仓库版本文件
         echo "获取目标仓库版本信息..."
         version_response=$(curl -s -H "Authorization: token $TOKEN" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
         # 创建临时文件处理版本数据
-        CURRENT_VERSION_FILE="$WORK_DIR/current_version.json"
-        UPDATED_VERSION_FILE="$WORK_DIR/updated_version.json"
+        CURRENT_VERSION_FILE="$WORK_DIR/version.json"
         
         if [ "$(echo "$version_response" | jq -r '.message')" != "Not Found" ]; then
           echo "$version_response" | jq -r '.content' | base64 -d > "$CURRENT_VERSION_FILE"
@@ -110,36 +109,65 @@ jobs:
         # 4. 初始化更新标志
         SYNC_STABLE=false
         SYNC_PRE_RELEASE=false
-        NEW_STABLE_VERSION="$stable_version"
-        NEW_STABLE_DATE="$stable_date"
-        NEW_PRE_VERSION="$pre_version"
-        NEW_PRE_DATE="$pre_date"
         
-        # 5. 检查并下载APK（使用文件处理）
+        # 5. 使用Python处理版本更新
+        cat > "$WORK_DIR/update_version.py" << 'EOF'
+import json
+import sys
+import os
+
+def main():
+    version_file = sys.argv[1]
+    key_name = sys.argv[2]
+    new_value = sys.argv[3]
+    
+    # 读取当前版本数据
+    with open(version_file, 'r') as f:
+        data = json.load(f)
+    
+    # 获取当前值
+    current_value = data.get(key_name, "")
+    
+    # 检查是否需要更新
+    need_update = False
+    if key_name == os.environ.get('STABLE_KEY_NAME') and os.environ.get('STABLE_EXISTS') == '0':
+        need_update = True
+    elif key_name == os.environ.get('PRE_RELEASE_KEY_NAME') and os.environ.get('PRE_EXISTS') == '0':
+        need_update = True
+    elif current_value == "":
+        need_update = True
+    elif current_value != new_value:
+        need_update = True
+    
+    if need_update:
+        print(f"需要更新: {key_name} (当前: {current_value}, 最新: {new_value})")
+        # 更新值
+        data[key_name] = new_value
+        with open(version_file, 'w') as f:
+            json.dump(data, f)
+        return True
+    else:
+        print(f"无需更新: {key_name} ({current_value})")
+        return False
+
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        print("用法: python update_version.py <version_file> <key_name> <new_value>")
+        sys.exit(1)
+    updated = main()
+    sys.exit(0 if updated else 1)
+EOF
+        
+        # 6. 检查并下载APK
         check_and_download() {
           local release_json=$1
           local key_name=$2
           local apk_pattern=$3
-          local new_version=$4
-          local new_date=$5
-          
-          # 使用jq从文件中获取值
-          current_value=$(jq -r ".\"$key_name\" // \"\"" "$CURRENT_VERSION_FILE")
+          local new_value="$4,$5"
           
           # 检查是否需要更新
-          need_update=false
-          if [ "$key_name" = "$STABLE_KEY_NAME" ] && [ "$STABLE_EXISTS" -eq 0 ]; then
-            need_update=true
-          elif [ "$key_name" = "$PRE_RELEASE_KEY_NAME" ] && [ "$PRE_EXISTS" -eq 0 ]; then
-            need_update=true
-          elif [ -z "$current_value" ]; then
-            need_update=true
-          elif [ "$current_value" != "$new_version,$new_date" ]; then
-            need_update=true
-          fi
-          
-          if $need_update; then
-            echo "需要更新: $key_name (当前: ${current_value:-无}, 最新: $new_version,$new_date)"
+          if python3 "$WORK_DIR/update_version.py" "$CURRENT_VERSION_FILE" "$key_name" "$new_value"; then
+            echo "需要更新: $key_name"
             
             # 下载APK
             download_url=$(echo "$release_json" | jq -r \
@@ -164,21 +192,12 @@ jobs:
             else
               SYNC_PRE_RELEASE=true
             fi
-            
-            # 更新版本文件
-            jq --arg key "$key_name" \
-                 --arg value "$new_version,$new_date" \
-                 '.[$key] = $value' "$CURRENT_VERSION_FILE" > "$UPDATED_VERSION_FILE"
-            mv "$UPDATED_VERSION_FILE" "$CURRENT_VERSION_FILE"
-            
-            return 0
-          else
-            echo "无需更新: $key_name ($current_value)"
-            return 1
           fi
+          
+          return 0
         }
         
-        # 6. 文件上传函数
+        # 7. 文件上传函数
         upload_file() {
           local file_path=$1
           local target_path=$2
@@ -219,65 +238,64 @@ jobs:
           return 0
         }
         
-        # 7. 处理稳定版
+        # 8. 处理稳定版
         echo "处理稳定版..."
-        if check_and_download "$stable_release" "$STABLE_KEY_NAME" "$STABLE_APK_PATTERN" "$stable_version" "$stable_date"; then
+        check_and_download "$stable_release" "$STABLE_KEY_NAME" "$STABLE_APK_PATTERN" "$stable_version" "$stable_date"
+        if [ -f "$WORK_DIR/$STABLE_KEY_NAME" ]; then
           upload_file "$WORK_DIR/$STABLE_KEY_NAME" "apk/$STABLE_KEY_NAME"
           echo "稳定版同步成功"
         fi
         
-        # 8. 处理预发行版
+        # 9. 处理预发行版
         if [ "$sync_pre_release" = true ]; then
           echo "处理预发行版..."
-          if check_and_download "$pre_release" "$PRE_RELEASE_KEY_NAME" "$PRE_RELEASE_APK_PATTERN" "$pre_version" "$pre_date"; then
+          check_and_download "$pre_release" "$PRE_RELEASE_KEY_NAME" "$PRE_RELEASE_APK_PATTERN" "$pre_version" "$pre_date"
+          if [ -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" ]; then
             upload_file "$WORK_DIR/$PRE_RELEASE_KEY_NAME" "apk/$PRE_RELEASE_KEY_NAME"
             echo "预发行版同步成功"
           fi
         fi
         
-        # 9. 更新版本文件（仅在需要时）
+        # 10. 更新版本文件（仅在需要时）
         if $SYNC_STABLE || $SYNC_PRE_RELEASE; then
           echo "准备更新版本文件..."
           
-          # 检查版本文件是否有变化
-          if [ -f "$CURRENT_VERSION_FILE" ]; then
-            # 读取更新后的内容
-            UPDATED_VERSION_JSON=$(cat "$CURRENT_VERSION_FILE")
-            ENCODED_CONTENT=$(echo -n "$UPDATED_VERSION_JSON" | base64 -w0)
-            
-            # 创建临时JSON文件上传
-            local version_json_file=$(mktemp)
-            jq -n \
-              --arg msg "更新版本文件" \
-              --arg content "$ENCODED_CONTENT" \
-              --arg sha "$SHA_VERSION" \
-              '{message: $msg, content: $content, sha: $sha}' > "$version_json_file"
-            
-            # 上传版本文件
-            response=$(curl -s -w "\n%{http_code}" -X PUT \
-              -H "Authorization: token $TOKEN" \
-              -H "Content-Type: application/json" \
-              --data-binary "@$version_json_file" \
-              "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-            
-            rm -f "$version_json_file"
-            
-            http_code=$(echo "$response" | tail -n1)
-            if [ "$http_code" -ne 200 ] && [ "$http_code" -ne 201 ]; then
-              echo "错误: 版本文件更新失败 - HTTP状态码 $http_code"
-              echo "响应详情: $(echo "$response" | sed '$d')"
-              exit 1
-            fi
-            echo "版本文件更新成功"
+          # 创建临时JSON文件上传
+          local version_json_file=$(mktemp)
+          
+          # 获取版本文件内容
+          ENCODED_CONTENT=$(base64 -w0 "$CURRENT_VERSION_FILE")
+          
+          jq -n \
+            --arg msg "更新版本文件" \
+            --arg content "$ENCODED_CONTENT" \
+            --arg sha "$SHA_VERSION" \
+            '{message: $msg, content: $content, sha: $sha}' > "$version_json_file"
+          
+          # 上传版本文件
+          response=$(curl -s -w "\n%{http_code}" -X PUT \
+            -H "Authorization: token $TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary "@$version_json_file" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+          
+          rm -f "$version_json_file"
+          
+          http_code=$(echo "$response" | tail -n1)
+          if [ "$http_code" -ne 200 ] && [ "$http_code" -ne 201 ]; then
+            echo "错误: 版本文件更新失败 - HTTP状态码 $http_code"
+            echo "响应详情: $(echo "$response" | sed '$d')"
+            exit 1
           fi
+          echo "版本文件更新成功"
         else
           echo "无文件更新，跳过版本文件更新"
         fi
         
-        # 10. 输出结果
+        # 11. 输出结果
         echo "同步完成!"
-        $SYNC_STABLE && echo "稳定版: $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
-        $SYNC_PRE_RELEASE && echo "预发行版: $NEW_PRE_VERSION ($NEW_PRE_DATE)"
+        $SYNC_STABLE && echo "稳定版: $stable_version ($stable_date)"
+        $SYNC_PRE_RELEASE && echo "预发行版: $pre_version ($pre_date)"
         exit 0
 
     - name: Release Repository Lock 🔓
