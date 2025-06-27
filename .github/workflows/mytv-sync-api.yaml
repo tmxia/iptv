@@ -96,42 +96,66 @@ jobs:
         fi
         
         # 获取目标版本文件
-        VERSION_FILE=$(curl -s -H "Authorization: token $TOKEN" \
+        VERSION_FILE_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: token $TOKEN" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+        VERSION_FILE_HTTP_STATUS=$(echo "$VERSION_FILE_RESPONSE" | tail -n1)
+        VERSION_FILE_CONTENT=$(echo "$VERSION_FILE_RESPONSE" | sed '$d')
         
-        # 解析当前版本文件 (增强健壮性)
-        if [ "$(jq -r '.message' <<< "$VERSION_FILE")" != "Not Found" ]; then
-          CONTENT=$(jq -r '.content' <<< "$VERSION_FILE" | base64 -d)
+        # 解析当前版本文件
+        if [ "$VERSION_FILE_HTTP_STATUS" -eq 200 ]; then
+          echo "目标版本文件存在"
+          CONTENT=$(echo "$VERSION_FILE_CONTENT" | jq -r '.content' | base64 -d)
+          SHA_VERSION=$(echo "$VERSION_FILE_CONTENT" | jq -r '.sha // empty')
           
-          # 尝试解析为JSON对象，失败时保留原始内容
+          # 解析为JSON对象
           if CURRENT_VERSION_JSON=$(echo "$CONTENT" | jq . 2>/dev/null); then
             echo "版本文件解析成功"
           else
-            echo "警告: 版本文件格式无效，尝试保留原始内容"
+            echo "警告: 版本文件格式无效，重置为JSON格式"
             CURRENT_VERSION_JSON="{}"
-            # 保留非JSON内容
-            echo "$CONTENT" > "$WORK_DIR/version_backup.txt"
           fi
         else
           echo "目标仓库无版本文件，将创建新文件"
           CURRENT_VERSION_JSON="{}"
+          SHA_VERSION=""
         fi
         
-        # 键值存在性检测 (使用jq的has函数)
-        HAS_STABLE_KEY=$(jq -r --arg key "$STABLE_KEY_NAME" 'has($key)' <<< "$CURRENT_VERSION_JSON")
-        HAS_PRE_KEY=$(jq -r --arg key "$PRE_RELEASE_KEY_NAME" 'has($key)' <<< "$CURRENT_VERSION_JSON")
+        # 提取当前版本信息
+        CURRENT_STABLE=""
+        CURRENT_STABLE_DATE=""
+        if [ "$(echo "$CURRENT_VERSION_JSON" | jq -e ".\"$STABLE_KEY_NAME\"" 2>/dev/null)" != "null" ]; then
+          CURRENT_STABLE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f1)
+          CURRENT_STABLE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f2)
+        fi
         
-        echo "目标稳定版键存在: $HAS_STABLE_KEY"
-        echo "目标预发行版键存在: $HAS_PRE_KEY"
-        
-        # 提取当前版本信息 (增强空值处理)
-        CURRENT_STABLE=$([ "$HAS_STABLE_KEY" = "true" ] && echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f1 || echo "")
-        CURRENT_STABLE_DATE=$([ "$HAS_STABLE_KEY" = "true" ] && echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f2 || echo "")
-        CURRENT_PRE=$([ "$HAS_PRE_KEY" = "true" ] && echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f1 || echo "")
-        CURRENT_PRE_DATE=$([ "$HAS_PRE_KEY" = "true" ] && echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f2 || echo "")
+        CURRENT_PRE=""
+        CURRENT_PRE_DATE=""
+        if [ "$(echo "$CURRENT_VERSION_JSON" | jq -e ".\"$PRE_RELEASE_KEY_NAME\"" 2>/dev/null)" != "null" ]; then
+          CURRENT_PRE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f1)
+          CURRENT_PRE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f2)
+        fi
         
         echo "目标稳定版: ${CURRENT_STABLE:-无} (${CURRENT_STABLE_DATE:-无日期})"
         echo "目标预发行版: ${CURRENT_PRE:-无} (${CURRENT_PRE_DATE:-无日期})"
+        
+        # 函数：检查目标文件存在性
+        check_target_file_existence() {
+          local key="$1"
+          local target="apk/$key"
+          
+          local response=$(curl -s -w "\n%{http_code}" -H "Authorization: token $TOKEN" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target")
+          local http_code=$(echo "$response" | tail -n1)
+          local content=$(echo "$response" | sed '$d')
+          
+          if [ "$http_code" -eq 200 ]; then
+            echo "目标文件存在: $key"
+            return 0
+          else
+            echo "目标文件不存在: $key (HTTP $http_code)"
+            return 1
+          fi
+        }
         
         # 函数：下载APK
         download_apk() {
@@ -139,15 +163,23 @@ jobs:
           local key="$2"
           local current_version="$3"
           
-          # 检查是否需要更新
-          local latest_version=$(normalize_version "$(jq -r '.tag_name' <<< "$release_json")")
-          local status_code=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/apk/$key")
+          # 检查目标文件是否存在
+          if ! check_target_file_existence "$key"; then
+            echo "目标文件不存在，需要下载: $key"
+            NEED_DOWNLOAD=true
+          else
+            # 检查版本是否匹配
+            local latest_version=$(normalize_version "$(jq -r '.tag_name' <<< "$release_json")")
+            if [ "$latest_version" != "$current_version" ]; then
+              echo "版本不匹配，需要更新: $key ($current_version → $latest_version)"
+              NEED_DOWNLOAD=true
+            else
+              echo "目标文件存在且版本匹配，无需更新: $key"
+              NEED_DOWNLOAD=false
+            fi
+          fi
           
-          if [ "$status_code" != "200" ] || [ "$latest_version" != "$current_version" ]; then
-            echo "需要更新: $key ($current_version → $latest_version)"
-            
+          if $NEED_DOWNLOAD; then
             # 获取下载URL
             local url=$(jq -r '.assets[] | select(.name | contains("'"$APK_PATTERN"'")) | .browser_download_url' <<< "$release_json" | head -1)
             if [ -z "$url" ]; then
@@ -159,17 +191,13 @@ jobs:
             curl -sL "$url" -o "$WORK_DIR/$key"
             return 0
           fi
-          echo "无需更新: $key ($latest_version)"
           return 1
         }
         
-        # 处理稳定版 (无论是否更新APK都同步最新版本信息)
+        # 处理稳定版
         STABLE_NEED_UPDATE=false
-        if $SYNC_STABLE; then
-          if download_apk "$LATEST_STABLE" "$STABLE_KEY_NAME" "$CURRENT_STABLE"; then
-            STABLE_NEED_UPDATE=true
-          fi
-          # 总是使用源仓库的最新版本信息
+        if $SYNC_STABLE && download_apk "$LATEST_STABLE" "$STABLE_KEY_NAME" "$CURRENT_STABLE"; then
+          STABLE_NEED_UPDATE=true
           NEW_STABLE_VERSION="$STABLE_VERSION"
           NEW_STABLE_DATE="$STABLE_DATE"
         else
@@ -177,17 +205,71 @@ jobs:
           NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
         fi
         
-        # 处理预发行版 (同上)
+        # 处理预发行版
         PRE_NEED_UPDATE=false
-        if $SYNC_PRE_RELEASE; then
-          if download_apk "$LATEST_PRE" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE"; then
-            PRE_NEED_UPDATE=true
-          fi
+        if $SYNC_PRE_RELEASE && download_apk "$LATEST_PRE" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE"; then
+          PRE_NEED_UPDATE=true
           NEW_PRE_VERSION="$PRE_RELEASE_VERSION"
           NEW_PRE_DATE="$PRE_RELEASE_DATE"
         else
           NEW_PRE_VERSION="$CURRENT_PRE"
           NEW_PRE_DATE="$CURRENT_PRE_DATE"
+        fi
+        
+        # 函数：上传APK（增加响应检查）
+        upload_apk() {
+          local key="$1"
+          local version="$2"
+          local target="apk/$key"
+          
+          echo "准备上传: $key ($version)"
+          
+          # 获取当前文件的SHA（如果存在）
+          local sha=""
+          local response=$(curl -s -H "Authorization: token $TOKEN" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target")
+          if [ "$(echo "$response" | jq -r '.message')" != "Not Found" ]; then
+            sha=$(echo "$response" | jq -r '.sha // empty')
+          fi
+          
+          # 捕获上传响应和状态码
+          local upload_response=$(curl -s -w "\n%{http_code}" -X PUT \
+            -H "Authorization: token $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg msg "更新APK: $key ($version)" \
+              --arg content "$(base64 -w0 "$WORK_DIR/$key")" \
+              --arg sha "$sha" \
+              '{message: $msg, content: $content, sha: $sha}')" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target")
+          
+          local http_code=$(echo "$upload_response" | tail -n1)
+          if [ "$http_code" -ne 200 ] && [ "$http_code" -ne 201 ]; then
+            echo "错误: 上传APK失败 - HTTP状态码 $http_code"
+            echo "响应详情: $(echo "$upload_response" | sed '$d')"
+            return 1
+          fi
+          echo "上传成功: $key"
+          return 0
+        }
+        
+        # 上传需要更新的APK（先于版本文件更新）
+        UPLOAD_ERROR=false
+        if $STABLE_NEED_UPDATE; then
+          if ! upload_apk "$STABLE_KEY_NAME" "$NEW_STABLE_VERSION"; then
+            UPLOAD_ERROR=true
+          fi
+        fi
+        
+        if $PRE_NEED_UPDATE; then
+          if ! upload_apk "$PRE_RELEASE_KEY_NAME" "$NEW_PRE_VERSION"; then
+            UPLOAD_ERROR=true
+          fi
+        fi
+        
+        if [ "$UPLOAD_ERROR" = true ]; then
+          echo "错误: APK上传失败，跳过版本文件更新"
+          exit 1
         fi
         
         # 更新版本数据 (保留所有现有键)
@@ -198,61 +280,35 @@ jobs:
           --arg pre_value "$NEW_PRE_VERSION,$NEW_PRE_DATE" \
           '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
         
-        # 上传版本文件 (固定为version.txt)
-        SHA_VERSION=$(jq -r '.sha // empty' <<< "$VERSION_FILE")
-        ENCODED_CONTENT=$(echo -n "$UPDATED_VERSION_JSON" | base64 -w0)
+        # 检查版本内容是否有变化
+        CURRENT_CONTENT_FOR_COMPARE=$(echo "$CURRENT_VERSION_JSON" | jq -S .)
+        NEW_CONTENT_FOR_COMPARE=$(echo "$UPDATED_VERSION_JSON" | jq -S .)
         
-        echo "更新版本文件..."
-        UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
-          -H "Authorization: token $TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "$(jq -n \
-            --arg msg "更新版本文件" \
-            --arg content "$ENCODED_CONTENT" \
-            --arg sha "$SHA_VERSION" \
-            '{message: $msg, content: $content, sha: $sha}')" \
-          "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-        
-        HTTP_STATUS=$(echo "$UPLOAD_RESPONSE" | tail -n1)
-        if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ]; then
-          echo "错误: 更新版本文件失败 (状态码 $HTTP_STATUS)"
-          echo "响应内容: $(echo "$UPLOAD_RESPONSE" | sed '$d')"
-          exit 1
-        fi
-        
-        # 函数：上传APK
-        upload_apk() {
-          local key="$1"
-          local version="$2"
-          local target="apk/$key"
+        if [ "$CURRENT_CONTENT_FOR_COMPARE" = "$NEW_CONTENT_FOR_COMPARE" ]; then
+          echo "版本文件内容无变化，跳过更新"
+        else
+          echo "更新版本文件内容"
+          ENCODED_CONTENT=$(echo -n "$UPDATED_VERSION_JSON" | base64 -w0)
           
-          echo "上传APK: $key ($version)"
-          local file_response=$(curl -s -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/$target")
-          local sha=$(jq -r '.sha // empty' <<< "$file_response")
-          
-          UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
+          # 上传版本文件（增加响应检查）
+          response=$(curl -s -w "\n%{http_code}" -X PUT \
             -H "Authorization: token $TOKEN" \
             -H "Content-Type: application/json" \
             -d "$(jq -n \
-              --arg msg "更新APK: $key ($version)" \
-              --arg content "$(base64 -w0 "$WORK_DIR/$key")" \
-              --arg sha "$sha" \
+              --arg msg "更新版本文件" \
+              --arg content "$ENCODED_CONTENT" \
+              --arg sha "$SHA_VERSION" \
               '{message: $msg, content: $content, sha: $sha}')" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/$target")
+            "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
           
-          HTTP_STATUS=$(echo "$UPLOAD_RESPONSE" | tail -n1)
-          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ]; then
-            echo "错误: 上传APK失败 (状态码 $HTTP_STATUS)"
-            echo "响应内容: $(echo "$UPLOAD_RESPONSE" | sed '$d')"
-            return 1
+          http_code=$(echo "$response" | tail -n1)
+          if [ "$http_code" -ne 200 ] && [ "$http_code" -ne 201 ]; then
+            echo "错误: 版本文件更新失败 - HTTP状态码 $http_code"
+            echo "响应详情: $(echo "$response" | sed '$d')"
+            exit 1
           fi
-          return 0
-        }
-        
-        # 上传需要更新的APK
-        $STABLE_NEED_UPDATE && upload_apk "$STABLE_KEY_NAME" "$NEW_STABLE_VERSION"
-        $PRE_NEED_UPDATE && upload_apk "$PRE_RELEASE_KEY_NAME" "$NEW_PRE_VERSION"
+          echo "版本文件更新成功"
+        fi
         
         # 输出结果
         echo "同步完成!"
