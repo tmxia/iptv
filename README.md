@@ -1,13 +1,13 @@
 # 应用版本列表
 
-最后更新: 2025-06-27 14:11:02 (北京时间)
+最后更新: 2025-06-27 14:16:53 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
-| <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | N/A | v1.2.0.802 | 2025-06-27 |
-| <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | N/A | v1.2.0.802 | 2025-06-27 |
+| <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 46.28 | v1.2.0.802 | 2025-06-27 |
+| <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 0 | v1.2.0.802 | 2025-06-27 |
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 16.56 | v1.212.0 | 2025-06-27 |
 | <div>plus_mod.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_mod.apk)</small></div> | N/A | v11.12.0.0 | 2025-06-25 |
 | <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | N/A | v2.9.6 | 2025-06-25 |
