@@ -215,7 +215,7 @@ jobs:
           return 1
         }
         
-        # 6. 上传文件函数
+        # 6. 上传文件函数（修复大文件上传问题）
         upload_file() {
           local file_path=$1
           local target_path=$2
@@ -224,21 +224,23 @@ jobs:
           sha=$(curl -s -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/$TARGET_REPO/contents/$target_path" | jq -r '.sha // empty')
           
-          # 准备上传数据
-          content_base64=$(base64 -w0 "$file_path")
-          json_data=$(jq -n \
+          # 准备上传数据 - 使用临时文件避免参数过长
+          json_file=$(mktemp)
+          jq -n \
             --arg msg "更新: $target_path" \
-            --arg content "$content_base64" \
+            --arg content "$(base64 -w0 "$file_path")" \
             --arg sha "$sha" \
-            '{message: $msg, content: $content, sha: $sha}')
+            '{message: $msg, content: $content, sha: $sha}' > "$json_file"
           
-          # 上传文件
           echo "上传: $target_path"
           response=$(curl -s -X PUT \
             -H "Authorization: token $TOKEN" \
             -H "Content-Type: application/json" \
-            -d "$json_data" \
+            -d "@$json_file" \
             "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
+          
+          # 清理临时文件
+          rm -f "$json_file"
           
           # 验证上传成功
           if ! echo "$response" | jq -e '.content' >/dev/null; then
@@ -266,24 +268,28 @@ jobs:
           fi
         fi
         
-        # 9. 更新版本文件
+        # 9. 更新版本文件（修复大文件上传问题）
         echo "更新版本文件..."
         version_sha=$(echo "$version_response" | jq -r '.sha // empty')
         version_content=$(echo "$current_versions" | jq -c .)
-        version_base64=$(echo -n "$version_content" | base64 -w0)
         
-        version_json=$(jq -n \
+        # 使用临时文件避免参数过长
+        version_json_file=$(mktemp)
+        jq -n \
           --arg msg "更新版本信息" \
-          --arg content "$version_base64" \
+          --arg content "$(echo -n "$version_content" | base64 -w0)" \
           --arg sha "$version_sha" \
-          '{message: $msg, content: $content, sha: $sha}')
+          '{message: $msg, content: $content, sha: $sha}' > "$version_json_file"
         
         # 上传版本文件
         version_response=$(curl -s -X PUT \
           -H "Authorization: token $TOKEN" \
           -H "Content-Type: application/json" \
-          -d "$version_json" \
+          -d "@$version_json_file" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+        
+        # 清理临时文件
+        rm -f "$version_json_file"
         
         # 验证版本文件更新
         if ! echo "$version_response" | jq -e '.content' >/dev/null; then
