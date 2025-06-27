@@ -216,7 +216,7 @@ jobs:
           NEW_PRE_DATE="$CURRENT_PRE_DATE"
         fi
         
-        # 函数：上传APK（增加响应检查）
+        # 函数：上传APK（优化大文件处理）
         upload_apk() {
           local key="$1"
           local version="$2"
@@ -232,16 +232,29 @@ jobs:
             sha=$(echo "$response" | jq -r '.sha // empty')
           fi
           
+          # 生成临时文件避免命令行过长
+          local json_file=$(mktemp)
+          local content_file=$(mktemp)
+          
+          # 将APK内容base64编码后写入文件
+          base64 -w0 "$WORK_DIR/$key" > "$content_file"
+          
+          # 构建JSON数据到临时文件
+          jq -n \
+            --arg msg "更新APK: $key ($version)" \
+            --rawfile content "$content_file" \
+            --arg sha "$sha" \
+            '{message: $msg, content: $content, sha: $sha}' > "$json_file"
+          
           # 捕获上传响应和状态码
           local upload_response=$(curl -s -w "\n%{http_code}" -X PUT \
             -H "Authorization: token $TOKEN" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n \
-              --arg msg "更新APK: $key ($version)" \
-              --arg content "$(base64 -w0 "$WORK_DIR/$key")" \
-              --arg sha "$sha" \
-              '{message: $msg, content: $content, sha: $sha}')" \
+            --data-binary "@$json_file" \
             "https://api.github.com/repos/$TARGET_REPO/contents/$target")
+          
+          # 清理临时文件
+          rm -f "$json_file" "$content_file"
           
           local http_code=$(echo "$upload_response" | tail -n1)
           if [ "$http_code" -ne 200 ] && [ "$http_code" -ne 201 ]; then
@@ -290,16 +303,21 @@ jobs:
           echo "更新版本文件内容"
           ENCODED_CONTENT=$(echo -n "$UPDATED_VERSION_JSON" | base64 -w0)
           
-          # 上传版本文件（增加响应检查）
+          # 上传版本文件（优化大文件处理）
+          local version_json_file=$(mktemp)
+          jq -n \
+            --arg msg "更新版本文件" \
+            --arg content "$ENCODED_CONTENT" \
+            --arg sha "$SHA_VERSION" \
+            '{message: $msg, content: $content, sha: $sha}' > "$version_json_file"
+          
           response=$(curl -s -w "\n%{http_code}" -X PUT \
             -H "Authorization: token $TOKEN" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n \
-              --arg msg "更新版本文件" \
-              --arg content "$ENCODED_CONTENT" \
-              --arg sha "$SHA_VERSION" \
-              '{message: $msg, content: $content, sha: $sha}')" \
+            --data-binary "@$version_json_file" \
             "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+          
+          rm -f "$version_json_file"
           
           http_code=$(echo "$response" | tail -n1)
           if [ "$http_code" -ne 200 ] && [ "$http_code" -ne 201 ]; then
