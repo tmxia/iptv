@@ -71,13 +71,13 @@ jobs:
         releases=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
         
         # 提取最新稳定版
-        stable_release=$(echo "$releases" | jq -r '[.[] | select(.prerelease == false)] | sort_by(.published_at) | reverse | .[0]')
+        stable_release=$(echo "$releases" | jq -c '[.[] | select(.prerelease == false)] | sort_by(.published_at) | reverse | .[0]')
         stable_version=$(echo "$stable_release" | jq -r '.tag_name')
         stable_date=$(echo "$stable_release" | jq -r '.published_at' | TZ=UTC date -f - +'%Y-%m-%d')
         echo "稳定版: $stable_version ($stable_date)"
         
         # 提取最新预发行版
-        pre_release=$(echo "$releases" | jq -r '[.[] | select(.prerelease == true)] | sort_by(.published_at) | reverse | .[0]')
+        pre_release=$(echo "$releases" | jq -c '[.[] | select(.prerelease == true)] | sort_by(.published_at) | reverse | .[0]')
         if [ "$pre_release" != "null" ]; then
           pre_version=$(echo "$pre_release" | jq -r '.tag_name' | sed 's/^tv_//')
           pre_date=$(echo "$pre_release" | jq -r '.published_at' | TZ=UTC date -f - +'%Y-%m-%d')
@@ -93,44 +93,45 @@ jobs:
         version_response=$(curl -s -H "Authorization: token $TOKEN" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
+        # 创建临时版本文件
+        version_file=$(mktemp)
         if [ "$(echo "$version_response" | jq -r '.message')" != "Not Found" ]; then
-          content_base64=$(echo "$version_response" | jq -r '.content')
-          if [ "$content_base64" != "null" ]; then
-            current_versions=$(echo "$content_base64" | base64 -d | jq -c .)
-            if [ $? -ne 0 ]; then
-              echo "解析版本文件失败，使用空对象"
-              current_versions="{}"
-            else
-              echo "当前版本信息: (已解析)"
-            fi
-          else
-            current_versions="{}"
-            echo "版本文件内容为空"
-          fi
+          echo "$version_response" | jq -r '.content' | base64 -d > "$version_file"
+          echo "版本文件已保存到临时文件"
         else
-          current_versions="{}"
-          echo "无版本文件"
+          echo "{}" > "$version_file"
+          echo "无版本文件，创建空版本文件"
         fi
         
-        # 4. 更新版本数据函数
+        # 4. 使用临时文件处理JSON数据
         update_version_data() {
           local key=$1
           local version=$2
           local date=$3
-          current_versions=$(echo "$current_versions" | jq \
+          
+          # 使用临时文件处理大JSON
+          temp_file=$(mktemp)
+          jq \
             --arg key "$key" \
             --arg value "$version,$date" \
-            '.[$key] = $value')
+            '.[$key] = $value' "$version_file" > "$temp_file"
+          mv "$temp_file" "$version_file"
         }
         
-        # 5. 修复条件判断语法错误
+        # 5. 从版本文件中获取值
+        get_current_value() {
+          local key=$1
+          jq -r ".\"$key\" // \"\"" "$version_file"
+        }
+        
+        # 6. 检查并下载APK
         check_and_download() {
           local release_json=$1
           local key_name=$2
           local apk_pattern=$3
           
           local target_filename="apk/$key_name"
-          local current_value=$(echo "$current_versions" | jq -r ".\"$key_name\" // \"\"")
+          local current_value=$(get_current_value "$key_name")
           
           local latest_version=$(echo "$release_json" | jq -r '.tag_name')
           local latest_date=$(echo "$release_json" | jq -r '.published_at' | TZ=UTC date -f - +'%Y-%m-%d')
@@ -141,7 +142,6 @@ jobs:
           
           local latest_value="$latest_version,$latest_date"
           
-          # 修复条件判断语法错误
           need_update=false
           if [ "$key_name" = "$STABLE_KEY_NAME" ] && [ "$STABLE_EXISTS" -eq 0 ]; then
             need_update=true
@@ -182,7 +182,7 @@ jobs:
           fi
         }
         
-        # 6. 修复大文件上传函数
+        # 7. 修复大文件上传函数
         upload_file() {
           local file_path=$1
           local target_path=$2
@@ -220,14 +220,14 @@ jobs:
           return 0
         }
         
-        # 7. 处理稳定版
+        # 8. 处理稳定版
         echo "处理稳定版..."
         if check_and_download "$stable_release" "$STABLE_KEY_NAME" "$STABLE_APK_PATTERN"; then
           upload_file "$WORK_DIR/$STABLE_KEY_NAME" "apk/$STABLE_KEY_NAME"
           echo "稳定版同步成功"
         fi
         
-        # 8. 处理预发行版
+        # 9. 处理预发行版
         if [ "$sync_pre_release" = true ]; then
           echo "处理预发行版..."
           if check_and_download "$pre_release" "$PRE_RELEASE_KEY_NAME" "$PRE_RELEASE_APK_PATTERN"; then
@@ -236,20 +236,15 @@ jobs:
           fi
         fi
         
-        # 9. 更新版本文件（使用临时文件避免大JSON问题）
+        # 10. 更新版本文件（使用临时文件避免大JSON问题）
         echo "更新版本文件..."
         version_sha=$(echo "$version_response" | jq -r '.sha // empty')
         
-        # 创建临时版本内容文件
-        version_content_file=$(mktemp)
-        echo -n "$current_versions" | jq -c . > "$version_content_file"
-        
         # 使用上传函数更新版本文件
-        upload_file "$version_content_file" "version.txt"
-        rm -f "$version_content_file"
+        upload_file "$version_file" "version.txt"
         
         echo "同步完成! 最终版本信息:"
-        echo "$current_versions" | jq .
+        cat "$version_file"
 
     - name: Release Repository Lock 🔓
       if: always()
