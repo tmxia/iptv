@@ -1,22 +1,23 @@
 name: OK APK Sync from Source Repository
 
+# 使用原生并发控制
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   schedule:
     - cron: '0 */4 * * *'  # 每4小时运行一次
   workflow_dispatch:
 
-concurrency: 
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: write
-  actions: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    # 基于缓存的锁机制
     - name: Acquire Repository Lock 🔒
       uses: softprops/turnstyle@v1
       with:
@@ -27,7 +28,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Checkout target repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         repository: ${{ github.repository }}
         token: ${{ secrets.GITHUB_TOKEN }}
@@ -62,37 +63,59 @@ jobs:
         STABLE_TARGET_NAME: "leanback.apk"
         PRE_RELEASE_TARGET_NAME: "mobile.apk"
       run: |
+        # 目标文件路径
         STABLE_TARGET_PATH="apk/$STABLE_TARGET_NAME"
         PRE_RELEASE_TARGET_PATH="apk/$PRE_RELEASE_TARGET_NAME"
         
+        # 工作目录
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 下载稳定版APK
-        echo "下载稳定版APK..."
-        STABLE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$STABLE_APK_NAME"
-        curl -sL "$STABLE_DOWNLOAD_URL" -o "$WORK_DIR/$STABLE_APK_NAME"
-        if [ ! -f "$WORK_DIR/$STABLE_APK_NAME" ]; then
-          echo "错误: 稳定版APK下载失败"
-          exit 1
+        # 目标仓库目录
+        TARGET_DIR="$GITHUB_WORKSPACE/target-repo"
+        VERSION_FILE="$TARGET_DIR/version.txt"
+        
+        # 1. 目标文件存在性检测
+        echo "检查目标文件存在性..."
+        STABLE_EXISTS=0
+        PRE_RELEASE_EXISTS=0
+        
+        if [ -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
+          echo "稳定版目标文件存在: $TARGET_DIR/$STABLE_TARGET_PATH"
+          STABLE_EXISTS=1
+        else
+          echo "稳定版目标文件不存在: $TARGET_DIR/$STABLE_TARGET_PATH"
         fi
         
-        # 下载预发行版APK
-        echo "下载预发行版APK..."
-        PRE_RELEASE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$PRE_RELEASE_APK_NAME"
-        curl -sL "$PRE_RELEASE_DOWNLOAD_URL" -o "$WORK_DIR/$PRE_RELEASE_APK_NAME"
-        if [ ! -f "$WORK_DIR/$PRE_RELEASE_APK_NAME" ]; then
-          echo "错误: 预发行版APK下载失败"
-          exit 1
+        if [ -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
+          echo "预发行版目标文件存在: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
+          PRE_RELEASE_EXISTS=1
+        else
+          echo "预发行版目标文件不存在: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
         fi
-
-        # 提取版本号并添加"v"前缀
+        
+        # 2. 版本文件键值存在性检测
+        echo "检查版本文件存在性..."
+        if [ -f "$VERSION_FILE" ]; then
+          echo "版本文件存在: $VERSION_FILE"
+          CURRENT_VERSION_DATA=$(cat "$VERSION_FILE")
+        else
+          echo "版本文件不存在，创建空版本文件"
+          echo "{}" > "$VERSION_FILE"
+          CURRENT_VERSION_DATA="{}"
+        fi
+        
+        # 3. 触发更新下载逻辑
+        NEED_UPDATE_STABLE=0
+        NEED_UPDATE_PRE=0
+        
+        # 提取版本号函数
         extract_apk_version() {
           local apk_path="$1"
           echo "从APK提取版本号: $apk_path" >&2
           
-          VERSION_INFO=$("$GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2" dump badging "$apk_path" | grep "versionName")
+          VERSION_INFO=$("$GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2" dump badging "$apk_path" 2>/dev/null | grep "versionName")
           VERSION=$(echo "$VERSION_INFO" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           
           if [ -z "$VERSION" ]; then
@@ -128,7 +151,26 @@ jobs:
           echo "文件提交日期: $COMMIT_DATE_UTC8" >&2
           echo "$COMMIT_DATE_UTC8"
         }
-
+        
+        # 下载稳定版APK
+        echo "下载稳定版APK..."
+        STABLE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$STABLE_APK_NAME"
+        curl -sL "$STABLE_DOWNLOAD_URL" -o "$WORK_DIR/$STABLE_APK_NAME"
+        if [ ! -f "$WORK_DIR/$STABLE_APK_NAME" ]; then
+          echo "错误: 稳定版APK下载失败"
+          exit 1
+        fi
+        
+        # 下载预发行版APK
+        echo "下载预发行版APK..."
+        PRE_RELEASE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$PRE_RELEASE_APK_NAME"
+        curl -sL "$PRE_RELEASE_DOWNLOAD_URL" -o "$WORK_DIR/$PRE_RELEASE_APK_NAME"
+        if [ ! -f "$WORK_DIR/$PRE_RELEASE_APK_NAME" ]; then
+          echo "错误: 预发行版APK下载失败"
+          exit 1
+        fi
+        
+        # 提取版本信息
         STABLE_VERSION=$(extract_apk_version "$WORK_DIR/$STABLE_APK_NAME")
         PRE_RELEASE_VERSION=$(extract_apk_version "$WORK_DIR/$PRE_RELEASE_APK_NAME")
         STABLE_COMMIT_DATE=$(get_file_commit_date "$STABLE_APK_NAME")
@@ -136,30 +178,79 @@ jobs:
         
         echo "稳定版版本: $STABLE_VERSION, 日期: $STABLE_COMMIT_DATE"
         echo "预发行版版本: $PRE_RELEASE_VERSION, 日期: $PRE_RELEASE_COMMIT_DATE"
-
-        TARGET_DIR="$GITHUB_WORKSPACE/target-repo"
-        VERSION_FILE="$TARGET_DIR/version.txt"
         
-        if [ ! -f "$VERSION_FILE" ]; then
-          echo "{}" > "$VERSION_FILE"
+        # 4. 对比更新逻辑
+        CURRENT_STABLE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$STABLE_TARGET_NAME")
+        CURRENT_PRE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$PRE_RELEASE_TARGET_NAME")
+        
+        NEW_STABLE_VALUE="$STABLE_VERSION,$STABLE_COMMIT_DATE"
+        NEW_PRE_VALUE="$PRE_RELEASE_VERSION,$PRE_RELEASE_COMMIT_DATE"
+        
+        # 稳定版更新检测
+        if [ "$STABLE_EXISTS" -eq 0 ]; then
+          echo "稳定版目标文件不存在，需要更新"
+          NEED_UPDATE_STABLE=1
+        elif [ "$CURRENT_STABLE" != "$NEW_STABLE_VALUE" ]; then
+          echo "稳定版版本变化：$CURRENT_STABLE -> $NEW_STABLE_VALUE，需要更新"
+          NEED_UPDATE_STABLE=1
+        else
+          echo "稳定版无变化，跳过更新"
         fi
         
-        CURRENT_VERSION_DATA=$(cat "$VERSION_FILE")
+        # 预发行版更新检测
+        if [ "$PRE_RELEASE_EXISTS" -eq 0 ]; then
+          echo "预发行版目标文件不存在，需要更新"
+          NEED_UPDATE_PRE=1
+        elif [ "$CURRENT_PRE" != "$NEW_PRE_VALUE" ]; then
+          echo "预发行版版本变化：$CURRENT_PRE -> $NEW_PRE_VALUE，需要更新"
+          NEED_UPDATE_PRE=1
+        else
+          echo "预发行版无变化，跳过更新"
+        fi
+        
+        # 检查是否需要更新
+        if [ "$NEED_UPDATE_STABLE" -eq 0 ] && [ "$NEED_UPDATE_PRE" -eq 0 ]; then
+          echo "没有需要更新的APK文件"
+          exit 0
+        fi
+        
+        # 5. 更新版本文件
         NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
             --arg stable_key "$STABLE_TARGET_NAME" \
-            --arg stable_value "$STABLE_VERSION,$STABLE_COMMIT_DATE" \
+            --arg stable_value "$NEW_STABLE_VALUE" \
             --arg pre_key "$PRE_RELEASE_TARGET_NAME" \
-            --arg pre_value "$PRE_RELEASE_VERSION,$PRE_RELEASE_COMMIT_DATE" \
+            --arg pre_value "$NEW_PRE_VALUE" \
             '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
             
         echo "$NEW_VERSION_DATA" | jq -r . > "$VERSION_FILE"
         echo "版本文件已更新"
-
+        
+        # 6. 复制文件到目标仓库
         mkdir -p "$TARGET_DIR/apk"
-        cp "$WORK_DIR/$STABLE_APK_NAME" "$TARGET_DIR/$STABLE_TARGET_PATH"
-        cp "$WORK_DIR/$PRE_RELEASE_APK_NAME" "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
-        echo "APK文件已复制到目标仓库"
-
+        
+        if [ "$NEED_UPDATE_STABLE" -eq 1 ]; then
+          cp "$WORK_DIR/$STABLE_APK_NAME" "$TARGET_DIR/$STABLE_TARGET_PATH"
+          echo "稳定版APK已复制到目标仓库"
+          
+          # 验证复制成功
+          if [ ! -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
+            echo "错误: 稳定版APK复制失败"
+            exit 1
+          fi
+        fi
+        
+        if [ "$NEED_UPDATE_PRE" -eq 1 ]; then
+          cp "$WORK_DIR/$PRE_RELEASE_APK_NAME" "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
+          echo "预发行版APK已复制到目标仓库"
+          
+          # 验证复制成功
+          if [ ! -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
+            echo "错误: 预发行版APK复制失败"
+            exit 1
+          fi
+        fi
+        
+        # 7. 提交和推送
         cd "$TARGET_DIR"
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
@@ -173,10 +264,17 @@ jobs:
           exit 0
         fi
 
-        COMMIT_MESSAGE="更新APK: $STABLE_TARGET_NAME ($STABLE_VERSION) 和 $PRE_RELEASE_TARGET_NAME ($PRE_RELEASE_VERSION)"
+        COMMIT_MESSAGE="更新APK: "
+        if [ "$NEED_UPDATE_STABLE" -eq 1 ]; then
+          COMMIT_MESSAGE+="$STABLE_TARGET_NAME ($STABLE_VERSION) "
+        fi
+        if [ "$NEED_UPDATE_PRE" -eq 1 ]; then
+          COMMIT_MESSAGE+="$PRE_RELEASE_TARGET_NAME ($PRE_RELEASE_VERSION) "
+        fi
+        
         git commit -m "$COMMIT_MESSAGE"
         
-        # 推送重试机制 (最多3次)
+        # 推送重试机制
         for i in {1..3}; do
           echo "尝试 $i/3: 拉取远程最新更改..."
           git pull origin main --rebase || {
@@ -200,7 +298,23 @@ jobs:
           exit 1
         fi
 
-        echo "同步完成! 状态: 成功"
+        # 8. 最终验证
+        echo "同步完成，验证结果:"
+        echo "稳定版: $([ -f "$TARGET_DIR/$STABLE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
+        echo "预发行版: $([ -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
+        
+        if [ "$NEED_UPDATE_STABLE" -eq 1 ] && [ ! -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
+          echo "错误: 稳定版APK同步后验证失败"
+          exit 1
+        fi
+        
+        if [ "$NEED_UPDATE_PRE" -eq 1 ] && [ ! -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
+          echo "错误: 预发行版APK同步后验证失败"
+          exit 1
+        fi
+        
+        echo "所有目标文件已确认同步至仓库"
+        echo "状态: 成功"
 
     - name: Release Repository Lock 🔓
       if: always()
@@ -211,18 +325,41 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    # 修复通知失败问题
     - name: Notify on failure
       if: failure()
       uses: actions/github-script@v6
       with:
         script: |
-          const message = `🚨 APK同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: message
-          })
+          try {
+            // 检查是否有有效的 issue number
+            if (context.issue && context.issue.number) {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `🚨 APK同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+              });
+            } else {
+              // 创建新 issue 通知
+              const issueTitle = "APK同步失败通知";
+              const issueBody = `### 🚨 APK同步失败\n\n` +
+                               `**工作流**: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n` +
+                               `**失败时间**: ${new Date().toISOString()}\n\n` +
+                               `请检查工作流日志以获取详细信息。`;
+              
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issueTitle,
+                body: issueBody
+              });
+            }
+          } catch (error) {
+            console.error('通知失败:', error);
+            // 回退到基本日志输出
+            core.warning('无法发送通知，请手动检查工作流失败情况');
+          }
 
   cleanup_self:
     name: Cleanup Self Workflow History
