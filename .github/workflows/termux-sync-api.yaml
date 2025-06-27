@@ -1,5 +1,9 @@
 name: Termux APK Sync from Source Repository
 
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   schedule:
     - cron: '0 */24 * * *'  # 每24小时运行一次
@@ -7,19 +11,21 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    # 使用原生并发控制（已由concurrency配置实现）
+    # 基于缓存的锁机制（已由concurrency配置实现）
+    
     - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq
+        sudo apt-get install -y jq curl
         
     - name: Run optimized APK sync
       env:
@@ -98,7 +104,39 @@ jobs:
             '.[$key] = $value')
         }
         
-        # 4. 检查并下载APK
+        # 4. 增强文件存在性检测
+        check_file_exists() {
+          local key_name=$1
+          local target_path="apk/$key_name"
+          
+          # 检查文件是否存在
+          response=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
+          
+          if [ "$response" -eq 200 ]; then
+            echo "文件存在: $target_path"
+            return 0
+          else
+            echo "文件缺失: $target_path"
+            return 1
+          fi
+        }
+        
+        # 5. 增强版本键值存在性检测
+        check_key_exists() {
+          local key_name=$1
+          
+          # 检查键值是否存在
+          if echo "$current_versions" | jq -e "has(\"$key_name\")" >/dev/null; then
+            echo "版本键值存在: $key_name"
+            return 0
+          else
+            echo "版本键值缺失: $key_name"
+            return 1
+          fi
+        }
+        
+        # 6. 检查并下载APK
         check_and_download() {
           local release_json=$1
           local key_name=$2
@@ -109,13 +147,27 @@ jobs:
           # 获取目标文件名
           local target_filename="apk/$key_name"
           
-          # 检查当前版本
-          local current_value=$(echo "$current_versions" | jq -r ".\"$key_name\"")
+          # 检查文件是否存在
+          if ! check_file_exists "$key_name"; then
+            echo "文件缺失，必须更新: $key_name"
+            file_missing=1
+          else
+            file_missing=0
+          fi
           
-          # 版本比较逻辑
-          if [[ "$current_value" != "$main_version,$date" ]]; then
-            echo "发现新版本: $key_name ($current_value → $main_version,$date)"
-            
+          # 检查键值是否存在
+          if ! check_key_exists "$key_name"; then
+            echo "键值缺失，必须更新: $key_name"
+            key_missing=1
+          else
+            key_missing=0
+          fi
+          
+          # 获取当前版本值
+          local current_value=$(echo "$current_versions" | jq -r ".\"$key_name\" // \"\"")
+          
+          # 确定是否需要更新
+          if [[ $file_missing -eq 1 || $key_missing -eq 1 || "$current_value" != "$main_version,$date" ]]; then
             # 下载APK
             download_url=$(echo "$release_json" | jq -r \
               ".assets[] | select(.name | contains(\"$apk_pattern\")) | .browser_download_url" | head -1)
@@ -132,7 +184,7 @@ jobs:
           fi
         }
         
-        # 5. 上传文件函数
+        # 7. 上传文件函数
         upload_file() {
           local file_path=$1
           local target_path=$2
@@ -160,14 +212,14 @@ jobs:
             "https://api.github.com/repos/$TARGET_REPO/contents/$target_path" > /dev/null
         }
         
-        # 6. 处理稳定版
+        # 8. 处理稳定版
         echo "处理稳定版..."
         if check_and_download "$stable_release" "$STABLE_KEY_NAME" \
           "$STABLE_APK_PATTERN" "$stable_main_version" "$stable_date"; then
           upload_file "$WORK_DIR/$STABLE_KEY_NAME" "apk/$STABLE_KEY_NAME" "$stable_main_version"
         fi
         
-        # 7. 处理预发行版
+        # 9. 处理预发行版
         if [ "$sync_pre_release" = true ]; then
           echo "处理预发行版..."
           if check_and_download "$pre_release" "$PRE_RELEASE_KEY_NAME" \
@@ -176,7 +228,7 @@ jobs:
           fi
         fi
         
-        # 8. 更新版本文件
+        # 10. 更新版本文件
         echo "更新版本文件..."
         version_sha=$(echo "$version_response" | jq -r '.sha // empty')
         version_content=$(echo "$current_versions" | jq -c .)
@@ -195,7 +247,7 @@ jobs:
           -d "$version_json" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt" > /dev/null
         
-        # 9. 显示最终当前的版本信息
+        # 11. 显示最终当前的版本信息
         echo "同步完成! 当前版本信息:"
         # 只显示相应的键值
         echo "$current_versions" | jq -r ".\"$STABLE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$STABLE_KEY_NAME" '{print key ": " $0}'
