@@ -16,9 +16,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    # 使用原生并发控制（已由concurrency配置实现）
-    # 基于缓存的锁机制（已由concurrency配置实现）
-    
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
@@ -168,6 +165,30 @@ jobs:
             match = re.search(r'v?(\d+\.\d+\.\d+)|v?(\d+\.\d+)|(\d{8})', filename)
             return (match.group(1) or match.group(2) or match.group(3)) if match else None
         
+        def verify_local_files(current_versions):
+            """验证本地文件是否存在且与版本记录一致"""
+            missing_files = []
+            inconsistent_versions = []
+            
+            for target_name, version_value in current_versions.items():
+                file_path = os.path.join(APK_DIR, target_name)
+                
+                # 检查文件是否存在
+                if not os.path.exists(file_path):
+                    logger.warning(f"文件缺失: {target_name} (版本: {version_value})")
+                    missing_files.append(target_name)
+                    continue
+                
+                # 检查版本号是否匹配
+                if ',' in version_value:
+                    version_str = version_value.split(',')[0]
+                    extracted = extract_version(target_name)
+                    if extracted and version_str != extracted:
+                        logger.warning(f"版本不一致: {target_name} (记录: {version_str}, 实际: {extracted})")
+                        inconsistent_versions.append(target_name)
+            
+            return missing_files, inconsistent_versions
+        
         async def download_apk(client, message, target_name):
             """下载APK文件"""
             download_path = os.path.join(WORK_DIR, target_name)
@@ -254,6 +275,15 @@ jobs:
             for key, value in current_versions.items():
                 logger.info(f"  {key}: {value}")
             
+            # 验证本地文件存在性和一致性
+            missing_files, inconsistent_versions = verify_local_files(current_versions)
+            if missing_files or inconsistent_versions:
+                logger.warning("检测到本地文件问题:")
+                if missing_files:
+                    logger.warning(f"  - 缺失文件: {', '.join(missing_files)}")
+                if inconsistent_versions:
+                    logger.warning(f"  - 版本不一致: {', '.join(inconsistent_versions)}")
+            
             # 连接Telegram
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
@@ -273,13 +303,18 @@ jobs:
                     return 0
                 
                 updates = {}
+                force_updates = missing_files + inconsistent_versions
                 
                 # 处理每个APK
                 for target_name, msg in apk_msgs.items():
                     apk_data = await download_apk(client, msg, target_name)
                     new_value = f"{apk_data['version']},{apk_data['date']}"
                     
-                    if should_update(target_name, apk_data['version'], apk_data['date'], current_versions):
+                    # 如果文件缺失或版本不一致，强制更新
+                    if target_name in force_updates:
+                        logger.info(f"强制更新: {target_name} (文件问题)")
+                        updates[target_name] = new_value
+                    elif should_update(target_name, apk_data['version'], apk_data['date'], current_versions):
                         updates[target_name] = new_value
                     else:
                         logger.info(f"跳过更新: {target_name} (无新版本)")
@@ -290,6 +325,15 @@ jobs:
                     for target_name in updates.keys():
                         src = os.path.join(WORK_DIR, target_name)
                         dst = os.path.join(APK_DIR, target_name)
+                        
+                        # 确保目标目录存在
+                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                        
+                        # 删除旧文件（如果存在）
+                        if os.path.exists(dst):
+                            os.remove(dst)
+                            logger.info(f"已删除旧文件: {target_name}")
+                            
                         shutil.move(src, dst)
                         logger.info(f"已移动: {target_name}")
                     
