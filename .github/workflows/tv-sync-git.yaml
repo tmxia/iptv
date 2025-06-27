@@ -16,6 +16,9 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    # 使用原生并发控制（已由concurrency配置实现）
+    # 基于缓存的锁机制（已由concurrency配置实现）
+    
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
@@ -95,30 +98,62 @@ jobs:
                 return False
         
         def git_commit_push(message):
-            """提交并推送更改"""
-            try:
-                # 添加更改
-                subprocess.run(["git", "add", APK_DIR, VERSION_FILE], cwd=GIT_DIR, check=True)
-                
-                # 检查是否有更改
-                status = subprocess.run(["git", "status", "--porcelain"], 
-                                       cwd=GIT_DIR, capture_output=True, text=True)
-                if not status.stdout.strip():
-                    logger.info("没有更改需要提交")
+            """提交并推送更改（增强版）"""
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    # 添加更改
+                    subprocess.run(["git", "add", APK_DIR, VERSION_FILE], cwd=GIT_DIR, check=True)
+                    
+                    # 检查是否有更改
+                    status = subprocess.run(["git", "status", "--porcelain"], 
+                                           cwd=GIT_DIR, capture_output=True, text=True)
+                    if not status.stdout.strip():
+                        logger.info("没有更改需要提交")
+                        return True
+                    
+                    # 提交
+                    subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
+                    
+                    # 同步远程更改（关键修复点）
+                    logger.info(f"同步远程更改 (尝试 {attempt+1}/{max_retries})")
+                    subprocess.run(["git", "fetch", "origin", "main"], cwd=GIT_DIR, check=True)
+                    subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=GIT_DIR, check=True)
+                    
+                    # 重新应用本地提交
+                    try:
+                        # 获取最后一次提交的哈希
+                        last_commit = subprocess.run(["git", "rev-parse", "HEAD@{1}"], 
+                                                     cwd=GIT_DIR, capture_output=True, text=True).stdout.strip()
+                        subprocess.run(["git", "cherry-pick", last_commit], cwd=GIT_DIR, check=True)
+                    except:
+                        # 如果cherry-pick失败，则重新创建提交
+                        logger.warning("重新应用提交失败，重新创建更改")
+                        # 恢复被重置的文件
+                        subprocess.run(["git", "checkout", last_commit, "--", APK_DIR, VERSION_FILE], 
+                                      cwd=GIT_DIR, check=True)
+                        # 重新添加并提交
+                        subprocess.run(["git", "add", APK_DIR, VERSION_FILE], cwd=GIT_DIR, check=True)
+                        subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
+                    
+                    # 使用标准Git推送
+                    token = os.environ['GITHUB_TOKEN']
+                    repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
+                    subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
+                    logger.info("推送成功")
                     return True
-                
-                # 提交
-                subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
-                
-                # 使用标准Git推送
-                token = os.environ['GITHUB_TOKEN']
-                repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
-                subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
-                logger.info("推送成功")
-                return True
-            except Exception as e:
-                logger.error(f"Git操作失败: {str(e)}")
-                return False
+                except Exception as e:
+                    logger.warning(f"Git操作失败 (尝试 {attempt+1}/{max_retries}): {str(e)}")
+                    if attempt < max_retries - 1:
+                        # 等待后重试
+                        time.sleep(5)
+                        # 重置到远程状态
+                        subprocess.run(["git", "fetch", "origin", "main"], cwd=GIT_DIR, check=True)
+                        subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=GIT_DIR, check=True)
+                    else:
+                        logger.error(f"所有重试均失败: {str(e)}")
+                        return False
+            return False
         
         def get_versions():
             """获取当前版本信息（只关心APK_TARGETS中的键）"""
@@ -326,7 +361,7 @@ jobs:
                         src = os.path.join(WORK_DIR, target_name)
                         dst = os.path.join(APK_DIR, target_name)
                         
-                        # 确保目标目录存在
+                        # 确保目录存在
                         os.makedirs(os.path.dirname(dst), exist_ok=True)
                         
                         # 删除旧文件（如果存在）
