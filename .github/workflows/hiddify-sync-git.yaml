@@ -5,6 +5,7 @@ on:
     - cron: '0 */48 * * *'  # 每48小时运行一次
   workflow_dispatch:
 
+# 使用原生并发控制
 concurrency:
   group: sync-apk-${{ github.ref }}
   cancel-in-progress: true
@@ -17,6 +18,33 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    # 基于缓存的锁机制
+    - name: Acquire Repository Lock
+      id: lock
+      run: |
+        # 创建锁文件路径
+        LOCK_DIR="$GITHUB_WORKSPACE/.lock"
+        LOCK_FILE="$LOCK_DIR/repo-lock"
+        mkdir -p "$LOCK_DIR"
+        
+        # 尝试获取锁
+        for i in {1..10}; do
+          # 检查是否有其他工作流持有锁
+          if [ -f "$LOCK_FILE" ]; then
+            echo "锁已被占用，等待重试 ($i/10)..."
+            sleep 30
+          else
+            # 创建锁文件
+            touch "$LOCK_FILE"
+            echo "lock-acquired=true" >> $GITHUB_OUTPUT
+            echo "成功获取锁"
+            exit 0
+          fi
+        done
+        
+        echo "::error::无法在5分钟内获取锁"
+        exit 1
+
     - name: Checkout repository
       uses: actions/checkout@v3
       with:
@@ -163,6 +191,13 @@ jobs:
               return 1
             fi
             
+            # 验证文件非空
+            if [ ! -s "$target_filename" ]; then
+              echo "错误: 下载的文件为空"
+              rm -f "$target_filename"
+              return 1
+            fi
+            
             # 返回需要更新的标志
             return 1  # 1表示需要更新
           else
@@ -292,6 +327,18 @@ jobs:
         fi
         
         exit 0
+
+    - name: Release Repository Lock
+      if: always()
+      run: |
+        # 释放锁
+        LOCK_FILE="$GITHUB_WORKSPACE/.lock/repo-lock"
+        if [ -f "$LOCK_FILE" ]; then
+          rm -f "$LOCK_FILE"
+          echo "锁已释放"
+        else
+          echo "锁文件不存在，无需释放"
+        fi
 
   cleanup_self:
     name: Cleanup Self Workflow History
