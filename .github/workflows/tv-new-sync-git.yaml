@@ -16,8 +16,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    # 使用原生并发控制（已由concurrency配置实现）
-    # 基于缓存的锁机制（已由concurrency配置实现）
     
     - name: Checkout repository
       uses: actions/checkout@v4
