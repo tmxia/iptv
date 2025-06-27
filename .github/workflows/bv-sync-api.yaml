@@ -81,38 +81,49 @@ jobs:
           exit 1
         fi
         
-        # 简化的版本信息提取函数 - 只提取主版本号
+        # 改进的版本信息提取函数 - 修复beta版本解析
         extract_main_version() {
           local release_json="$1"
           local tag_name=$(jq -r '.tag_name' <<< "$release_json")
           local published_at=$(jq -r '.published_at' <<< "$release_json")
           date_utc8=$(TZ=UTC date -d "$published_at" +'%Y-%m-%d')
           
-          # 简化版本号提取逻辑 - 只保留主版本号部分
-          # 匹配格式：vX.Y.Z 或 X.Y.Z (X, Y, Z 为数字)
+          # 改进版本号提取逻辑 - 处理beta版本
           if [[ "$tag_name" =~ v?([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-            version="v${BASH_REMATCH[1]}"
+            # 主版本号 (如0.3.0)
+            version="${BASH_REMATCH[1]}"
+          elif [[ "$tag_name" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            # 处理没有v前缀的情况
+            version="${BASH_REMATCH[1]}"
           else
+            # 保留原始标签名
             version="$tag_name"
           fi
           
-          echo "$version $date_utc8"
+          # 统一添加v前缀
+          echo "v$version $date_utc8"
         }
         
-        # 核心APK处理函数
+        # 核心APK处理函数 - 修复文件存在性检测
         process_apk() {
           local release_json="$1"
           local pattern="$2"
           local key="$3"
           local current_version="$4"
           
-          # 检查目标APK是否存在
+          # 检查目标APK是否存在 - 使用GitHub API
           local status_code=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/$TARGET_REPO/contents/apk/$key")
           
-          # 确定是否需要更新
+          # 获取最新版本号
           local latest_tag=$(jq -r '.tag_name' <<< "$release_json")
+          
+          # 调试信息
+          echo "文件状态码: $status_code"
+          echo "当前版本: $current_version, 最新版本: $latest_tag"
+          
+          # 确定是否需要更新
           if [ "$status_code" != "200" ] || [ "$latest_tag" != "$current_version" ]; then
             # 获取精确匹配的APK
             local url=$(jq -r --arg pattern "$pattern" '
@@ -125,7 +136,7 @@ jobs:
               return 1; 
             }
             
-            # 直接下载
+            # 直接下载到临时目录
             if ! curl -fL "$url" -o "$WORK_DIR/$key"; then
               echo "::error::无法下载APK文件: $key"
               return 1
@@ -138,10 +149,10 @@ jobs:
             fi
             
             echo "成功下载: $key (版本: $latest_tag)"
-            return 0
+            return 0  # 表示需要更新
           fi
           echo "无需更新: $key (当前版本: $current_version)"
-          return 0
+          return 1  # 表示不需要更新
         }
         
         # 获取并解析版本文件
@@ -177,13 +188,14 @@ jobs:
         echo "目标稳定版: ${CURRENT_STABLE:-无} (${CURRENT_STABLE_DATE:-无日期})"
         echo "目标预发行版: ${CURRENT_PRE:-无} (${CURRENT_PRE_DATE:-无日期})"
         
-        # 处理稳定版
+        # 处理稳定版 - 确保检测逻辑正确
         LATEST_STABLE=$(jq -r '[.[] | select(.prerelease == false)] | max_by(.published_at)' <<< "$RELEASES_JSON")
         if [ -n "$LATEST_STABLE" ] && [ "$LATEST_STABLE" != "null" ]; then
           read NEW_STABLE_VERSION NEW_STABLE_DATE <<< $(extract_main_version "$LATEST_STABLE")
           echo "源稳定版: $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
           
-          if process_apk "$LATEST_STABLE" "$STABLE_APK_PATTERN" "$STABLE_KEY_NAME" "$CURRENT_STABLE"; then
+          # 修复：正确处理process_apk返回值
+          if process_apk "$LATEST_STABLE" "$STABLE_APK_PATTERN" "$STABLE_KEY_NAME" "$CURRENT_STABLE" == 0; then
             STABLE_NEED_UPDATE=true
           else
             # 保留当前版本信息
@@ -196,13 +208,14 @@ jobs:
           NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
         fi
         
-        # 处理预发布版 - 使用简化版本提取
+        # 处理预发布版 - 使用改进版本提取
         LATEST_PRE_RELEASE=$(jq -r '[.[] | select(.prerelease == true)] | max_by(.published_at)' <<< "$RELEASES_JSON")
         if [ -n "$LATEST_PRE_RELEASE" ] && [ "$LATEST_PRE_RELEASE" != "null" ]; then
           read NEW_PRE_RELEASE_VERSION NEW_PRE_RELEASE_DATE <<< $(extract_main_version "$LATEST_PRE_RELEASE")
           echo "源预发布版: $NEW_PRE_RELEASE_VERSION ($NEW_PRE_RELEASE_DATE)"
           
-          if process_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE"; then
+          # 修复：正确处理process_apk返回值
+          if process_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE" == 0; then
             PRE_RELEASE_NEED_UPDATE=true
           else
             # 保留当前版本信息
