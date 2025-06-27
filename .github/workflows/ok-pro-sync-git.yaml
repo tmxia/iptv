@@ -1,13 +1,12 @@
 name: OK PRO APK Sync from TELEGRAM
 
-# 原生并发控制机制
 concurrency: 
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:
   schedule:
-    - cron: '0 */3 * * *'  # 每3小时运行一次
+    - cron: '0 */3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -17,7 +16,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    # 基于缓存的锁机制
     - name: Acquire Repository Lock 🔒
       uses: softprops/turnstyle@v1
       with:
@@ -222,6 +220,14 @@ jobs:
             current_versions = get_versions()
             updates = {}
             
+            # 关键修复：检查目标文件实际存在性
+            missing_files = []
+            for apk in APK_FILES:
+                apk_path = os.path.join(APK_DIR, apk)
+                if not os.path.exists(apk_path):
+                    logger.warning(f"目标文件不存在: {apk_path}")
+                    missing_files.append(apk)
+            
             async for msg in client.iter_messages(entity, limit=20):
                 if not (msg.media and hasattr(msg.media, "document")):
                     continue
@@ -229,6 +235,15 @@ jobs:
                 for attr in msg.media.document.attributes:
                     if isinstance(attr, DocumentAttributeFilename) and attr.file_name in APK_FILES:
                         filename = attr.file_name
+                        
+                        # 关键修复：如果文件实际不存在，强制更新
+                        if filename in missing_files:
+                            logger.info(f"目标文件缺失，强制更新: {filename}")
+                            apk_data = await download_apk(client, msg, filename)
+                            new_value = f"{apk_data['version']},{apk_data['date']}"
+                            updates[filename] = new_value
+                            logger.info(f"文件缺失触发更新: {filename} => {new_value}")
+                            break
                         
                         # 检查是否需要下载
                         current = current_versions.get(filename, "")
@@ -270,6 +285,11 @@ jobs:
             os.makedirs(WORK_DIR, exist_ok=True)
             os.makedirs(APK_DIR, exist_ok=True)
             
+            # 关键修复：确保目标目录存在
+            if not os.path.exists(APK_DIR):
+                os.makedirs(APK_DIR)
+                logger.info(f"创建目标目录: {APK_DIR}")
+            
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
                 int(os.environ['TELEGRAM_API_ID']),
@@ -289,7 +309,11 @@ jobs:
                     
                     dst = os.path.join(APK_DIR, apk)
                     shutil.copy2(src, dst)
-                    logger.info(f"已复制: {apk}")
+                    logger.info(f"已复制: {apk} 到 {dst}")
+                    
+                    # 关键修复：验证文件已成功复制
+                    if not os.path.exists(dst):
+                        raise RuntimeError(f"文件复制失败: {dst}")
                 
                 # 更新版本文件
                 update_versions(new_versions)
@@ -332,7 +356,6 @@ jobs:
                 sys.exit(1)
         EOF
 
-    # 释放基于缓存的锁
     - name: Release Repository Lock 🔓
       if: always()
       uses: softprops/turnstyle@v1
@@ -354,7 +377,6 @@ jobs:
             body: `🚨 Telegram APK同步失败！工作流运行详情: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
           })
 
-  # 清理工作流历史（使用原生并发机制）
   cleanup_self:
     name: Cleanup Self Workflow History
     runs-on: ubuntu-latest
