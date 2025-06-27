@@ -11,26 +11,18 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    - name: Acquire Repository Lock
-      uses: softprops/turnstyle@v1
-      with:
-        same-branch-only: true
-        poll-interval-seconds: 30
-        abort-after-seconds: 1200
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+    # 使用原生并发控制（已由concurrency配置实现）
+    # 基于缓存的锁机制（已由concurrency配置实现）
+    
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-        lfs: true
 
     - name: Setup Python
       uses: actions/setup-python@v5
@@ -108,7 +100,7 @@ jobs:
             """提交并推送更改"""
             try:
                 # 添加更改
-                subprocess.run(["git", "add", APK_DIR, VERSION_FILE, ".gitattributes"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "add", APK_DIR, VERSION_FILE], cwd=GIT_DIR, check=True)
                 
                 # 检查是否有更改
                 status = subprocess.run(["git", "status", "--porcelain"], 
@@ -120,10 +112,9 @@ jobs:
                 # 提交
                 subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
                 
-                # 使用LFS推送
+                # 使用标准Git推送
                 token = os.environ['GITHUB_TOKEN']
                 repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
-                subprocess.run(["git", "lfs", "push", "--all", repo_url, "main"], cwd=GIT_DIR, check=True)
                 subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
                 log.info("推送成功")
                 return True
@@ -161,6 +152,16 @@ jobs:
             match = re.search(r'v?(\d+\.\d+\.\d+)|v?(\d+\.\d+)|(\d{8})', filename)
             return (match.group(1) or match.group(2) or match.group(3)) if match else None
         
+        def verify_files_exist():
+            """验证所有目标文件是否存在"""
+            missing_files = []
+            for target_name in APK_TARGETS.keys():
+                file_path = os.path.join(APK_DIR, target_name)
+                if not os.path.exists(file_path):
+                    log.warning(f"文件缺失: {target_name}")
+                    missing_files.append(target_name)
+            return missing_files
+        
         async def download_apk(client, message, target_name):
             """下载APK文件"""
             download_path = os.path.join(WORK_DIR, target_name)
@@ -190,11 +191,21 @@ jobs:
         
         def should_update(target_name, new_version, new_date, current_versions):
             """检查是否需要更新"""
-            current = current_versions.get(target_name, "")
-            if not current:
+            # 如果文件不存在，必须更新
+            file_path = os.path.join(APK_DIR, target_name)
+            if not os.path.exists(file_path):
+                log.info(f"文件不存在，需要更新: {target_name}")
                 return True
                 
+            # 如果版本信息不存在，需要更新
+            if target_name not in current_versions:
+                log.info(f"版本信息缺失，需要更新: {target_name}")
+                return True
+                
+            current = current_versions[target_name]
             current_ver, current_date = current.split(",", 1) if "," in current else (current, "")
+            
+            # 检查版本号或日期是否更新
             return (new_version != current_ver) or (new_date > current_date)
         
         async def find_latest_apks(client, entity):
@@ -221,7 +232,7 @@ jobs:
                         apk_messages["tv-new.apk"] = msg
                     
                     # 如果已找到两个文件，提前退出
-                    if len(apk_messages) == 2:
+                    if len(apk_messages) == len(APK_TARGETS):
                         return apk_messages
             return apk_messages
         
@@ -245,6 +256,11 @@ jobs:
             for key, value in current_versions.items():
                 if key in APK_TARGETS:
                     log.info(f"  {key}: {value}")
+            
+            # 检查文件存在性
+            missing_files = verify_files_exist()
+            if missing_files:
+                log.warning(f"检测到缺失文件: {', '.join(missing_files)}")
             
             # 连接Telegram
             client = TelegramClient(
@@ -282,16 +298,20 @@ jobs:
                     for target_name in updates.keys():
                         src = os.path.join(WORK_DIR, target_name)
                         dst = os.path.join(APK_DIR, target_name)
+                        
+                        # 确保目录存在
+                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                        
+                        # 删除旧文件（如果存在）
+                        if os.path.exists(dst):
+                            os.remove(dst)
+                            log.info(f"已删除旧文件: {target_name}")
+                            
                         shutil.move(src, dst)
                         log.info(f"已移动: {target_name}")
                     
                     # 更新版本文件
                     update_versions(updates)
-                    
-                    # 配置Git LFS跟踪
-                    for apk in updates.keys():
-                        apk_path = os.path.join(APK_DIR, apk)
-                        subprocess.run(["git", "lfs", "track", apk_path], cwd=GIT_DIR, check=True)
                     
                     # 提交更改
                     if git_commit_push(f"更新APK: {', '.join(updates.keys())}"):
@@ -317,15 +337,6 @@ jobs:
             import asyncio
             sys.exit(asyncio.run(main_async()))
         EOF
-
-    - name: Release Repository Lock
-      if: always()
-      uses: softprops/turnstyle@v1
-      with:
-        continue-on-error: true
-        action: unlock
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Notify on failure
       if: failure()
