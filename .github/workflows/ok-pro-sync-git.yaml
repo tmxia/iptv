@@ -228,6 +228,9 @@ jobs:
                     logger.warning(f"目标文件不存在: {apk_path}")
                     missing_files.append(apk)
             
+            # 关键修复：添加已处理文件集合
+            processed_files = set()
+            
             async for msg in client.iter_messages(entity, limit=20):
                 if not (msg.media and hasattr(msg.media, "document")):
                     continue
@@ -236,6 +239,14 @@ jobs:
                     if isinstance(attr, DocumentAttributeFilename) and attr.file_name in APK_FILES:
                         filename = attr.file_name
                         
+                        # 关键修复：避免重复处理相同文件
+                        if filename in processed_files:
+                            logger.info(f"跳过已处理的文件: {filename}")
+                            continue
+                            
+                        # 标记文件已处理
+                        processed_files.add(filename)
+                        
                         # 关键修复：如果文件实际不存在，强制更新
                         if filename in missing_files:
                             logger.info(f"目标文件缺失，强制更新: {filename}")
@@ -243,6 +254,8 @@ jobs:
                             new_value = f"{apk_data['version']},{apk_data['date']}"
                             updates[filename] = new_value
                             logger.info(f"文件缺失触发更新: {filename} => {new_value}")
+                            # 从缺失列表中移除，避免重复处理
+                            missing_files.remove(filename)
                             break
                         
                         # 检查是否需要下载
@@ -365,17 +378,67 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    # 修复通知失败问题
     - name: Notify on failure
       if: failure()
       uses: actions/github-script@v6
       with:
         script: |
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: `🚨 Telegram APK同步失败！工作流运行详情: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
-          })
+          try {
+            // 检查是否有有效的 issue number
+            if (context.issue && context.issue.number) {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `🚨 Telegram APK同步失败！工作流运行详情: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+              });
+            } else {
+              // 没有关联的 issue，发送到仓库讨论
+              const repo = context.repo;
+              const discussionTitle = "工作流失败通知";
+              
+              // 检查是否已存在讨论
+              const discussions = await github.rest.discussions.listForRepo({
+                owner: repo.owner,
+                repo: repo.repo,
+                per_page: 1,
+                direction: 'desc'
+              });
+              
+              // 创建或更新讨论
+              if (discussions.data.length > 0) {
+                const discussion = discussions.data[0];
+                await github.rest.discussions.updateComment({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  discussion_number: discussion.number,
+                  comment_number: discussion.comments[0]?.number || 0,
+                  body: `### 🚨 工作流失败通知\n\n` +
+                        `**工作流**: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n` +
+                        `**失败时间**: ${new Date().toISOString()}\n` +
+                        `**原因**: APK同步失败\n\n` +
+                        `请检查工作流日志以获取详细信息。`
+                });
+              } else {
+                await github.rest.discussions.create({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  title: discussionTitle,
+                  body: `### 🚨 工作流失败通知\n\n` +
+                        `**工作流**: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n` +
+                        `**失败时间**: ${new Date().toISOString()}\n` +
+                        `**原因**: APK同步失败\n\n` +
+                        `请检查工作流日志以获取详细信息。`,
+                  category: "GENERAL"
+                });
+              }
+            }
+          } catch (error) {
+            console.error('通知失败:', error);
+            // 回退到基本日志输出
+            core.warning('无法发送通知，请手动检查工作流失败情况');
+          }
 
   cleanup_self:
     name: Cleanup Self Workflow History
