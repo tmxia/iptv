@@ -1,5 +1,6 @@
 name: TV APK Sync from TELEGRAM
 
+# 使用原生并发控制（通过concurrency配置实现）
 concurrency: 
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -9,6 +10,7 @@ on:
     - cron: '0 */24 * * *'  # 每24小时运行一次
   workflow_dispatch:
 
+# 基于缓存的锁机制（由concurrency配置实现）
 permissions:
   contents: write
 
@@ -16,9 +18,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    # 使用原生并发控制（已由concurrency配置实现）
-    # 基于缓存的锁机制（已由concurrency配置实现）
-    
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
@@ -31,9 +30,8 @@ jobs:
 
     - name: Install dependencies
       run: |
-        sudo apt-get install -y jq git-lfs
+        sudo apt-get install -y jq
         pip install telethon pytz
-        git lfs install  # 临时安装LFS用于推送大文件
 
     - name: Run Optimized APK Sync
       env:
@@ -57,16 +55,14 @@ jobs:
         from telethon.tl.types import DocumentAttributeFilename
         import pytz
         
-        # 配置参数
+        # 配置参数（只保留tv.apk）
         APK_TARGETS = {
-            "tv.apk": "all-sdk21-original",
-            "tv-x5.apk": "all-sdk21-original-X5"
+            "tv.apk": "all-sdk21-original"
         }
         APK_DIR = "apk"
         TELEGRAM_CHANNEL = "mytv_android_release"
         MESSAGE_LIMIT = 20
         VERSION_FILE = "version.txt"
-        MAX_FILE_SIZE_MB = 95  # GitHub文件大小限制（保留5MB缓冲）
         
         # 环境变量
         WORK_DIR = "temp_apks"
@@ -82,7 +78,7 @@ jobs:
         logger = logging.getLogger()
         
         def git_setup():
-            """配置Git环境（不启用LFS）"""
+            """配置Git环境"""
             try:
                 actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
                 email = f"{actor}@users.noreply.github.com"
@@ -99,12 +95,12 @@ jobs:
                 logger.error(f"Git设置失败: {str(e)}")
                 return False
         
-        def git_commit_push(message, files_to_handle):
-            """提交并推送更改（仅对大文件使用LFS）"""
+        def git_commit_push(message):
+            """提交并推送更改（简化版本）"""
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    # 添加更改（不包括.gitattributes）
+                    # 添加更改
                     subprocess.run(["git", "add", APK_DIR, VERSION_FILE], cwd=GIT_DIR, check=True)
                     
                     # 检查是否有更改
@@ -117,79 +113,21 @@ jobs:
                     # 提交
                     subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
                     
-                    # 处理大文件（仅对超过95MB的文件使用LFS）
-                    lfs_used = False
-                    lfs_files = []
-                    for file_path in files_to_handle:
-                        if os.path.exists(file_path):
-                            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                            if file_size_mb > MAX_FILE_SIZE_MB:
-                                logger.info(f"文件过大 ({file_size_mb:.1f}MB)，使用LFS: {os.path.basename(file_path)}")
-                                subprocess.run(["git", "lfs", "track", file_path], cwd=GIT_DIR, check=True)
-                                lfs_used = True
-                                lfs_files.append(file_path)
-                    
-                    if lfs_used:
-                        # 添加LFS跟踪配置
-                        subprocess.run(["git", "add", ".gitattributes"], cwd=GIT_DIR, check=True)
-                        subprocess.run(["git", "commit", "--amend", "--no-edit"], cwd=GIT_DIR, check=True)
-                    
                     # 同步远程更改
                     logger.info(f"同步远程更改 (尝试 {attempt+1}/{max_retries})")
-                    subprocess.run(["git", "fetch", "origin", "main"], cwd=GIT_DIR, check=True)
-                    subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=GIT_DIR, check=True)
+                    subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=GIT_DIR, check=True)
                     
-                    # 重新应用本地提交
-                    try:
-                        # 获取最后一次提交的哈希
-                        last_commit = subprocess.run(
-                            ["git", "rev-parse", "HEAD@{1}"], 
-                            cwd=GIT_DIR, capture_output=True, text=True
-                        ).stdout.strip()
-                        subprocess.run(["git", "cherry-pick", last_commit], cwd=GIT_DIR, check=True)
-                    except:
-                        # 如果cherry-pick失败，则重新创建提交
-                        logger.warning("重新应用提交失败，重新创建更改")
-                        # 恢复被重置的文件
-                        subprocess.run(
-                            ["git", "checkout", last_commit, "--", APK_DIR, VERSION_FILE], 
-                            cwd=GIT_DIR, check=True
-                        )
-                        # 重新添加并提交
-                        subprocess.run(["git", "add", APK_DIR, VERSION_FILE], cwd=GIT_DIR, check=True)
-                        subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
-                    
-                    # 使用Git推送
+                    # 推送
                     token = os.environ['GITHUB_TOKEN']
                     repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
-                    
-                    if lfs_used:
-                        # 使用LFS推送大文件
-                        logger.info("推送LFS对象...")
-                        subprocess.run(["git", "lfs", "push", "--all", repo_url, "main"], cwd=GIT_DIR, check=True)
-                    
-                    # 推送常规提交（包括版本文件）
-                    logger.info("推送常规提交...")
                     subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
-                    
-                    # 移除LFS跟踪（保留文件）
-                    if lfs_used:
-                        logger.info("移除LFS跟踪...")
-                        for file_path in lfs_files:
-                            subprocess.run(["git", "lfs", "untrack", file_path], cwd=GIT_DIR, check=True)
-                        # 提交移除LFS的更改
-                        subprocess.run(["git", "add", ".gitattributes"], cwd=GIT_DIR, check=True)
-                        subprocess.run(["git", "commit", "-m", "移除LFS跟踪"], cwd=GIT_DIR, check=True)
-                        # 直接推送这个更改（不使用LFS）
-                        subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
                     
                     logger.info("推送成功")
                     return True
                 except Exception as e:
                     logger.warning(f"Git操作失败 (尝试 {attempt+1}/{max_retries}): {str(e)}")
                     if attempt < max_retries - 1:
-                        # 等待后重试
-                        time.sleep(10)  # 增加等待时间
+                        time.sleep(10)
                         # 重置到远程状态
                         subprocess.run(["git", "fetch", "origin", "main"], cwd=GIT_DIR, check=True)
                         subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=GIT_DIR, check=True)
@@ -199,7 +137,7 @@ jobs:
             return False
         
         def get_versions():
-            """获取当前版本信息（只关心APK_TARGETS中的键）"""
+            """获取当前版本信息"""
             version_path = os.path.join(GIT_DIR, VERSION_FILE)
             if not os.path.exists(version_path):
                 return {}
@@ -214,7 +152,7 @@ jobs:
                 return {}
         
         def update_versions(new_versions):
-            """更新版本文件并显示变更（只关心APK_TARGETS中的键）"""
+            """更新版本文件并显示变更"""
             # 读取整个版本文件
             version_path = os.path.join(GIT_DIR, VERSION_FILE)
             all_versions = {}
@@ -295,7 +233,7 @@ jobs:
             }
         
         def should_update(target_name, new_version, new_date, current_versions):
-            """检查是否需要更新（只关心版本和日期）"""
+            """检查是否需要更新"""
             current = current_versions.get(target_name, "")
             if not current:
                 return True
@@ -306,7 +244,7 @@ jobs:
             return new_version != current
         
         async def find_latest_apks(client, entity):
-            """查找最新的APK消息"""
+            """查找最新的APK消息（只查找tv.apk）"""
             apk_messages = {}
             
             async for msg in client.iter_messages(entity, limit=MESSAGE_LIMIT):
@@ -320,17 +258,10 @@ jobs:
                     
                     filename = attr.file_name.lower()
                     
-                    # 匹配tv-x5.apk
-                    if "x5" in filename and "tv-x5.apk" not in apk_messages:
-                        apk_messages["tv-x5.apk"] = msg
-                    
-                    # 匹配tv.apk (排除X5版本)
+                    # 只匹配tv.apk (排除X5版本)
                     if "original" in filename and "x5" not in filename and "tv.apk" not in apk_messages:
                         apk_messages["tv.apk"] = msg
-                    
-                    # 如果已找到两个文件，提前退出
-                    if len(apk_messages) == len(APK_TARGETS):
-                        return apk_messages
+                        return apk_messages  # 找到tv.apk就返回
             return apk_messages
         
         async def main_async():
@@ -347,9 +278,9 @@ jobs:
             if not git_setup():
                 return 2
             
-            # 获取当前版本（只关心APK_TARGETS中的键） - 传统方式
+            # 获取当前版本信息
             current_versions = get_versions()
-            logger.info("当前关心的版本信息:")
+            logger.info("当前版本信息:")
             for key, value in current_versions.items():
                 logger.info(f"  {key}: {value}")
             
@@ -374,7 +305,7 @@ jobs:
                 logger.info(f"连接Telegram频道: {TELEGRAM_CHANNEL}")
                 entity = await client.get_entity(TELEGRAM_CHANNEL)
                 
-                # 查找最新APK消息
+                # 查找最新APK消息（只找tv.apk）
                 apk_msgs = await find_latest_apks(client, entity)
                 if not apk_msgs:
                     logger.info("未找到符合条件的APK消息")
@@ -382,9 +313,8 @@ jobs:
                 
                 updates = {}
                 force_updates = missing_files + inconsistent_versions
-                files_to_handle = []  # 需要检查大小的文件
                 
-                # 处理每个APK
+                # 处理APK（只处理tv.apk）
                 for target_name, msg in apk_msgs.items():
                     apk_data = await download_apk(client, msg, target_name)
                     new_value = f"{apk_data['version']},{apk_data['date']}"
@@ -393,10 +323,8 @@ jobs:
                     if target_name in force_updates:
                         logger.info(f"强制更新: {target_name} (文件问题)")
                         updates[target_name] = new_value
-                        files_to_handle.append(apk_data['path'])
                     elif should_update(target_name, apk_data['version'], apk_data['date'], current_versions):
                         updates[target_name] = new_value
-                        files_to_handle.append(apk_data['path'])
                     else:
                         logger.info(f"跳过更新: {target_name} (无新版本)")
                 
@@ -417,13 +345,12 @@ jobs:
                             
                         shutil.move(src, dst)
                         logger.info(f"已移动: {target_name}")
-                        files_to_handle.append(dst)  # 添加最终文件路径
                     
-                    # 更新版本文件 - 传统方式
+                    # 更新版本文件
                     update_versions(updates)
                     
-                    # 提交更改（传递需要处理LFS的文件列表）
-                    if git_commit_push(f"更新APK: {', '.join(updates.keys())}", files_to_handle):
+                    # 提交更改
+                    if git_commit_push(f"更新APK: {', '.join(updates.keys())}"):
                         logger.info("同步成功!")
                     else:
                         logger.error("提交失败")
@@ -447,13 +374,6 @@ jobs:
             sys.exit(asyncio.run(main_async()))
         EOF
 
-    - name: Cleanup LFS artifacts
-      run: |
-        # 移除LFS配置
-        git lfs uninstall
-        git config --remove-section filter.lfs || true
-        rm -f .gitattributes
-
     - name: Notify on failure
       if: failure()
       uses: actions/github-script@v6
@@ -466,6 +386,7 @@ jobs:
             body: `🚨 Telegram APK同步失败！工作流运行详情: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
           })
 
+  # 基于缓存的锁机制清理（由concurrency配置自动管理）
   cleanup_self:
     name: Cleanup Self Workflow History
     runs-on: ubuntu-latest
