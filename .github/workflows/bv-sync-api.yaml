@@ -19,22 +19,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     # 基于缓存的锁机制
-    - name: Acquire Repository Lock 🔒
+    - name: Acquire Repository Lock
       id: lock
       run: |
-        # 创建锁文件路径
         LOCK_DIR="$GITHUB_WORKSPACE/.lock"
         LOCK_FILE="$LOCK_DIR/repo-lock"
         mkdir -p "$LOCK_DIR"
         
-        # 尝试获取锁
         for i in {1..10}; do
-          # 检查是否有其他工作流持有锁
           if [ -f "$LOCK_FILE" ]; then
             echo "锁已被占用，等待重试 ($i/10)..."
             sleep 30
           else
-            # 创建锁文件
             touch "$LOCK_FILE"
             echo "lock-acquired=true" >> $GITHUB_OUTPUT
             echo "成功获取锁"
@@ -85,13 +81,22 @@ jobs:
           exit 1
         fi
         
-        # 提取版本信息
-        extract_version() {
+        # 简化的版本信息提取函数 - 只提取主版本号
+        extract_main_version() {
           local release_json="$1"
           local tag_name=$(jq -r '.tag_name' <<< "$release_json")
           local published_at=$(jq -r '.published_at' <<< "$release_json")
           date_utc8=$(TZ=UTC date -d "$published_at" +'%Y-%m-%d')
-          echo "$tag_name $date_utc8"
+          
+          # 简化版本号提取逻辑 - 只保留主版本号部分
+          # 匹配格式：vX.Y.Z 或 X.Y.Z (X, Y, Z 为数字)
+          if [[ "$tag_name" =~ v?([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            version="v${BASH_REMATCH[1]}"
+          else
+            version="$tag_name"
+          fi
+          
+          echo "$version $date_utc8"
         }
         
         # 核心APK处理函数
@@ -175,7 +180,7 @@ jobs:
         # 处理稳定版
         LATEST_STABLE=$(jq -r '[.[] | select(.prerelease == false)] | max_by(.published_at)' <<< "$RELEASES_JSON")
         if [ -n "$LATEST_STABLE" ] && [ "$LATEST_STABLE" != "null" ]; then
-          read NEW_STABLE_VERSION NEW_STABLE_DATE <<< $(extract_version "$LATEST_STABLE")
+          read NEW_STABLE_VERSION NEW_STABLE_DATE <<< $(extract_main_version "$LATEST_STABLE")
           echo "源稳定版: $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
           
           if process_apk "$LATEST_STABLE" "$STABLE_APK_PATTERN" "$STABLE_KEY_NAME" "$CURRENT_STABLE"; then
@@ -191,10 +196,10 @@ jobs:
           NEW_STABLE_DATE="$CURRENT_STABLE_DATE"
         fi
         
-        # 处理预发布版
+        # 处理预发布版 - 使用简化版本提取
         LATEST_PRE_RELEASE=$(jq -r '[.[] | select(.prerelease == true)] | max_by(.published_at)' <<< "$RELEASES_JSON")
         if [ -n "$LATEST_PRE_RELEASE" ] && [ "$LATEST_PRE_RELEASE" != "null" ]; then
-          read NEW_PRE_RELEASE_VERSION NEW_PRE_RELEASE_DATE <<< $(extract_version "$LATEST_PRE_RELEASE")
+          read NEW_PRE_RELEASE_VERSION NEW_PRE_RELEASE_DATE <<< $(extract_main_version "$LATEST_PRE_RELEASE")
           echo "源预发布版: $NEW_PRE_RELEASE_VERSION ($NEW_PRE_RELEASE_DATE)"
           
           if process_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_APK_PATTERN" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE"; then
@@ -252,36 +257,51 @@ jobs:
           echo "版本文件无需更新"
         fi
         
-        # 上传APK文件
-        upload_apk() {
-          local key="$1"
-          local version="$2"
-          
-          # 获取当前文件的SHA（用于更新）
-          local file_info=$(curl -s -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/apk/$key")
-          local sha=$(jq -r '.sha? // empty' <<< "$file_info")
-          
-          curl -s -X PUT \
-            -H "Authorization: token $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n \
-              --arg msg "更新APK: $key ($version)" \
-              --arg content "$(base64 -w0 "$WORK_DIR/$key")" \
-              --arg sha "$sha" \
-              '{message: $msg, content: $content, sha: $sha}')" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/apk/$key" > /dev/null
-        }
+        # 修复APK上传逻辑
+        # 创建必要的目录结构
+        mkdir -p apk
         
-        $STABLE_NEED_UPDATE && upload_apk "$STABLE_KEY_NAME" "$NEW_STABLE_VERSION"
-        $PRE_RELEASE_NEED_UPDATE && upload_apk "$PRE_RELEASE_KEY_NAME" "$NEW_PRE_RELEASE_VERSION"
+        # 移动下载的APK文件到正确位置
+        if $STABLE_NEED_UPDATE; then
+          echo "移动稳定版APK到apk目录"
+          mv "$WORK_DIR/$STABLE_KEY_NAME" "apk/$STABLE_KEY_NAME"
+        fi
+        
+        if $PRE_RELEASE_NEED_UPDATE; then
+          echo "移动预发布版APK到apk目录"
+          mv "$WORK_DIR/$PRE_RELEASE_KEY_NAME" "apk/$PRE_RELEASE_KEY_NAME"
+        fi
+        
+        # 提交更改到Git
+        git add apk/* version.txt
+        
+        # 检查是否有更改
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "检测到更改，提交到Git"
+          git commit -m "更新APK: 稳定版=$NEW_STABLE_VERSION, 预发布版=$NEW_PRE_RELEASE_VERSION"
+          
+          # 推送更改
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          for i in $(seq 1 $MAX_RETRIES); do
+            if git push origin HEAD:${GITHUB_REF#refs/heads/}; then
+              echo "推送成功"
+              break
+            else
+              echo "推送失败，等待重试 ($i/$MAX_RETRIES)..."
+              sleep $RETRY_DELAY
+            fi
+          done
+        else
+          echo "没有检测到更改，跳过提交"
+        fi
         
         echo "同步完成!"
         echo "稳定版: ${NEW_STABLE_VERSION:-无} (${NEW_STABLE_DATE:-无日期})"
         echo "预发布版: ${NEW_PRE_RELEASE_VERSION:-无} (${NEW_PRE_RELEASE_DATE:-无日期})"
         exit 0
 
-    - name: Release Repository Lock 🔓
+    - name: Release Repository Lock
       if: always()
       run: |
         # 释放锁
