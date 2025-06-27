@@ -94,8 +94,19 @@ jobs:
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
         if [ "$(echo "$version_response" | jq -r '.message')" != "Not Found" ]; then
-          current_versions=$(echo "$version_response" | jq -r '.content' | base64 -d | jq -c .)
-          echo "当前版本信息: $current_versions"
+          content_base64=$(echo "$version_response" | jq -r '.content')
+          if [ "$content_base64" != "null" ]; then
+            current_versions=$(echo "$content_base64" | base64 -d | jq -c .)
+            if [ $? -ne 0 ]; then
+              echo "解析版本文件失败，使用空对象"
+              current_versions="{}"
+            else
+              echo "当前版本信息: (已解析)"
+            fi
+          else
+            current_versions="{}"
+            echo "版本文件内容为空"
+          fi
         else
           current_versions="{}"
           echo "无版本文件"
@@ -112,7 +123,7 @@ jobs:
             '.[$key] = $value')
         }
         
-        # 5. 检查并下载APK
+        # 5. 修复条件判断语法错误
         check_and_download() {
           local release_json=$1
           local key_name=$2
@@ -130,11 +141,19 @@ jobs:
           
           local latest_value="$latest_version,$latest_date"
           
-          # 检查是否需要更新
-          if [[ ( "$key_name" = "$STABLE_KEY_NAME" && "$STABLE_EXISTS" -eq 0 ) || \
-               ( "$key_name" = "$PRE_RELEASE_KEY_NAME" && "$PRE_EXISTS" -eq 0 ) || \
-               [ -z "$current_value" ] || \
-               [ "$current_value" != "$latest_value" ]]; then
+          # 修复条件判断语法错误
+          need_update=false
+          if [ "$key_name" = "$STABLE_KEY_NAME" ] && [ "$STABLE_EXISTS" -eq 0 ]; then
+            need_update=true
+          elif [ "$key_name" = "$PRE_RELEASE_KEY_NAME" ] && [ "$PRE_EXISTS" -eq 0 ]; then
+            need_update=true
+          elif [ -z "$current_value" ]; then
+            need_update=true
+          elif [ "$current_value" != "$latest_value" ]; then
+            need_update=true
+          fi
+          
+          if $need_update; then
             echo "需要更新: $key_name (当前: ${current_value:-无}, 最新: $latest_value)"
             
             # 下载APK
