@@ -71,13 +71,13 @@ jobs:
         releases=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
         
         # 提取最新稳定版
-        stable_release=$(echo "$releases" | jq -c '[.[] | select(.prerelease == false)] | sort_by(.published_at) | reverse | .[0]')
+        stable_release=$(echo "$releases" | jq -r '[.[] | select(.prerelease == false)] | sort_by(.published_at) | reverse | .[0]')
         stable_version=$(echo "$stable_release" | jq -r '.tag_name')
         stable_date=$(echo "$stable_release" | jq -r '.published_at' | TZ=UTC date -f - +'%Y-%m-%d')
         echo "稳定版: $stable_version ($stable_date)"
         
         # 提取最新预发行版
-        pre_release=$(echo "$releases" | jq -c '[.[] | select(.prerelease == true)] | sort_by(.published_at) | reverse | .[0]')
+        pre_release=$(echo "$releases" | jq -r '[.[] | select(.prerelease == true)] | sort_by(.published_at) | reverse | .[0]')
         if [ "$pre_release" != "null" ]; then
           pre_version=$(echo "$pre_release" | jq -r '.tag_name' | sed 's/^tv_//')
           pre_date=$(echo "$pre_release" | jq -r '.published_at' | TZ=UTC date -f - +'%Y-%m-%d')
@@ -88,213 +88,200 @@ jobs:
           sync_pre_release=false
         fi
         
-        # 3. 使用Python处理大型JSON数据（避免jq限制）
-        cat > "$WORK_DIR/version_handler.py" << 'EOF'
-import os
-import json
-import sys
-import base64
-
-def main():
-    action = sys.argv[1]
-    key = sys.argv[2] if len(sys.argv) > 2 else None
-    value = sys.argv[3] if len(sys.argv) > 3 else None
-    
-    version_file = os.environ.get('VERSION_FILE')
-    if not version_file:
-        print("错误: 未设置VERSION_FILE环境变量")
-        sys.exit(1)
-    
-    try:
-        # 读取版本文件
-        if os.path.exists(version_file):
-            with open(version_file, 'r') as f:
-                version_data = json.load(f)
-        else:
-            version_data = {}
-        
-        if action == "get":
-            # 获取值
-            print(version_data.get(key, ""))
-        elif action == "update":
-            # 更新值
-            version_data[key] = value
-            with open(version_file, 'w') as f:
-                json.dump(version_data, f, separators=(',', ':'))
-        elif action == "show":
-            # 显示所有值
-            print(json.dumps(version_data, indent=2))
-    except Exception as e:
-        print(f"错误: {str(e)}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
-EOF
-        
-        # 4. 获取目标仓库版本文件
+        # 3. 获取目标仓库版本文件
         echo "获取目标仓库版本信息..."
         version_response=$(curl -s -H "Authorization: token $TOKEN" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
-        # 创建临时版本文件
-        VERSION_FILE="$WORK_DIR/version.json"
-        export VERSION_FILE
-        
         if [ "$(echo "$version_response" | jq -r '.message')" != "Not Found" ]; then
-            content_base64=$(echo "$version_response" | jq -r '.content')
-            if [ "$content_base64" != "null" ]; then
-                echo "$content_base64" | base64 -d > "$VERSION_FILE"
-                echo "版本文件已保存到临时文件"
-            else
-                echo "{}" > "$VERSION_FILE"
-                echo "版本文件内容为空，创建空文件"
-            fi
+          CURRENT_VERSION_JSON=$(echo "$version_response" | jq -r '.content' | base64 -d)
+          SHA_VERSION=$(echo "$version_response" | jq -r '.sha')
+          echo "当前版本文件内容已获取"
         else
-            echo "{}" > "$VERSION_FILE"
-            echo "无版本文件，创建空文件"
+          CURRENT_VERSION_JSON="{}"
+          SHA_VERSION=""
+          echo "无版本文件，创建空对象"
         fi
         
-        # 5. 辅助函数
-        get_current_value() {
-            python3 "$WORK_DIR/version_handler.py" get "$1"
-        }
+        # 4. 初始化更新标志
+        SYNC_STABLE=false
+        SYNC_PRE_RELEASE=false
+        NEW_STABLE_VERSION="$stable_version"
+        NEW_STABLE_DATE="$stable_date"
+        NEW_PRE_VERSION="$pre_version"
+        NEW_PRE_DATE="$pre_date"
         
-        update_version_data() {
-            local key=$1
-            local version=$2
-            local date=$3
-            python3 "$WORK_DIR/version_handler.py" update "$key" "$version,$date"
-        }
-        
-        show_version_data() {
-            python3 "$WORK_DIR/version_handler.py" show
-        }
-        
-        # 6. 检查并下载APK
+        # 5. 检查并下载APK
         check_and_download() {
-            local release_json=$1
-            local key_name=$2
-            local apk_pattern=$3
+          local release_json=$1
+          local key_name=$2
+          local apk_pattern=$3
+          local new_version=$4
+          local new_date=$5
+          
+          # 获取当前值
+          current_value=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$key_name\" // \"\"")
+          
+          # 检查是否需要更新
+          need_update=false
+          if [ "$key_name" = "$STABLE_KEY_NAME" ] && [ "$STABLE_EXISTS" -eq 0 ]; then
+            need_update=true
+          elif [ "$key_name" = "$PRE_RELEASE_KEY_NAME" ] && [ "$PRE_EXISTS" -eq 0 ]; then
+            need_update=true
+          elif [ -z "$current_value" ]; then
+            need_update=true
+          elif [ "$current_value" != "$new_version,$new_date" ]; then
+            need_update=true
+          fi
+          
+          if $need_update; then
+            echo "需要更新: $key_name (当前: ${current_value:-无}, 最新: $new_version,$new_date)"
             
-            local target_filename="apk/$key_name"
-            local current_value=$(get_current_value "$key_name")
+            # 下载APK
+            download_url=$(echo "$release_json" | jq -r \
+              ".assets[] | select(.name | contains(\"$apk_pattern\")) | .browser_download_url" | head -1)
             
-            local latest_version=$(echo "$release_json" | jq -r '.tag_name')
-            local latest_date=$(echo "$release_json" | jq -r '.published_at' | TZ=UTC date -f - +'%Y-%m-%d')
-            
-            if [ "$key_name" = "$PRE_RELEASE_KEY_NAME" ]; then
-                latest_version=$(echo "$latest_version" | sed 's/^tv_//')
+            if [ -z "$download_url" ]; then
+              echo "错误: 未找到匹配的APK文件 (模式: $apk_pattern)"
+              return 1
             fi
             
-            local latest_value="$latest_version,$latest_date"
+            echo "下载: $download_url"
+            curl -sL "$download_url" -o "$WORK_DIR/$key_name"
             
-            need_update=false
-            if [ "$key_name" = "$STABLE_KEY_NAME" ] && [ "$STABLE_EXISTS" -eq 0 ]; then
-                need_update=true
-            elif [ "$key_name" = "$PRE_RELEASE_KEY_NAME" ] && [ "$PRE_EXISTS" -eq 0 ]; then
-                need_update=true
-            elif [ -z "$current_value" ]; then
-                need_update=true
-            elif [ "$current_value" != "$latest_value" ]; then
-                need_update=true
+            if [ ! -f "$WORK_DIR/$key_name" ]; then
+              echo "错误: APK下载失败"
+              return 1
             fi
             
-            if $need_update; then
-                echo "需要更新: $key_name (当前: ${current_value:-无}, 最新: $latest_value)"
-                
-                # 下载APK
-                download_url=$(echo "$release_json" | jq -r \
-                  ".assets[] | select(.name | contains(\"$apk_pattern\")) | .browser_download_url" | head -1)
-                
-                if [ -z "$download_url" ]; then
-                    echo "错误: 未找到匹配的APK文件 (模式: $apk_pattern)"
-                    return 1
-                fi
-                
-                echo "下载: $download_url"
-                curl -sL "$download_url" -o "$WORK_DIR/$key_name"
-                
-                if [ ! -f "$WORK_DIR/$key_name" ]; then
-                    echo "错误: APK下载失败"
-                    return 1
-                fi
-                
-                # 更新版本数据
-                update_version_data "$key_name" "$latest_version" "$latest_date"
-                return 0
+            # 设置更新标志
+            if [ "$key_name" = "$STABLE_KEY_NAME" ]; then
+              SYNC_STABLE=true
             else
-                echo "无需更新: $key_name ($current_value)"
-                return 1
-            fi
-        }
-        
-        # 7. 修复大文件上传函数
-        upload_file() {
-            local file_path=$1
-            local target_path=$2
-            
-            # 获取文件SHA（如果存在）
-            file_info=$(curl -s -H "Authorization: token $TOKEN" \
-              "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
-            sha=$(echo "$file_info" | jq -r '.sha // empty')
-            
-            # 创建临时JSON文件
-            json_file=$(mktemp)
-            
-            # 使用base64编码内容
-            content_base64=$(base64 -w0 "$file_path")
-            
-            # 使用jq生成JSON（内容已编码为base64，不会太大）
-            jq -n \
-              --arg msg "更新: $target_path" \
-              --arg content "$content_base64" \
-              --arg sha "$sha" \
-              '{message: $msg, content: $content, sha: $sha}' > "$json_file"
-            
-            echo "上传: $target_path"
-            response=$(curl -s -X PUT \
-              -H "Authorization: token $TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "@$json_file" \
-              "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
-            
-            rm -f "$json_file"
-            
-            if ! echo "$response" | jq -e '.content' >/dev/null; then
-                echo "错误: 文件上传失败"
-                echo "响应: $response"
-                return 1
+              SYNC_PRE_RELEASE=true
             fi
             
             return 0
+          else
+            echo "无需更新: $key_name ($current_value)"
+            return 1
+          fi
         }
         
-        # 8. 处理稳定版
+        # 6. 修复大文件上传函数
+        upload_file() {
+          local file_path=$1
+          local target_path=$2
+          
+          # 获取文件SHA（如果存在）
+          file_info=$(curl -s -H "Authorization: token $TOKEN" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
+          sha=$(echo "$file_info" | jq -r '.sha // empty')
+          
+          # 创建临时JSON文件
+          json_file=$(mktemp)
+          
+          # 使用base64编码内容
+          content_base64=$(base64 -w0 "$file_path")
+          
+          # 使用jq生成JSON（内容已编码为base64，不会太大）
+          jq -n \
+            --arg msg "更新: $target_path" \
+            --arg content "$content_base64" \
+            --arg sha "$sha" \
+            '{message: $msg, content: $content, sha: $sha}' > "$json_file"
+          
+          echo "上传: $target_path"
+          response=$(curl -s -X PUT \
+            -H "Authorization: token $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "@$json_file" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
+          
+          rm -f "$json_file"
+          
+          if ! echo "$response" | jq -e '.content' >/dev/null; then
+            echo "错误: 文件上传失败"
+            echo "响应: $response"
+            return 1
+          fi
+          
+          return 0
+        }
+        
+        # 7. 处理稳定版
         echo "处理稳定版..."
-        if check_and_download "$stable_release" "$STABLE_KEY_NAME" "$STABLE_APK_PATTERN"; then
-            upload_file "$WORK_DIR/$STABLE_KEY_NAME" "apk/$STABLE_KEY_NAME"
-            echo "稳定版同步成功"
+        if check_and_download "$stable_release" "$STABLE_KEY_NAME" "$STABLE_APK_PATTERN" "$stable_version" "$stable_date"; then
+          upload_file "$WORK_DIR/$STABLE_KEY_NAME" "apk/$STABLE_KEY_NAME"
+          echo "稳定版同步成功"
         fi
         
-        # 9. 处理预发行版
+        # 8. 处理预发行版
         if [ "$sync_pre_release" = true ]; then
-            echo "处理预发行版..."
-            if check_and_download "$pre_release" "$PRE_RELEASE_KEY_NAME" "$PRE_RELEASE_APK_PATTERN"; then
-                upload_file "$WORK_DIR/$PRE_RELEASE_KEY_NAME" "apk/$PRE_RELEASE_KEY_NAME"
-                echo "预发行版同步成功"
-            fi
+          echo "处理预发行版..."
+          if check_and_download "$pre_release" "$PRE_RELEASE_KEY_NAME" "$PRE_RELEASE_APK_PATTERN" "$pre_version" "$pre_date"; then
+            upload_file "$WORK_DIR/$PRE_RELEASE_KEY_NAME" "apk/$PRE_RELEASE_KEY_NAME"
+            echo "预发行版同步成功"
+          fi
         fi
         
-        # 10. 更新版本文件
-        echo "更新版本文件..."
-        version_sha=$(echo "$version_response" | jq -r '.sha // empty')
+        # 9. 更新版本文件（优化方法）
+        # 仅在需要更新时执行
+        if $SYNC_STABLE || $SYNC_PRE_RELEASE; then
+          echo "准备更新版本文件..."
+          
+          # 更新版本JSON对象
+          UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
+            --arg stable_key "$STABLE_KEY_NAME" \
+            --arg stable_value "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
+            --arg pre_key "$PRE_RELEASE_KEY_NAME" \
+            --arg pre_value "$NEW_PRE_VERSION,$NEW_PRE_DATE" \
+            '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
+          
+          # 检查版本内容是否有变化
+          CURRENT_CONTENT_FOR_COMPARE=$(echo "$CURRENT_VERSION_JSON" | jq -S .)
+          NEW_CONTENT_FOR_COMPARE=$(echo "$UPDATED_VERSION_JSON" | jq -S .)
+          
+          if [ "$CURRENT_CONTENT_FOR_COMPARE" = "$NEW_CONTENT_FOR_COMPARE" ]; then
+            echo "版本文件内容无变化，跳过更新"
+          else
+            echo "更新版本文件内容"
+            ENCODED_CONTENT=$(echo -n "$UPDATED_VERSION_JSON" | base64 -w0)
+            
+            # 创建临时JSON文件上传
+            local version_json_file=$(mktemp)
+            jq -n \
+              --arg msg "更新版本文件" \
+              --arg content "$ENCODED_CONTENT" \
+              --arg sha "$SHA_VERSION" \
+              '{message: $msg, content: $content, sha: $sha}' > "$version_json_file"
+            
+            # 上传版本文件
+            response=$(curl -s -w "\n%{http_code}" -X PUT \
+              -H "Authorization: token $TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-binary "@$version_json_file" \
+              "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+            
+            rm -f "$version_json_file"
+            
+            http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" -ne 200 ] && [ "$http_code" -ne 201 ]; then
+              echo "错误: 版本文件更新失败 - HTTP状态码 $http_code"
+              echo "响应详情: $(echo "$response" | sed '$d')"
+              exit 1
+            fi
+            echo "版本文件更新成功"
+          fi
+        else
+          echo "无文件更新，跳过版本文件更新"
+        fi
         
-        # 使用上传函数更新版本文件
-        upload_file "$VERSION_FILE" "version.txt"
-        
-        echo "同步完成! 最终版本信息:"
-        show_version_data
+        # 10. 输出结果
+        echo "同步完成!"
+        $SYNC_STABLE && echo "稳定版: $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
+        $SYNC_PRE_RELEASE && echo "预发行版: $NEW_PRE_VERSION ($NEW_PRE_DATE)"
+        exit 0
 
     - name: Release Repository Lock 🔓
       if: always()
