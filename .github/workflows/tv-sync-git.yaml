@@ -11,26 +11,18 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    - name: Acquire Repository Lock
-      uses: softprops/turnstyle@v1
-      with:
-        same-branch-only: true
-        poll-interval-seconds: 30
-        abort-after-seconds: 1200
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+    # 使用原生并发控制（已由concurrency配置实现）
+    # 基于缓存的锁机制（已由concurrency配置实现）
+    
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-        lfs: true
 
     - name: Setup Python
       uses: actions/setup-python@v5
@@ -99,11 +91,6 @@ jobs:
                 # 拉取最新更改
                 subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=GIT_DIR, check=True)
                 
-                # 初始化Git LFS
-                subprocess.run(["git", "lfs", "install", "--local"], cwd=GIT_DIR, check=True)
-                subprocess.run(["git", "lfs", "track", "apk/*.apk"], cwd=GIT_DIR, check=True)
-                subprocess.run(["git", "add", ".gitattributes"], cwd=GIT_DIR, check=True)
-                
                 logger.info("Git配置完成")
                 return True
             except Exception as e:
@@ -114,7 +101,7 @@ jobs:
             """提交并推送更改"""
             try:
                 # 添加更改
-                subprocess.run(["git", "add", APK_DIR, VERSION_FILE, ".gitattributes"], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "add", APK_DIR, VERSION_FILE], cwd=GIT_DIR, check=True)
                 
                 # 检查是否有更改
                 status = subprocess.run(["git", "status", "--porcelain"], 
@@ -126,10 +113,9 @@ jobs:
                 # 提交
                 subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
                 
-                # 使用LFS推送
+                # 使用标准Git推送
                 token = os.environ['GITHUB_TOKEN']
                 repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
-                subprocess.run(["git", "lfs", "push", "--all", repo_url, "main"], cwd=GIT_DIR, check=True)
                 subprocess.run(["git", "push", repo_url, "main"], cwd=GIT_DIR, check=True)
                 logger.info("推送成功")
                 return True
@@ -334,15 +320,6 @@ jobs:
             import asyncio
             sys.exit(asyncio.run(main_async()))
         EOF
-
-    - name: Release Repository Lock
-      if: always()
-      uses: softprops/turnstyle@v1
-      with:
-        continue-on-error: true
-        action: unlock
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Notify on failure
       if: failure()
