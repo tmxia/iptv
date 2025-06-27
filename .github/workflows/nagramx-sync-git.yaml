@@ -1,5 +1,10 @@
 name: NagramX Sync from Source Repository
 
+# 使用原生并发控制
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   schedule:
     - cron: '0 */24 * * *'  # 每24小时运行一次
@@ -7,17 +12,26 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    # 基于缓存的锁机制
+    - name: Acquire Repository Lock 🔒
+      uses: softprops/turnstyle@v1
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200  # 20分钟超时
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Checkout current repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0
-        ref: main  # 明确指定分支
+        ref: main
 
     - name: Install dependencies
       run: |
@@ -28,34 +42,55 @@ jobs:
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
-        git config pull.rebase true  # 配置rebase策略
-        # 提前设置带认证的远程URL
+        git config pull.rebase true
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         
-    # 在开始同步前获取仓库锁
-    - name: Acquire Repository Lock 🔒
-      uses: softprops/turnstyle@v1
-      with:
-        same-branch-only: true
-        poll-interval-seconds: 30
-        abort-after-seconds: 1200  # 20分钟超时
-
     - name: Run sync script
       env:
         SOURCE_REPO: "risin42/NagramX"
-        TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用认证令牌
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
         APK_PATTERN: "arm64-v8a.apk"
         STABLE_TARGET_NAME: "nagramx.apk"
       run: |
         # 目标文件路径
         STABLE_TARGET_PATH="apk/$STABLE_TARGET_NAME"
+        VERSION_FILE="version.txt"
+        
+        # 1. 目标文件存在性检测
+        echo "检查目标文件存在性..."
+        if [ -f "$STABLE_TARGET_PATH" ]; then
+          echo "目标文件存在: $STABLE_TARGET_PATH"
+          FILE_EXISTS=1
+        else
+          echo "目标文件不存在: $STABLE_TARGET_PATH"
+          FILE_EXISTS=0
+        fi
+        
+        # 2. 版本文件键值存在性检测
+        echo "检查版本文件键值存在性..."
+        if [ ! -f "$VERSION_FILE" ]; then
+          echo "版本文件不存在，创建空文件"
+          echo "{}" > "$VERSION_FILE"
+          CURRENT_VERSION_JSON="{}"
+        else
+          CURRENT_VERSION_JSON=$(cat "$VERSION_FILE")
+        fi
+        
+        # 检查键值是否存在
+        if jq -e ".\"$STABLE_TARGET_NAME\"" <<< "$CURRENT_VERSION_JSON" >/dev/null; then
+          echo "版本文件键值存在: $STABLE_TARGET_NAME"
+          KEY_EXISTS=1
+        else
+          echo "版本文件键值不存在: $STABLE_TARGET_NAME"
+          KEY_EXISTS=0
+        fi
         
         # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 获取所有发布版（使用认证令牌）
+        # 获取所有发布版
         echo "获取稳定版本信息..."
         RELEASES_JSON=$(curl -sL -H "Authorization: Bearer $TOKEN" "https://api.github.com/repos/$SOURCE_REPO/releases")
         if [ $? -ne 0 ]; then
@@ -63,25 +98,24 @@ jobs:
           exit 1
         fi
 
-        # 提取最新稳定版（过滤掉预发布版）
+        # 提取最新稳定版
         LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]')
         if [ -z "$LATEST_STABLE_RELEASE" ] || [ "$LATEST_STABLE_RELEASE" = "null" ]; then
           echo "错误: 未找到稳定版本"
           exit 1
         fi
         
-        # 提取发布日期并转换为北京时间 (YYYY-MM-DD)
+        # 提取发布日期
         STABLE_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
         RELEASE_DATE=$(TZ=UTC date -d "$STABLE_PUBLISHED_AT" +'%Y-%m-%d')
         
-        # 从发布标题中提取完整版本号并添加 'v' 前缀
+        # 提取版本号
         RAW_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.name' | grep -oP '(\d+\.)+\d+' | head -1)
         if [ -z "$RAW_VERSION" ]; then
-          # 如果无法从标题提取，则使用标签名作为备选
           RAW_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
         fi
         
-        # 确保版本号以 'v' 开头
+        # 添加 'v' 前缀
         if [[ ! "$RAW_VERSION" =~ ^v ]]; then
           STABLE_VERSION="v$RAW_VERSION"
         else
@@ -90,74 +124,79 @@ jobs:
         
         echo "源仓库最新稳定版: $STABLE_VERSION (发布于: $RELEASE_DATE)"
 
-        # 检查本地版本文件
-        if [ ! -f "version.txt" ]; then
-          echo "{}" > version.txt
-        fi
-        
-        # 读取当前版本信息
-        CURRENT_VERSION_JSON=$(cat version.txt)
-        
-        # 解析当前稳定版和日期
+        # 3. 对比更新逻辑
         CURRENT_STABLE_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_TARGET_NAME\"")
+        CURRENT_STABLE_VERSION=$(echo "$CURRENT_STABLE_FULL" | cut -d, -f1)
+        CURRENT_STABLE_DATE=$(echo "$CURRENT_STABLE_FULL" | cut -d, -f2)
         
-        # 分离版本和日期
-        CURRENT_STABLE_VERSION=""
-        CURRENT_STABLE_DATE=""
-        if [ "$CURRENT_STABLE_FULL" != "null" ] && [[ "$CURRENT_STABLE_FULL" == *,* ]]; then
-          CURRENT_STABLE_VERSION=$(echo "$CURRENT_STABLE_FULL" | cut -d, -f1)
-          CURRENT_STABLE_DATE=$(echo "$CURRENT_STABLE_FULL" | cut -d, -f2)
-        fi
+        echo "当前记录版本: ${CURRENT_STABLE_VERSION:-无} (日期: ${CURRENT_STABLE_DATE:-无})"
         
-        echo "当前稳定版: ${CURRENT_STABLE_VERSION:-无} (日期: ${CURRENT_STABLE_DATE:-无})"
-
-        # 检查是否需要更新
-        need_update=false
-        
-        # 检查稳定版版本和文件
-        if [ "$STABLE_VERSION" != "$CURRENT_STABLE_VERSION" ] || [ ! -f "$STABLE_TARGET_PATH" ]; then
-          echo "稳定版需要更新: 版本不匹配或文件不存在"
-          need_update=true
-        fi
-        
-        if [ "$need_update" = false ]; then
-          echo "版本相同且文件存在，无需更新"
-          # 继续执行后续步骤（测试版同步）
+        # 触发更新条件
+        NEED_UPDATE=0
+        if [ "$FILE_EXISTS" -eq 0 ]; then
+          echo "目标文件缺失，需要更新"
+          NEED_UPDATE=1
+        elif [ "$KEY_EXISTS" -eq 0 ]; then
+          echo "版本键值缺失，需要更新"
+          NEED_UPDATE=1
+        elif [ "$STABLE_VERSION" != "$CURRENT_STABLE_VERSION" ]; then
+          echo "版本变化: $CURRENT_STABLE_VERSION -> $STABLE_VERSION"
+          NEED_UPDATE=1
+        elif [ "$RELEASE_DATE" != "$CURRENT_STABLE_DATE" ]; then
+          echo "发布日期变化: $CURRENT_STABLE_DATE -> $RELEASE_DATE"
+          NEED_UPDATE=1
         else
-          # 下载新版本文件
-          echo "下载新版本文件..."
-          
-          # 查找稳定版APK文件
-          apk_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
-          if [ -z "$apk_download_url" ]; then
-            echo "错误: 未找到匹配的稳定版APK文件"
-            exit 1
-          fi
-          
-          # 确保apk目录存在
-          mkdir -p apk
-          
-          # 下载稳定版APK
-          apk_source_name=$(basename "$apk_download_url")
-          echo "下载稳定版APK: $apk_source_name"
-          curl -sL "$apk_download_url" -o "$WORK_DIR/$apk_source_name"
-          if [ ! -f "$WORK_DIR/$apk_source_name" ]; then
-            echo "错误: 稳定版APK下载失败"
-            exit 1
-          fi
-          
-          # 重命名并移动到目标位置
-          mv "$WORK_DIR/$apk_source_name" "$STABLE_TARGET_PATH"
-          echo "文件已保存到: $STABLE_TARGET_PATH"
-
-          # 更新版本文件（保留其他键值，添加日期）
-          UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
-            --arg stable_key "$STABLE_TARGET_NAME" \
-            --arg stable_value "$STABLE_VERSION,$RELEASE_DATE" \
-            '.[$stable_key] = $stable_value')
-            
-          echo "$UPDATED_VERSION_JSON" > version.txt
+          echo "版本和日期一致，无需更新"
         fi
+        
+        if [ "$NEED_UPDATE" -eq 0 ]; then
+          echo "跳过稳定版更新"
+          exit 0
+        fi
+        
+        # 4. 下载新版本
+        echo "下载新版本文件..."
+        apk_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
+        if [ -z "$apk_download_url" ]; then
+          echo "错误: 未找到匹配的稳定版APK文件"
+          exit 1
+        fi
+        
+        # 下载APK
+        apk_source_name=$(basename "$apk_download_url")
+        curl -sL "$apk_download_url" -o "$WORK_DIR/$apk_source_name"
+        if [ ! -f "$WORK_DIR/$apk_source_name" ]; then
+          echo "错误: 稳定版APK下载失败"
+          exit 1
+        fi
+        
+        # 5. 同步到目标位置
+        echo "同步文件到目标位置..."
+        mkdir -p apk
+        mv "$WORK_DIR/$apk_source_name" "$STABLE_TARGET_PATH"
+        
+        # 验证文件同步
+        if [ ! -f "$STABLE_TARGET_PATH" ]; then
+          echo "错误: 文件同步失败"
+          exit 1
+        fi
+        
+        # 6. 更新版本文件
+        echo "更新版本文件..."
+        UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
+          --arg stable_key "$STABLE_TARGET_NAME" \
+          --arg stable_value "$STABLE_VERSION,$RELEASE_DATE" \
+          '.[$stable_key] = $stable_value')
+          
+        echo "$UPDATED_VERSION_JSON" > "$VERSION_FILE"
+        
+        # 验证版本文件更新
+        if ! jq -e ".\"$STABLE_TARGET_NAME\"" "$VERSION_FILE" >/dev/null; then
+          echo "错误: 版本文件更新失败"
+          exit 1
+        fi
+        
+        echo "稳定版同步完成"
 
     - name: Set up Python for Beta Sync
       uses: actions/setup-python@v5
@@ -191,8 +230,8 @@ jobs:
         # 配置参数
         BETA_TARGET_NAME = os.environ.get("BETA_TARGET_NAME", "nagramx-beta.apk")
         APK_DIR = "apk"
+        VERSION_FILE = "version.txt"
         WORK_DIR = os.path.join(os.getcwd(), "temp_beta_apk")
-        os.makedirs(WORK_DIR, exist_ok=True)
         
         # 配置日志
         logging.basicConfig(
@@ -203,8 +242,7 @@ jobs:
         log = logging.getLogger()
         
         def parse_beta_version(filename):
-            """从文件名解析测试版版本号（只提取主版本号）"""
-            # 匹配模式：NagramX-vX.X.X
+            """从文件名解析测试版版本号"""
             pattern = r'NagramX-v(\d+\.\d+\.\d+)'
             match = re.search(pattern, filename)
             if match:
@@ -249,7 +287,7 @@ jobs:
         
         def get_current_versions():
             """获取当前版本信息"""
-            version_path = os.path.join(os.getcwd(), "version.txt")
+            version_path = os.path.join(os.getcwd(), VERSION_FILE)
             if os.path.exists(version_path):
                 try:
                     with open(version_path, "r") as f:
@@ -258,6 +296,32 @@ jobs:
                     return {}
             return {}
         
+        def check_need_update(current_versions, new_version, new_date, target_path):
+            """检查是否需要更新"""
+            # 1. 检查目标文件是否存在
+            if not os.path.exists(target_path):
+                log.info(f"目标文件不存在: {target_path}")
+                return True
+                
+            # 2. 检查版本键值是否存在
+            if BETA_TARGET_NAME not in current_versions:
+                log.info(f"版本键值不存在: {BETA_TARGET_NAME}")
+                return True
+                
+            # 3. 对比版本和日期
+            current_value = current_versions[BETA_TARGET_NAME]
+            current_version, current_date = current_value.split(",", 1) if "," in current_value else (current_value, "")
+            
+            if new_version != current_version:
+                log.info(f"版本变化: {current_version} -> {new_version}")
+                return True
+                
+            if new_date != current_date:
+                log.info(f"日期变化: {current_date} -> {new_date}")
+                return True
+                
+            return False
+        
         async def main():
             # 验证环境变量
             required_env = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION']
@@ -265,6 +329,10 @@ jobs:
             if missing:
                 log.error(f"缺少环境变量: {', '.join(missing)}")
                 return 1
+            
+            # 准备目录
+            os.makedirs(WORK_DIR, exist_ok=True)
+            os.makedirs(APK_DIR, exist_ok=True)
             
             # 连接Telegram
             client = TelegramClient(
@@ -290,14 +358,12 @@ jobs:
                 release_date = beta_apk['message'].date.astimezone(utc8)
                 date_str = release_date.strftime('%Y-%m-%d')
                 
-                # 检查目标路径
+                # 目标路径
                 target_path = os.path.join(APK_DIR, BETA_TARGET_NAME)
                 current_versions = get_current_versions()
-                current_beta = current_versions.get(BETA_TARGET_NAME, "")
-                current_beta_ver = current_beta.split(',')[0] if current_beta else ""
                 
                 # 检查是否需要更新
-                if current_beta_ver == beta_apk['version'] and os.path.exists(target_path):
+                if not check_need_update(current_versions, beta_apk['version'], date_str, target_path):
                     log.info(f"测试版已是最新版本: {beta_apk['version']}")
                     return 0
                 
@@ -307,15 +373,25 @@ jobs:
                     log.error("下载失败")
                     return 1
                 
-                # 确保目录存在并移动文件
-                os.makedirs(APK_DIR, exist_ok=True)
+                # 移动文件
                 os.rename(apk_path, target_path)
                 log.info(f"文件保存到: {target_path}")
                 
+                # 验证文件同步
+                if not os.path.exists(target_path):
+                    log.error("文件同步失败")
+                    return 1
+                
                 # 更新版本文件
                 current_versions[BETA_TARGET_NAME] = f"{beta_apk['version']},{date_str}"
-                with open("version.txt", "w") as f:
+                with open(VERSION_FILE, "w") as f:
                     json.dump(current_versions, f, indent=2)
+                
+                # 验证版本文件更新
+                if not os.path.exists(VERSION_FILE) or BETA_TARGET_NAME not in current_versions:
+                    log.error("版本文件更新失败")
+                    return 1
+                    
                 log.info("版本文件已更新")
                 return 0
                 
@@ -330,41 +406,36 @@ jobs:
             sys.exit(asyncio.run(main()))
         EOF
 
-    # ========== 可靠的备份和恢复方法 ==========
-    - name: Backup APK and version files
+    - name: Validate sync results
       run: |
-        echo "备份重要文件..."
-        mkdir -p /tmp/sync_backup
-        cp -a apk /tmp/sync_backup/ || echo "没有apk目录可备份"
-        cp -a version.txt /tmp/sync_backup/ || echo "没有version.txt可备份"
-        echo "备份完成"
-
-    - name: Reset to remote main branch
-      run: |
-        echo "重置到远程main分支..."
-        git fetch origin main
-        git reset --hard origin/main
-        echo "重置完成"
-
-    - name: Restore APK and version files
-      run: |
-        echo "恢复备份文件..."
-        # 恢复APK目录
-        if [ -d "/tmp/sync_backup/apk" ]; then
-          rm -rf apk  # 删除重置后的apk目录
-          mv /tmp/sync_backup/apk .
-          echo "恢复apk目录"
+        echo "验证同步结果..."
+        
+        # 验证稳定版文件
+        if [ -f "apk/nagramx.apk" ]; then
+          echo "稳定版文件存在"
+        else
+          echo "错误: 稳定版文件缺失"
+          exit 1
         fi
         
-        # 恢复版本文件
-        if [ -f "/tmp/sync_backup/version.txt" ]; then
-          mv /tmp/sync_backup/version.txt .
-          echo "恢复version.txt"
+        # 验证测试版文件
+        if [ -f "apk/nagramx-beta.apk" ]; then
+          echo "测试版文件存在"
+        else
+          echo "测试版文件缺失 (可能未更新)"
         fi
         
-        # 清理备份
-        rm -rf /tmp/sync_backup
-        echo "恢复完成"
+        # 验证版本文件
+        if [ -f "version.txt" ]; then
+          echo "版本文件存在"
+          echo "版本文件内容:"
+          cat version.txt
+        else
+          echo "错误: 版本文件缺失"
+          exit 1
+        fi
+        
+        echo "同步验证完成"
 
     - name: Commit and Push Changes
       run: |
@@ -378,22 +449,20 @@ jobs:
         git add apk/ version.txt
         git commit -m "同步NagramX更新 [${{ github.run_id }}]"
         
-        # 安全强制推送（仅在远程没有新提交时覆盖）
+        # 安全推送
         echo "推送更改..."
-        git push --force-with-lease origin HEAD:${{ github.ref }}
+        git push --force-with-lease origin HEAD:main
         echo "推送成功"
         
-    # 添加解锁步骤 - 确保无论成功失败都释放锁
     - name: Release Repository Lock 🔓
-      if: always()  # 无论前面步骤成功与否都执行
+      if: always()
       uses: softprops/turnstyle@v1
       with:
-        continue-on-error: true  # 即使解锁失败也不中断工作流
-        action: unlock  # 指定解锁操作
+        continue-on-error: true
+        action: unlock
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 清理旧的工作流运行记录
   cleanup_self:
     name: Cleanup Self Workflow History
     runs-on: ubuntu-latest
