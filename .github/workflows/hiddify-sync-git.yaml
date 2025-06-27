@@ -67,7 +67,7 @@ jobs:
         STABLE_KEY_NAME: "hiddify.apk"
         PRE_RELEASE_KEY_NAME: "hiddify-beta.apk"
       run: |
-        # 从环境变量获取配置
+        # 修复文件路径问题 - 确保使用正确路径
         STABLE_TARGET_FILENAME="apk/$STABLE_KEY_NAME"
         PRE_RELEASE_TARGET_FILENAME="apk/$PRE_RELEASE_KEY_NAME"
         
@@ -135,7 +135,7 @@ jobs:
         echo "当前稳定版版本: $CURRENT_STABLE_VERSION (日期: $CURRENT_STABLE_DATE)"
         echo "当前预发行版版本: $CURRENT_PRE_RELEASE_VERSION (日期: $CURRENT_PRE_RELEASE_DATE)"
 
-        # 函数：检查并下载APK
+        # 函数：检查并下载APK - 修复文件路径问题
         check_and_download_apk() {
           local release_json="$1"
           local target_filename="$2"
@@ -185,13 +185,16 @@ jobs:
             fi
             
             echo "下载APK: $download_url"
+            
+            # 修复：直接下载到目标位置
             curl -sL "$download_url" -o "$target_filename"
+            
+            # 检查文件是否存在且非空
             if [ ! -f "$target_filename" ]; then
-              echo "错误: APK下载失败"
+              echo "错误: APK下载失败 - 文件未创建"
               return 1
             fi
             
-            # 验证文件非空
             if [ ! -s "$target_filename" ]; then
               echo "错误: 下载的文件为空"
               rm -f "$target_filename"
@@ -290,12 +293,11 @@ jobs:
         # 提交并推送更改
         if [ "$CHANGES_DETECTED" = true ]; then
           echo "提交更改到Git仓库..."
-          git add apk/* 
           
-          if $VERSION_CHANGED; then
-            git add version.txt
-          fi
+          # 添加所有更改的文件
+          git add apk/ version.txt
           
+          # 提交更改
           git commit -m "更新APK: 稳定版=$NEW_STABLE_VERSION, 预发行版=$NEW_PRE_RELEASE_VERSION"
           
           # 重试推送机制
@@ -303,8 +305,10 @@ jobs:
           RETRY_DELAY=10
           for i in $(seq 1 $MAX_RETRIES); do
             echo "推送更改 (尝试 $i/$MAX_RETRIES)..."
-            git pull --rebase origin $(git rev-parse --abbrev-ref HEAD)
-            if git push origin $(git rev-parse --abbrev-ref HEAD); then
+            # 确保使用当前分支
+            CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+            git pull --rebase origin $CURRENT_BRANCH
+            if git push origin $CURRENT_BRANCH; then
               echo "推送成功"
               break
             else
