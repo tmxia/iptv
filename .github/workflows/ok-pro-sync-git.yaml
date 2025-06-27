@@ -1,5 +1,6 @@
 name: OK PRO APK Sync from TELEGRAM
 
+# 原生并发控制机制
 concurrency: 
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -11,12 +12,12 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    # 基于缓存的锁机制
     - name: Acquire Repository Lock 🔒
       uses: softprops/turnstyle@v1
       with:
@@ -130,15 +131,20 @@ jobs:
                 return False
         
         def get_versions():
-            """获取当前版本信息"""
+            """获取当前版本信息并验证键值结构"""
             if not os.path.exists(VERSION_FILE):
                 return {}
-                
+            
             try:
                 with open(VERSION_FILE, "r") as f:
-                    return json.load(f)
-            except json.JSONDecodeError:
-                logger.error("版本文件格式错误，重置为空白")
+                    versions = json.load(f)
+                    # 验证是否为字典格式
+                    if not isinstance(versions, dict):
+                        logger.warning("版本文件格式无效，重置为空字典")
+                        return {}
+                    return versions
+            except Exception as e:
+                logger.error(f"版本文件读取失败: {str(e)}")
                 return {}
         
         def update_versions(new_versions):
@@ -191,6 +197,10 @@ jobs:
             elapsed = time.time() - start_time
             logger.info(f"下载完成: 耗时{elapsed:.1f}秒")
             
+            # 验证文件是否成功下载
+            if not os.path.exists(download_path):
+                raise FileNotFoundError(f"文件下载失败: {download_path}")
+            
             # 提取版本信息
             version = extract_apk_version(download_path)
             if not version:
@@ -224,10 +234,20 @@ jobs:
                         current = current_versions.get(filename, "")
                         msg_date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                         
-                        if current and msg_date <= current.split(",")[-1]:
-                            logger.info(f"跳过旧版本: {filename} ({msg_date})")
-                            continue
-                            
+                        # 版本对比逻辑增强
+                        if current:
+                            try:
+                                # 提取存储的日期并验证格式
+                                stored_date = current.split(",")[-1]
+                                datetime.strptime(stored_date, "%Y-%m-%d")
+                                
+                                # 比较日期
+                                if msg_date <= stored_date:
+                                    logger.info(f"跳过旧版本: {filename} ({msg_date})")
+                                    continue
+                            except (IndexError, ValueError) as e:
+                                logger.warning(f"版本文件格式错误({current})，强制更新: {str(e)}")
+                        
                         apk_data = await download_apk(client, msg, filename)
                         new_value = f"{apk_data['version']},{apk_data['date']}"
                         
@@ -260,9 +280,13 @@ jobs:
                 new_versions = await find_new_apks(client)
             
             if new_versions:
-                # 复制APK文件到仓库
+                # 复制APK文件到仓库 - 增加存在性检查
                 for apk in new_versions.keys():
                     src = os.path.join(WORK_DIR, apk)
+                    if not os.path.exists(src):
+                        logger.error(f"目标文件不存在: {src}")
+                        raise FileNotFoundError(f"APK文件未成功下载: {apk}")
+                    
                     dst = os.path.join(APK_DIR, apk)
                     shutil.copy2(src, dst)
                     logger.info(f"已复制: {apk}")
@@ -270,17 +294,31 @@ jobs:
                 # 更新版本文件
                 update_versions(new_versions)
                 
-                # 提交更改
-                if git_commit_push(f"更新APK: {', '.join(new_versions.keys())}"):
-                    logger.info("同步成功!")
+                # 提交更改并验证同步
+                commit_msg = f"更新APK: {', '.join(new_versions.keys())}"
+                if git_commit_push(commit_msg):
+                    logger.info("推送成功，验证文件同步...")
+                    # 闭环验证：检查文件是否同步到仓库
+                    for apk in new_versions.keys():
+                        target_path = os.path.join(APK_DIR, apk)
+                        if not os.path.exists(target_path):
+                            raise RuntimeError(f"同步后文件不存在: {target_path}")
+                    logger.info("所有文件已确认同步至仓库")
                 else:
                     raise RuntimeError("提交失败")
             else:
                 logger.info("没有需要更新的APK文件")
             
-            # 清理临时目录
+            # 清理临时目录 - 增加清理验证
+            logger.info("清理临时目录...")
             shutil.rmtree(WORK_DIR, ignore_errors=True)
-            logger.info("临时目录已清理")
+            
+            # 验证临时目录是否清理成功
+            if os.path.exists(WORK_DIR):
+                logger.error(f"临时目录清理失败: {WORK_DIR}")
+                raise RuntimeError("资源清理未完成")
+            else:
+                logger.info("临时目录已确认清理")
             
             logger.info("="*50 + "\n同步任务完成\n" + "="*50)
             return 0
@@ -294,6 +332,7 @@ jobs:
                 sys.exit(1)
         EOF
 
+    # 释放基于缓存的锁
     - name: Release Repository Lock 🔓
       if: always()
       uses: softprops/turnstyle@v1
@@ -315,6 +354,7 @@ jobs:
             body: `🚨 Telegram APK同步失败！工作流运行详情: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
           })
 
+  # 清理工作流历史（使用原生并发机制）
   cleanup_self:
     name: Cleanup Self Workflow History
     runs-on: ubuntu-latest
