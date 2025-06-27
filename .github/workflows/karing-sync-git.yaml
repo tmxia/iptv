@@ -5,6 +5,11 @@ on:
     - cron: '0 */1 * * *'  # 每1小时运行一次
   workflow_dispatch:
 
+# 使用原生并发控制
+concurrency:
+  group: sync-karing-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   actions: write
@@ -13,6 +18,29 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    # 基于缓存的锁机制
+    - name: Acquire Repository Lock
+      id: lock
+      run: |
+        LOCK_DIR="$GITHUB_WORKSPACE/.lock"
+        LOCK_FILE="$LOCK_DIR/repo-lock"
+        mkdir -p "$LOCK_DIR"
+        
+        for i in {1..10}; do
+          if [ -f "$LOCK_FILE" ]; then
+            echo "锁已被占用，等待重试 ($i/10)..."
+            sleep 30
+          else
+            touch "$LOCK_FILE"
+            echo "lock-acquired=true" >> $GITHUB_OUTPUT
+            echo "成功获取锁"
+            exit 0
+          fi
+        done
+        
+        echo "::error::无法在5分钟内获取锁"
+        exit 1
+
     - name: Checkout current repository
       uses: actions/checkout@v3
       with:
@@ -46,17 +74,27 @@ jobs:
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
+        # 确保apk目录存在
+        mkdir -p apk
+
         # 获取所有发布版
         echo "获取发布版本信息..."
-        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
+        RELEASES_JSON=$(curl -sfL "https://api.github.com/repos/$SOURCE_REPO/releases")
         if [ $? -ne 0 ]; then
           echo "错误: 无法获取发布信息"
           exit 1
         fi
 
+        # 验证API响应格式
+        if ! echo "$RELEASES_JSON" | jq -e 'if type == "array" then true else false end' >/dev/null; then
+          echo "错误: GitHub API返回无效数据:"
+          echo "$RELEASES_JSON" | head -c 200
+          exit 1
+        fi
+
         # 提取最新预发布版和最新稳定版
-        LATEST_PRE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == true)) | sort_by(.published_at) | reverse | .[0]')
-        LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]')
+        LATEST_PRE_RELEASE=$(echo "$RELEASES_JSON" | jq -r '[.[] | select(.prerelease == true)] | sort_by(.published_at) | reverse | .[0]')
+        LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r '[.[] | select(.prerelease == false)] | sort_by(.published_at) | reverse | .[0]')
 
         # 检查是否找到有效的发布
         if [ -z "$LATEST_PRE_RELEASE" ] || [ "$LATEST_PRE_RELEASE" = "null" ]; then
@@ -114,28 +152,31 @@ jobs:
         echo "选择的发布渠道: $CHANNEL, 版本: $SELECTED_VERSION (发布于: $RELEASE_DATE)"
 
         # 检查本地版本文件
-        if [ ! -f "version.txt" ]; then
-          echo "{}" > version.txt
+        VERSION_FILE="version.txt"
+        CURRENT_VERSION_JSON="{}"
+        if [ -f "$VERSION_FILE" ]; then
+          echo "找到本地版本文件"
+          CURRENT_VERSION_JSON=$(cat "$VERSION_FILE" | jq . 2>/dev/null || echo "{}")
+        else
+          echo "创建新的版本文件"
+          echo "{}" > "$VERSION_FILE"
         fi
         
-        # 读取当前版本信息
-        CURRENT_VERSION_JSON=$(cat version.txt)
-        
         # 解析当前版本和日期
-        CURRENT_ANDROID_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$ANDROID_TARGET_NAME\"")
-        CURRENT_WINDOWS_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$WINDOWS_TARGET_NAME\"")
+        CURRENT_ANDROID_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$ANDROID_TARGET_NAME\" // \"\"")
+        CURRENT_WINDOWS_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$WINDOWS_TARGET_NAME\" // \"\"")
         
         # 分离版本和日期
         CURRENT_ANDROID_VERSION=""
         CURRENT_ANDROID_DATE=""
-        if [ "$CURRENT_ANDROID_FULL" != "null" ] && [[ "$CURRENT_ANDROID_FULL" == *,* ]]; then
+        if [[ "$CURRENT_ANDROID_FULL" == *,* ]]; then
           CURRENT_ANDROID_VERSION=$(echo "$CURRENT_ANDROID_FULL" | cut -d, -f1)
           CURRENT_ANDROID_DATE=$(echo "$CURRENT_ANDROID_FULL" | cut -d, -f2)
         fi
         
         CURRENT_WINDOWS_VERSION=""
         CURRENT_WINDOWS_DATE=""
-        if [ "$CURRENT_WINDOWS_FULL" != "null" ] && [[ "$CURRENT_WINDOWS_FULL" == *,* ]]; then
+        if [[ "$CURRENT_WINDOWS_FULL" == *,* ]]; then
           CURRENT_WINDOWS_VERSION=$(echo "$CURRENT_WINDOWS_FULL" | cut -d, -f1)
           CURRENT_WINDOWS_DATE=$(echo "$CURRENT_WINDOWS_FULL" | cut -d, -f2)
         fi
@@ -144,27 +185,38 @@ jobs:
         echo "当前Windows版本: ${CURRENT_WINDOWS_VERSION:-无} (日期: ${CURRENT_WINDOWS_DATE:-无})"
 
         # 检查是否需要更新
-        need_update=false
+        ANDROID_NEED_UPDATE=false
+        WINDOWS_NEED_UPDATE=false
         
         # 检查Android版本和文件
-        if [ "$SELECTED_VERSION" != "$CURRENT_ANDROID_VERSION" ] || [ ! -f "$ANDROID_TARGET_PATH" ]; then
-          echo "Android需要更新: 版本不匹配或文件不存在"
-          need_update=true
+        if [ "$SELECTED_VERSION" != "$CURRENT_ANDROID_VERSION" ]; then
+          echo "Android需要更新: 版本不匹配"
+          ANDROID_NEED_UPDATE=true
+        elif [ ! -f "$ANDROID_TARGET_PATH" ]; then
+          echo "Android需要更新: 文件不存在"
+          ANDROID_NEED_UPDATE=true
+        else
+          echo "Android无需更新"
         fi
         
         # 检查Windows版本和文件
-        if [ "$SELECTED_VERSION" != "$CURRENT_WINDOWS_VERSION" ] || [ ! -f "$WINDOWS_TARGET_PATH" ]; then
-          echo "Windows需要更新: 版本不匹配或文件不存在"
-          need_update=true
+        if [ "$SELECTED_VERSION" != "$CURRENT_WINDOWS_VERSION" ]; then
+          echo "Windows需要更新: 版本不匹配"
+          WINDOWS_NEED_UPDATE=true
+        elif [ ! -f "$WINDOWS_TARGET_PATH" ]; then
+          echo "Windows需要更新: 文件不存在"
+          WINDOWS_NEED_UPDATE=true
+        else
+          echo "Windows无需更新"
         fi
         
-        if [ "$need_update" = false ]; then
-          echo "版本相同且文件存在，无需更新"
+        if [ "$ANDROID_NEED_UPDATE" = false ] && [ "$WINDOWS_NEED_UPDATE" = false ]; then
+          echo "所有文件已是最新版本，无需更新"
           exit 0
         fi
 
         # 下载新版本文件
-        echo "下载新版本文件..."
+        echo "开始下载新版本文件..."
         
         # 查找Android APK文件
         apk_download_url=$(echo "$SELECTED_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
@@ -180,33 +232,77 @@ jobs:
           exit 1
         fi
         
-        # 确保apk目录存在
-        mkdir -p apk
-        
-        # 下载Android APK
-        apk_source_name=$(basename "$apk_download_url")
-        echo "下载Android APK: $apk_source_name"
-        curl -sL "$apk_download_url" -o "$WORK_DIR/$apk_source_name"
-        if [ ! -f "$WORK_DIR/$apk_source_name" ]; then
-          echo "错误: Android APK下载失败"
-          exit 1
+        # 下载Android APK（如果需要）
+        if [ "$ANDROID_NEED_UPDATE" = true ]; then
+          apk_source_name=$(basename "$apk_download_url")
+          echo "下载Android APK: $apk_source_name"
+          
+          # 带重试的下载
+          for i in {1..3}; do
+            curl -sfL "$apk_download_url" -o "$WORK_DIR/$apk_source_name"
+            if [ $? -eq 0 ] && [ -s "$WORK_DIR/$apk_source_name" ]; then
+              # 检查文件大小（至少1MB）
+              FILESIZE=$(stat -c%s "$WORK_DIR/$apk_source_name")
+              if [ "$FILESIZE" -lt 1000000 ]; then
+                echo "警告: 下载的文件太小(可能不完整)，重试 ($i/3)..."
+                rm -f "$WORK_DIR/$apk_source_name"
+                sleep 5
+              else
+                echo "下载成功"
+                break
+              fi
+            else
+              echo "下载失败，重试 ($i/3)..."
+              sleep 5
+            fi
+          done
+          
+          if [ ! -f "$WORK_DIR/$apk_source_name" ]; then
+            echo "错误: Android APK下载失败"
+            exit 1
+          fi
+          
+          # 移动文件到目标位置
+          mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH"
+          echo "Android文件已保存到: $ANDROID_TARGET_PATH"
         fi
         
-        # 下载Windows ZIP
-        win_source_name=$(basename "$win_download_url")
-        echo "下载Windows ZIP: $win_source_name"
-        curl -sL "$win_download_url" -o "$WORK_DIR/$win_source_name"
-        if [ ! -f "$WORK_DIR/$win_source_name" ]; then
-          echo "错误: Windows ZIP下载失败"
-          exit 1
+        # 下载Windows ZIP（如果需要）
+        if [ "$WINDOWS_NEED_UPDATE" = true ]; then
+          win_source_name=$(basename "$win_download_url")
+          echo "下载Windows ZIP: $win_source_name"
+          
+          # 带重试的下载
+          for i in {1..3}; do
+            curl -sfL "$win_download_url" -o "$WORK_DIR/$win_source_name"
+            if [ $? -eq 0 ] && [ -s "$WORK_DIR/$win_source_name" ]; then
+              # 检查文件大小（至少1MB）
+              FILESIZE=$(stat -c%s "$WORK_DIR/$win_source_name")
+              if [ "$FILESIZE" -lt 1000000 ]; then
+                echo "警告: 下载的文件太小(可能不完整)，重试 ($i/3)..."
+                rm -f "$WORK_DIR/$win_source_name"
+                sleep 5
+              else
+                echo "下载成功"
+                break
+              fi
+            else
+              echo "下载失败，重试 ($i/3)..."
+              sleep 5
+            fi
+          done
+          
+          if [ ! -f "$WORK_DIR/$win_source_name" ]; then
+            echo "错误: Windows ZIP下载失败"
+            exit 1
+          fi
+          
+          # 移动文件到目标位置
+          mv "$WORK_DIR/$win_source_name" "$WINDOWS_TARGET_PATH"
+          echo "Windows文件已保存到: $WINDOWS_TARGET_PATH"
         fi
-        
-        # 重命名并移动到目标位置
-        mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH"
-        mv "$WORK_DIR/$win_source_name" "$WINDOWS_TARGET_PATH"
-        echo "文件已保存到: $ANDROID_TARGET_PATH 和 $WINDOWS_TARGET_PATH"
 
-        # 更新版本文件（保留其他键值，添加日期）
+        # 更新版本文件（保留其他键值）
         UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
           --arg android_key "$ANDROID_TARGET_NAME" \
           --arg android_value "$SELECTED_VERSION,$RELEASE_DATE" \
@@ -214,10 +310,10 @@ jobs:
           --arg win_value "$SELECTED_VERSION,$RELEASE_DATE" \
           '.[$android_key] = $android_value | .[$win_key] = $win_value')
           
-        echo "$UPDATED_VERSION_JSON" > version.txt
+        echo "$UPDATED_VERSION_JSON" > "$VERSION_FILE"
 
         # 添加所有更改
-        git add apk/ version.txt
+        git add apk/ "$VERSION_FILE"
         
         # 检查是否有更改
         if git diff-index --quiet HEAD --; then
@@ -228,23 +324,48 @@ jobs:
         # 提交更改
         git commit -m "更新$CHANNEL版本: $SELECTED_VERSION (日期: $RELEASE_DATE)"
         
-        # 推送到远程仓库
+        # 推送到远程仓库（带重试机制）
         echo "推送到远程仓库..."
         git remote set-url origin https://x-access-token:$TOKEN@github.com/${{ github.repository }}.git
-        git push origin HEAD:${{ github.ref }}
         
-        if [ $? -eq 0 ]; then
-          echo "推送成功"
-        else
-          echo "错误: 推送失败"
-          exit 1
-        fi
+        MAX_RETRIES=3
+        RETRY_DELAY=10
+        for i in $(seq 1 $MAX_RETRIES); do
+          echo "推送尝试 ($i/$MAX_RETRIES)..."
+          git pull --rebase origin ${{ github.ref }}
+          if git push origin ${{ github.ref }}; then
+            echo "推送成功"
+            break
+          else
+            echo "推送失败，等待重试..."
+            sleep $RETRY_DELAY
+          fi
+          if [ $i -eq $MAX_RETRIES ]; then
+            echo "错误: 推送失败，超过最大重试次数"
+            exit 1
+          fi
+        done
 
         echo "同步完成! 状态: 成功"
         echo "发布渠道: $CHANNEL"
-        echo "Android文件: $ANDROID_TARGET_PATH ($SELECTED_VERSION, $RELEASE_DATE)"
-        echo "Windows文件: $WINDOWS_TARGET_PATH ($SELECTED_VERSION, $RELEASE_DATE)"
+        if [ "$ANDROID_NEED_UPDATE" = true ]; then
+          echo "Android文件: $ANDROID_TARGET_PATH ($SELECTED_VERSION, $RELEASE_DATE)"
+        fi
+        if [ "$WINDOWS_NEED_UPDATE" = true ]; then
+          echo "Windows文件: $WINDOWS_TARGET_PATH ($SELECTED_VERSION, $RELEASE_DATE)"
+        fi
         exit 0
+
+    - name: Release Repository Lock
+      if: always()
+      run: |
+        LOCK_FILE="$GITHUB_WORKSPACE/.lock/repo-lock"
+        if [ -f "$LOCK_FILE" ]; then
+          rm -f "$LOCK_FILE"
+          echo "锁已释放"
+        else
+          echo "锁文件不存在，无需释放"
+        fi
 
   cleanup_self:
     name: Cleanup Self Workflow History
