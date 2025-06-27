@@ -217,7 +217,7 @@ jobs:
           return 1
         }
         
-        # 6. 上传文件函数（修复大文件上传问题）
+        # 6. 上传文件函数（优化大文件处理）
         upload_file() {
           local file_path=$1
           local target_path=$2
@@ -226,13 +226,19 @@ jobs:
           sha=$(curl -s -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/$TARGET_REPO/contents/$target_path" | jq -r '.sha // empty')
           
-          # 准备上传数据 - 使用临时文件避免参数过长
+          # 创建临时文件用于JSON和内容
           json_file=$(mktemp)
+          content_file=$(mktemp)
+          
+          # 将APK内容base64编码后写入文件
+          base64 -w0 "$file_path" > "$content_file"
+          
+          # 使用jq安全构建JSON（避免参数过长）
           jq -n \
             --arg msg "更新: $target_path" \
-            --arg content "$(base64 -w0 "$file_path")" \
+            --slurpfile content "$content_file" \
             --arg sha "$sha" \
-            '{message: $msg, content: $content, sha: $sha}' > "$json_file"
+            '{message: $msg, content: $content[0], sha: $sha}' > "$json_file"
           
           echo "上传: $target_path"
           response=$(curl -s -X PUT \
@@ -242,7 +248,7 @@ jobs:
             "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
           
           # 清理临时文件
-          rm -f "$json_file"
+          rm -f "$json_file" "$content_file"
           
           # 验证上传成功
           if ! echo "$response" | jq -e '.content' >/dev/null; then
@@ -270,12 +276,12 @@ jobs:
           fi
         fi
         
-        # 9. 更新版本文件（修复大文件上传问题）
+        # 9. 更新版本文件（优化大文件处理）
         echo "更新版本文件..."
         version_sha=$(echo "$version_response" | jq -r '.sha // empty')
         version_content=$(cat "$VERSION_JSON_FILE")
         
-        # 使用临时文件避免参数过长
+        # 使用临时文件
         version_json_file=$(mktemp)
         jq -n \
           --arg msg "更新版本信息" \
