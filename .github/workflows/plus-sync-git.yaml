@@ -23,19 +23,18 @@ jobs:
       id: lock
       run: |
         # 创建锁文件路径
-        LOCK_FILE="lock-${{ github.run_id }}"
-        echo "LOCK_KEY=repo-lock-${{ github.run_id }}" >> $GITHUB_ENV
+        LOCK_DIR="$GITHUB_WORKSPACE/.lock"
+        mkdir -p "$LOCK_DIR"
+        LOCK_FILE="$LOCK_DIR/repo-lock"
         
         # 尝试获取锁
         for i in {1..10}; do
-          # 检查是否有其他工作流持有锁
-          if [ -f "$GITHUB_WORKSPACE/.lock/repo-lock" ]; then
+          if [ -f "$LOCK_FILE" ]; then
             echo "锁已被占用，等待重试 ($i/10)..."
             sleep 30
           else
             # 创建锁文件
-            mkdir -p "$GITHUB_WORKSPACE/.lock"
-            touch "$GITHUB_WORKSPACE/.lock/repo-lock"
+            touch "$LOCK_FILE"
             echo "lock-acquired=true" >> $GITHUB_OUTPUT
             echo "成功获取锁"
             exit 0
@@ -45,23 +44,10 @@ jobs:
         echo "错误: 无法在5分钟内获取锁"
         exit 1
 
-    - name: Checkout repository with LFS
+    - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        lfs: true
         fetch-depth: 0
-
-    - name: Setup Git LFS
-      run: |
-        git lfs install
-        git lfs track "apk/*.apk"
-        git add .gitattributes
-        if [ -n "$(git status --porcelain .gitattributes)" ]; then
-          git config user.name "GitHub Actions"
-          git config user.email "actions@users.noreply.github.com"
-          git commit -m "Add LFS tracking for APK files"
-          git push origin main
-        fi
 
     - name: Configure Git
       run: |
@@ -81,7 +67,7 @@ jobs:
         APK_NAME: "plus_mod.apk"
         DOWNLOAD_URL: "https://leeapk.com/plus-messenger-mod-apk/download/"
       run: |
-        # 1. 拉取远程最新更改（在修改文件之前）
+        # 1. 确保获取最新代码
         echo "拉取远程最新更改..."
         git pull origin main
         
@@ -176,7 +162,7 @@ jobs:
           NEED_UPDATE=true
         
         elif [ "$VERSION" != "$CURRENT_VERSION_NO_V" ]; then
-          echo "需要更新: 发现新版本"
+          echo "需要更新: 发现新版本 ($CURRENT_VERSION_NO_V → $VERSION)"
           NEED_UPDATE=true
         
         elif [ ! -f "apk/$APK_NAME" ]; then
@@ -249,7 +235,13 @@ jobs:
         echo "更新版本文件"
 
         # 添加文件到Git
-        git add apk/ "$VERSION_FILE" .gitattributes
+        git add apk/ "$VERSION_FILE"
+
+        # 检查是否有变更
+        if [ -z "$(git status --porcelain)" ]; then
+          echo "没有需要提交的变更"
+          exit 0
+        fi
 
         # 提交更改
         git commit -m "更新Plus Messenger: v$VERSION ($CURRENT_DATE)"
@@ -264,8 +256,9 @@ jobs:
       if: always()
       run: |
         # 释放锁
-        if [ -f "$GITHUB_WORKSPACE/.lock/repo-lock" ]; then
-          rm -f "$GITHUB_WORKSPACE/.lock/repo-lock"
+        LOCK_FILE="$GITHUB_WORKSPACE/.lock/repo-lock"
+        if [ -f "$LOCK_FILE" ]; then
+          rm -f "$LOCK_FILE"
           echo "锁已释放"
         else
           echo "锁文件不存在，无需释放"
