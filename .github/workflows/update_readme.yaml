@@ -29,6 +29,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.REPO_PAT }}
+          lfs: false  # 仅获取指针文件，不拉取实际大文件
 
       - name: 获取最新变更
         run: git pull origin ${{ github.ref_name }}
@@ -77,11 +78,34 @@ jobs:
 
       - name: Generate new README
         run: |
+          # 函数：从指针文件获取实际文件大小
+          get_actual_size() {
+            local file="$1"
+            if [ ! -f "$file" ]; then
+              echo "0"
+              return
+            fi
+            
+            # 检查是否为LFS指针文件
+            if head -1 "$file" | grep -q '^version https://git-lfs.github.com/spec/v1$'; then
+              # 从指针文件提取实际大小
+              size_line=$(grep '^size ' "$file")
+              if [ -n "$size_line" ]; then
+                echo "$size_line" | awk '{print $2}'
+              else
+                echo "0"
+              fi
+            else
+              # 普通文件直接获取大小
+              stat -c%s "$file"
+            fi
+          }
+
           # 设置基础URL
           REPO="${{ github.repository }}"
           BRANCH="${{ github.ref_name }}"
-          APK_BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
-          KERNEL_BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/kernels/"
+          APK_BASE_URL="https://media.githubusercontent.com/media/${REPO}/${BRANCH}/apk/"
+          KERNEL_BASE_URL="https://media.githubusercontent.com/media/${REPO}/${BRANCH}/kernels/"
           
           # 初始化README内容
           {
@@ -94,8 +118,8 @@ jobs:
             if ${{ steps.validate-versions.outputs.update_apk }} == 'true'; then
               echo "## 应用"
               echo ""
-              echo "| 文件名称 | 文件大小(M) | 版本号 | 更新日期 |"
-              echo "|----------|------------|--------|----------|"
+              echo "| 文件名称 | 文件大小(M) | 版本号 | 更新日期 | 下载链接 |"
+              echo "|----------|------------|--------|----------|----------|"
               
               # 按更新日期降序排列
               jq -r 'to_entries | sort_by(.value | split(",")[1]) | reverse | .[] | .key' version.txt | while read -r key; do
@@ -104,17 +128,19 @@ jobs:
                 version=$(echo "$value" | cut -d, -f1)
                 date=$(echo "$value" | cut -d, -f2)
                 
-                # 获取文件大小（MB）
+                # 获取实际文件大小
                 file_path="apk/$key"
                 if [ -f "$file_path" ]; then
-                  file_bytes=$(stat -c%s "$file_path")
+                  file_bytes=$(get_actual_size "$file_path")
                   file_size=$(echo "scale=2; $file_bytes / (1024*1024)" | bc)
+                  download_url="${APK_BASE_URL}${key}"
                 else
                   file_size="N/A"
+                  download_url="#"
                 fi
                 
-                # 使用纯文本显示文件名，下方添加下载链接
-                echo "| <div>$key</div><div><small>[下载](${APK_BASE_URL}${key})</small></div> | $file_size | $version | $date |"
+                # 生成表格行
+                echo "| $key | $file_size | $version | $date | [下载]($download_url) |"
               done
             else
               echo "> 暂无应用版本信息"
@@ -130,8 +156,8 @@ jobs:
             if ${{ steps.validate-versions.outputs.update_kernel }} == 'true'; then
               echo "## 内核"
               echo ""
-              echo "| 内核名称 | 文件大小(M) | 版本号 | 更新日期 |"
-              echo "|----------|------------|--------|----------|"
+              echo "| 内核名称 | 文件大小(M) | 版本号 | 更新日期 | 下载链接 |"
+              echo "|----------|------------|--------|----------|----------|"
               
               # 处理内核版本 - 按更新日期降序排列
               jq -r 'to_entries | sort_by(.value.date) | reverse | .[] | .key' kernel_versions.json | while read -r kernel_key; do
@@ -142,21 +168,23 @@ jobs:
                 # 构建实际文件名
                 file_name="${kernel_key}_${version}.zip"
                 
-                # 获取文件大小（MB）
+                # 获取实际文件大小
                 file_path="kernels/$file_name"
                 if [ -f "$file_path" ]; then
-                  file_bytes=$(stat -c%s "$file_path")
+                  file_bytes=$(get_actual_size "$file_path")
                   file_size=$(echo "scale=2; $file_bytes / (1024*1024)" | bc)
+                  download_url="${KERNEL_BASE_URL}${file_name}"
                 else
                   file_size="N/A"
+                  download_url="#"
                 fi
                 
                 # 美化内核名称
                 kernel_name=$(echo "$kernel_key" | sed 's/openwrt_flippy//; s/6\.1/6.1/; s/6\.6/6.6/; s/6\.12/6.12/')
                 kernel_name="OpenWrt $kernel_name"
                 
-                # 使用纯文本显示文件名，下方添加下载链接
-                echo "| <div>$kernel_name</div><div><small>[下载](${KERNEL_BASE_URL}${file_name})</small></div> | $file_size | $version | $date |"
+                # 生成表格行
+                echo "| $kernel_name | $file_size | $version | $date | [下载]($download_url) |"
               done
             else
               echo "> 暂无内核版本信息"
