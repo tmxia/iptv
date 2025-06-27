@@ -88,19 +88,23 @@ jobs:
           sync_pre_release=false
         fi
         
-        # 3. 获取目标仓库版本文件
+        # 3. 获取目标仓库版本文件（使用文件处理）
         echo "获取目标仓库版本信息..."
         version_response=$(curl -s -H "Authorization: token $TOKEN" \
           "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
+        # 创建临时文件处理版本数据
+        CURRENT_VERSION_FILE="$WORK_DIR/current_version.json"
+        UPDATED_VERSION_FILE="$WORK_DIR/updated_version.json"
+        
         if [ "$(echo "$version_response" | jq -r '.message')" != "Not Found" ]; then
-          CURRENT_VERSION_JSON=$(echo "$version_response" | jq -r '.content' | base64 -d)
+          echo "$version_response" | jq -r '.content' | base64 -d > "$CURRENT_VERSION_FILE"
           SHA_VERSION=$(echo "$version_response" | jq -r '.sha')
-          echo "当前版本文件内容已获取"
+          echo "当前版本文件内容已保存到文件"
         else
-          CURRENT_VERSION_JSON="{}"
+          echo "{}" > "$CURRENT_VERSION_FILE"
           SHA_VERSION=""
-          echo "无版本文件，创建空对象"
+          echo "无版本文件，创建空文件"
         fi
         
         # 4. 初始化更新标志
@@ -111,7 +115,7 @@ jobs:
         NEW_PRE_VERSION="$pre_version"
         NEW_PRE_DATE="$pre_date"
         
-        # 5. 检查并下载APK
+        # 5. 检查并下载APK（使用文件处理）
         check_and_download() {
           local release_json=$1
           local key_name=$2
@@ -119,8 +123,8 @@ jobs:
           local new_version=$4
           local new_date=$5
           
-          # 获取当前值
-          current_value=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$key_name\" // \"\"")
+          # 使用jq从文件中获取值
+          current_value=$(jq -r ".\"$key_name\" // \"\"" "$CURRENT_VERSION_FILE")
           
           # 检查是否需要更新
           need_update=false
@@ -161,6 +165,12 @@ jobs:
               SYNC_PRE_RELEASE=true
             fi
             
+            # 更新版本文件
+            jq --arg key "$key_name" \
+                 --arg value "$new_version,$new_date" \
+                 '.[$key] = $value' "$CURRENT_VERSION_FILE" > "$UPDATED_VERSION_FILE"
+            mv "$UPDATED_VERSION_FILE" "$CURRENT_VERSION_FILE"
+            
             return 0
           else
             echo "无需更新: $key_name ($current_value)"
@@ -168,7 +178,7 @@ jobs:
           fi
         }
         
-        # 6. 修复大文件上传函数
+        # 6. 文件上传函数
         upload_file() {
           local file_path=$1
           local target_path=$2
@@ -184,7 +194,7 @@ jobs:
           # 使用base64编码内容
           content_base64=$(base64 -w0 "$file_path")
           
-          # 使用jq生成JSON（内容已编码为base64，不会太大）
+          # 使用jq生成JSON
           jq -n \
             --arg msg "更新: $target_path" \
             --arg content "$content_base64" \
@@ -225,27 +235,14 @@ jobs:
           fi
         fi
         
-        # 9. 更新版本文件（优化方法）
-        # 仅在需要更新时执行
+        # 9. 更新版本文件（仅在需要时）
         if $SYNC_STABLE || $SYNC_PRE_RELEASE; then
           echo "准备更新版本文件..."
           
-          # 更新版本JSON对象
-          UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
-            --arg stable_key "$STABLE_KEY_NAME" \
-            --arg stable_value "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
-            --arg pre_key "$PRE_RELEASE_KEY_NAME" \
-            --arg pre_value "$NEW_PRE_VERSION,$NEW_PRE_DATE" \
-            '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
-          
-          # 检查版本内容是否有变化
-          CURRENT_CONTENT_FOR_COMPARE=$(echo "$CURRENT_VERSION_JSON" | jq -S .)
-          NEW_CONTENT_FOR_COMPARE=$(echo "$UPDATED_VERSION_JSON" | jq -S .)
-          
-          if [ "$CURRENT_CONTENT_FOR_COMPARE" = "$NEW_CONTENT_FOR_COMPARE" ]; then
-            echo "版本文件内容无变化，跳过更新"
-          else
-            echo "更新版本文件内容"
+          # 检查版本文件是否有变化
+          if [ -f "$CURRENT_VERSION_FILE" ]; then
+            # 读取更新后的内容
+            UPDATED_VERSION_JSON=$(cat "$CURRENT_VERSION_FILE")
             ENCODED_CONTENT=$(echo -n "$UPDATED_VERSION_JSON" | base64 -w0)
             
             # 创建临时JSON文件上传
