@@ -6,7 +6,7 @@
   "simple_live.apk": "v1.8.6,2025-05-27",
   "simple_live-tv.apk": "v1.3.5,2025-05-27",
   "bv.apk": "v0.2.9,2024-12-06",
-  "bv-beta.apk": "valpha-r847,2025-06-22",
+  "bv-beta.apk": "v0.3.0,2025-06-22",
   "github.zip": "v1.212.0,2025-06-27",
   "karing.apk": "v1.2.0.802,2025-06-27",
   "karing-win.zip": "v1.2.0.802,2025-06-27",
