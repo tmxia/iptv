@@ -5,7 +5,6 @@ on:
     - cron: '0 */2 * * *'  # 每2小时运行一次
   workflow_dispatch:
 
-# 使用原生并发控制
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -18,7 +17,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    # 基于文件系统的锁机制
     - name: Acquire Repository Lock
       id: lock
       run: |
@@ -44,18 +42,26 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # 获取完整历史记录
+        fetch-depth: 0
 
     - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install -y jq curl
 
-    - name: Configure Git
+    - name: Configure Git and Permissions
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
         git config pull.rebase true
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         
+        # 关键修复：确保工作区可写
+        echo "设置工作区可写权限..."
+        chmod -R u+w .
+        echo "当前目录权限:"
+        ls -ld .
+        echo "apk目录权限:"
+        ls -ld apk || true
+
     - name: Run APK sync
       env:
         SOURCE_REPO: "mytv-android/mytv-android"
@@ -117,11 +123,12 @@ jobs:
         echo "目标稳定版: ${CURRENT_STABLE:-无} (${CURRENT_STABLE_DATE:-无日期})"
         echo "目标预发行版: ${CURRENT_PRE:-无} (${CURRENT_PRE_DATE:-无日期})"
         
-        # 检查文件存在性函数
+        # 检查文件存在性函数（带详细日志）
         check_file_exists() {
           local file_path="$1"
           if [ -f "$file_path" ] && [ -s "$file_path" ]; then
             echo "文件存在: $file_path"
+            echo "文件大小: $(du -h "$file_path" | cut -f1)"
             return 0
           else
             echo "文件不存在或为空: $file_path"
@@ -150,10 +157,18 @@ jobs:
             else
               echo "下载稳定版APK: $STABLE_URL"
               if curl -fL "$STABLE_URL" -o "$WORK_DIR/$STABLE_KEY_NAME"; then
-                # 移动文件到仓库目录
+                # 关键修复：先删除旧文件再移动新文件
+                echo "删除旧文件: $STABLE_FILE_PATH"
+                rm -f "$STABLE_FILE_PATH" || true
+                
+                # 移动新文件
+                echo "移动新文件到: $STABLE_FILE_PATH"
                 mv -f "$WORK_DIR/$STABLE_KEY_NAME" "$STABLE_FILE_PATH"
+                
+                # 验证文件
                 STABLE_UPDATED=true
                 echo "稳定版APK更新成功"
+                echo "新文件大小: $(du -h "$STABLE_FILE_PATH" | cut -f1)"
               else
                 echo "::error::下载稳定版APK失败"
               fi
@@ -188,10 +203,18 @@ jobs:
             else
               echo "下载预发布版APK: $PRE_URL"
               if curl -fL "$PRE_URL" -o "$WORK_DIR/$PRE_RELEASE_KEY_NAME"; then
-                # 移动文件到仓库目录
+                # 关键修复：先删除旧文件再移动新文件
+                echo "删除旧文件: $PRE_FILE_PATH"
+                rm -f "$PRE_FILE_PATH" || true
+                
+                # 移动新文件
+                echo "移动新文件到: $PRE_FILE_PATH"
                 mv -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" "$PRE_FILE_PATH"
+                
+                # 验证文件
                 PRE_UPDATED=true
                 echo "预发布版APK更新成功"
+                echo "新文件大小: $(du -h "$PRE_FILE_PATH" | cut -f1)"
               else
                 echo "::error::下载预发布版APK失败"
               fi
@@ -318,7 +341,6 @@ jobs:
     - name: Release Repository Lock
       if: always()
       run: |
-        # 释放锁
         LOCK_FILE="$GITHUB_WORKSPACE/.lock/repo-lock"
         if [ -f "$LOCK_FILE" ]; then
           rm -f "$LOCK_FILE"
