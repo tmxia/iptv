@@ -102,28 +102,43 @@ jobs:
           SYNC_PRE_RELEASE=true
         fi
 
-        # 读取或初始化版本文件
+        # 处理版本文件（使用jq解析）
         VERSION_FILE="version.txt"
+        TEMP_VERSION_FILE="$WORK_DIR/version.tmp"
+        
+        # 创建临时版本文件
+        touch "$TEMP_VERSION_FILE"
+        
+        # 读取当前版本信息
         if [ -f "$VERSION_FILE" ]; then
-          CURRENT_VERSION_JSON=$(cat "$VERSION_FILE" | jq -c . || echo "{}")
-          echo "当前版本文件内容:"
-          echo "$CURRENT_VERSION_JSON" | jq .
+          echo "读取现有版本文件"
+          # 将文件转换为有效的JSON格式
+          JSON_CONTENT=$(sed '1s/^/{/' "$VERSION_FILE" | sed '$s/,$//' | sed '$a}')
+          echo "转换后的JSON内容:"
+          echo "$JSON_CONTENT" | jq .
+          
+          # 提取当前版本信息
+          CURRENT_STABLE_VALUE=$(echo "$JSON_CONTENT" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"")
+          CURRENT_STABLE_VERSION=$(echo "$CURRENT_STABLE_VALUE" | cut -d, -f1)
+          CURRENT_STABLE_DATE=$(echo "$CURRENT_STABLE_VALUE" | cut -d, -f2)
+          
+          CURRENT_PRE_VALUE=$(echo "$JSON_CONTENT" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"? // \"\"")
+          CURRENT_PRE_VERSION=$(echo "$CURRENT_PRE_VALUE" | cut -d, -f1)
+          CURRENT_PRE_DATE=$(echo "$CURRENT_PRE_VALUE" | cut -d, -f2)
+          
+          # 复制原文件作为基础
+          cp "$VERSION_FILE" "$TEMP_VERSION_FILE"
         else
-          CURRENT_VERSION_JSON="{}"
           echo "未找到版本文件，将创建新文件"
+          CURRENT_STABLE_VERSION=""
+          CURRENT_STABLE_DATE=""
+          CURRENT_PRE_VERSION=""
+          CURRENT_PRE_DATE=""
+          JSON_CONTENT="{}"
         fi
         
-        # 提取当前版本信息 (使用JSON格式)
-        CURRENT_STABLE_VALUE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"")
-        CURRENT_STABLE=$(echo "$CURRENT_STABLE_VALUE" | cut -d, -f1)
-        CURRENT_STABLE_DATE=$(echo "$CURRENT_STABLE_VALUE" | cut -d, -f2)
-        
-        CURRENT_PRE_VALUE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"? // \"\"")
-        CURRENT_PRE=$(echo "$CURRENT_PRE_VALUE" | cut -d, -f1)
-        CURRENT_PRE_DATE=$(echo "$CURRENT_PRE_VALUE" | cut -d, -f2)
-        
-        echo "当前稳定版: ${CURRENT_STABLE:-无} (${CURRENT_STABLE_DATE:-无日期})"
-        echo "当前预发行版: ${CURRENT_PRE:-无} (${CURRENT_PRE_DATE:-无日期})"
+        echo "当前稳定版: ${CURRENT_STABLE_VERSION:-无} (${CURRENT_STABLE_DATE:-无日期})"
+        echo "当前预发行版: ${CURRENT_PRE_VERSION:-无} (${CURRENT_PRE_DATE:-无日期})"
 
         # 检查并下载APK函数
         check_and_download_apk() {
@@ -147,7 +162,7 @@ jobs:
             echo "文件不存在，需要更新"
             need_update=true
           # 检查版本键是否存在
-          elif ! echo "$CURRENT_VERSION_JSON" | jq -e "has(\"$key_name\")" >/dev/null; then
+          elif [ -z "$current_version" ]; then
             echo "版本键不存在，需要更新"
             need_update=true
           # 版本不同必须更新
@@ -173,14 +188,6 @@ jobs:
             echo "下载APK: $download_url"
             curl -sfL "$download_url" -o "$WORK_DIR/temp.apk"
             
-            # 验证文件大小
-            FILESIZE=$(stat -c%s "$WORK_DIR/temp.apk")
-            if [ "$FILESIZE" -lt 1000000 ]; then
-              echo "::error::下载的文件太小(可能不完整)"
-              rm -f "$WORK_DIR/temp.apk"
-              return 1
-            fi
-            
             # 移动文件到目标位置
             mkdir -p "$(dirname "$target_filename")"
             mv -f "$WORK_DIR/temp.apk" "$target_filename"
@@ -199,53 +206,46 @@ jobs:
         # 处理稳定版
         echo "===== 处理稳定版 ====="
         STABLE_TARGET_FILENAME="apk/$STABLE_KEY_NAME"
-        read NEW_STABLE_VERSION NEW_STABLE_DATE <<< $(check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE" "$CURRENT_STABLE_DATE" || echo "$CURRENT_STABLE $CURRENT_STABLE_DATE")
+        read NEW_STABLE_VERSION NEW_STABLE_DATE <<< $(check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$CURRENT_STABLE_DATE" || echo "$CURRENT_STABLE_VERSION $CURRENT_STABLE_DATE")
         STABLE_UPDATED=false
-        if [ "$NEW_STABLE_VERSION" != "$CURRENT_STABLE" ] || [ "$NEW_STABLE_DATE" != "$CURRENT_STABLE_DATE" ]; then
+        if [ "$NEW_STABLE_VERSION" != "$CURRENT_STABLE_VERSION" ] || [ "$NEW_STABLE_DATE" != "$CURRENT_STABLE_DATE" ]; then
           STABLE_UPDATED=true
+          # 更新JSON内容
+          JSON_CONTENT=$(echo "$JSON_CONTENT" | jq --arg key "$STABLE_KEY_NAME" --arg value "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" '.[$key] = $value')
+          echo "更新稳定版版本信息: \"$STABLE_KEY_NAME\": \"$NEW_STABLE_VERSION,$NEW_STABLE_DATE\","
         fi
 
         # 处理预发行版
         if [ "$SYNC_PRE_RELEASE" = true ]; then
           echo "===== 处理预发行版 ====="
           PRE_TARGET_FILENAME="apk/$PRE_RELEASE_KEY_NAME"
-          read NEW_PRE_VERSION NEW_PRE_DATE <<< $(check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE" "$CURRENT_PRE_DATE" || echo "$CURRENT_PRE $CURRENT_PRE_DATE")
+          read NEW_PRE_VERSION NEW_PRE_DATE <<< $(check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_VERSION" "$CURRENT_PRE_DATE" || echo "$CURRENT_PRE_VERSION $CURRENT_PRE_DATE")
           PRE_UPDATED=false
-          if [ "$NEW_PRE_VERSION" != "$CURRENT_PRE" ] || [ "$NEW_PRE_DATE" != "$CURRENT_PRE_DATE" ]; then
+          if [ "$NEW_PRE_VERSION" != "$CURRENT_PRE_VERSION" ] || [ "$NEW_PRE_DATE" != "$CURRENT_PRE_DATE" ]; then
             PRE_UPDATED=true
+            # 更新JSON内容
+            JSON_CONTENT=$(echo "$JSON_CONTENT" | jq --arg key "$PRE_RELEASE_KEY_NAME" --arg value "$NEW_PRE_VERSION,$NEW_PRE_DATE" '.[$key] = $value')
+            echo "更新预发行版版本信息: \"$PRE_RELEASE_KEY_NAME\": \"$NEW_PRE_VERSION,$NEW_PRE_DATE\","
           fi
         else
-          NEW_PRE_VERSION="$CURRENT_PRE"
+          NEW_PRE_VERSION="$CURRENT_PRE_VERSION"
           NEW_PRE_DATE="$CURRENT_PRE_DATE"
           PRE_UPDATED=false
           echo "跳过预发行版处理"
         fi
 
-        # 更新版本文件（使用JSON格式）
+        # 检查是否需要更新版本文件
         UPDATE_VERSION_FILE=false
-        UPDATED_VERSION_JSON="$CURRENT_VERSION_JSON"
-        
-        # 更新稳定版信息（使用"版本,日期"格式）
-        if [ "$STABLE_UPDATED" = true ]; then
-          UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq --arg k "$STABLE_KEY_NAME" \
-            --arg v "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
-            '.[$k] = $v')
+        if [ "$STABLE_UPDATED" = true ] || [ "$PRE_UPDATED" = true ]; then
           UPDATE_VERSION_FILE=true
-          echo "更新稳定版版本信息: $STABLE_KEY_NAME = $NEW_STABLE_VERSION,$NEW_STABLE_DATE"
-        fi
-        
-        # 更新预发行版信息（使用"版本,日期"格式）
-        if [ "$PRE_UPDATED" = true ]; then
-          UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq --arg k "$PRE_RELEASE_KEY_NAME" \
-            --arg v "$NEW_PRE_VERSION,$NEW_PRE_DATE" \
-            '.[$k] = $v')
-          UPDATE_VERSION_FILE=true
-          echo "更新预发行版版本信息: $PRE_RELEASE_KEY_NAME = $NEW_PRE_VERSION,$NEW_PRE_DATE"
-        fi
-        
-        # 写入版本文件
-        if $UPDATE_VERSION_FILE; then
-          echo "$UPDATED_VERSION_JSON" | jq . > "$VERSION_FILE"
+          # 将JSON转换回原格式
+          echo "转换回原格式:"
+          echo "$JSON_CONTENT" | jq -r 'to_entries | .[] | "\"\(.key)\": \"\(.value)\","' > "$TEMP_VERSION_FILE"
+          echo "转换后的版本文件内容:"
+          cat "$TEMP_VERSION_FILE"
+          
+          # 替换原始文件
+          mv -f "$TEMP_VERSION_FILE" "$VERSION_FILE"
           echo "版本文件已更新"
         else
           echo "版本文件无需更新"
@@ -275,26 +275,12 @@ jobs:
           git commit -m "${COMMIT_MESSAGE}"
           
           # 推送更改
-          MAX_RETRIES=5
-          RETRY_DELAY=15
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "尝试拉取最新更改..."
-            git pull --rebase
-            
-            echo "尝试推送更改 ($i/$MAX_RETRIES)..."
-            if git push origin HEAD:${GITHUB_REF#refs/heads/}; then
-              echo "推送成功"
-              break
-            else
-              echo "推送失败，等待重试 ($i/$MAX_RETRIES)..."
-              sleep $RETRY_DELAY
-            fi
-          done
+          echo "尝试拉取最新更改..."
+          git pull --rebase
           
-          if [ $i -eq $MAX_RETRIES ]; then
-            echo "::error::推送失败，达到最大重试次数"
-            exit 1
-          fi
+          echo "尝试推送更改..."
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
+          echo "推送成功"
         else
           echo "没有检测到更改，跳过提交"
         fi
@@ -313,9 +299,9 @@ jobs:
         fi
         
         echo "同步完成!"
-        echo "稳定版: $STABLE_KEY_NAME = $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
+        echo "稳定版: \"$STABLE_KEY_NAME\": \"$NEW_STABLE_VERSION,$NEW_STABLE_DATE\","
         if [ "$SYNC_PRE_RELEASE" = true ]; then
-          echo "预发行版: $PRE_RELEASE_KEY_NAME = $NEW_PRE_VERSION ($NEW_PRE_DATE)"
+          echo "预发行版: \"$PRE_RELEASE_KEY_NAME\": \"$NEW_PRE_VERSION,$NEW_PRE_DATE\","
         fi
         exit 0
 
