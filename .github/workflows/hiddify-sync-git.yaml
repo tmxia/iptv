@@ -1,13 +1,14 @@
 name: Hiddify APK Sync from Source Repository
 
+# 使用原生并发控制
+concurrency:
+  group: sync-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   schedule:
     - cron: '0 */48 * * *'  # 每48小时运行一次
   workflow_dispatch:
-
-concurrency:
-  group: sync-apk-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -17,30 +18,18 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    # 基于缓存的锁机制
     - name: Acquire Repository Lock
-      id: lock
-      run: |
-        LOCK_DIR="$GITHUB_WORKSPACE/.lock"
-        LOCK_FILE="$LOCK_DIR/repo-lock"
-        mkdir -p "$LOCK_DIR"
-        
-        for i in {1..10}; do
-          if [ -f "$LOCK_FILE" ]; then
-            echo "锁已被占用，等待重试 ($i/10)..."
-            sleep 30
-          else
-            touch "$LOCK_FILE"
-            echo "lock-acquired=true" >> $GITHUB_OUTPUT
-            echo "成功获取锁"
-            exit 0
-          fi
-        done
-        
-        echo "::error::无法在5分钟内获取锁"
-        exit 1
+      uses: softprops/turnstyle@v1
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 300  # 5分钟超时
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
@@ -48,6 +37,7 @@ jobs:
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
+        git pull origin main --rebase
         
     - name: Install dependencies
       run: |
@@ -61,6 +51,9 @@ jobs:
         STABLE_KEY_NAME: "hiddify.apk"
         PRE_RELEASE_KEY_NAME: "hiddify-beta.apk"
       run: |
+        #!/bin/bash
+        set -euo pipefail
+        
         STABLE_TARGET_FILENAME="apk/$STABLE_KEY_NAME"
         PRE_RELEASE_TARGET_FILENAME="apk/$PRE_RELEASE_KEY_NAME"
         
@@ -94,7 +87,7 @@ jobs:
           exit 1
         fi
 
-        # 安全提取稳定版 - 处理可能的空结果
+        # 安全提取稳定版
         LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r '[.[] | select(.prerelease == false)] | sort_by(.published_at) | reverse | .[0]')
         if [ -z "$LATEST_STABLE_RELEASE" ] || [ "$LATEST_STABLE_RELEASE" = "null" ]; then
           echo "错误: 无法提取稳定版发布信息"
@@ -126,46 +119,87 @@ jobs:
         else
           echo "创建新的版本文件"
           echo "{}" > "$VERSION_FILE"
+          CURRENT_VERSION_DATA="{}"
         fi
 
-        CURRENT_STABLE_VERSION=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f1)
-        CURRENT_STABLE_DATE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"" | cut -d, -f2)
-        CURRENT_PRE_RELEASE_VERSION=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f1)
-        CURRENT_PRE_RELEASE_DATE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" | cut -d, -f2)
+        # 提取当前版本信息
+        CURRENT_STABLE_VALUE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$STABLE_KEY_NAME\" // \"\"")
+        CURRENT_STABLE_VERSION=$(echo "$CURRENT_STABLE_VALUE" | cut -d, -f1)
+        CURRENT_STABLE_DATE=$(echo "$CURRENT_STABLE_VALUE" | cut -d, -f2)
+        
+        CURRENT_PRE_RELEASE_VALUE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"")
+        CURRENT_PRE_RELEASE_VERSION=$(echo "$CURRENT_PRE_RELEASE_VALUE" | cut -d, -f1)
+        CURRENT_PRE_RELEASE_DATE=$(echo "$CURRENT_PRE_RELEASE_VALUE" | cut -d, -f2)
 
         echo "当前稳定版版本: $CURRENT_STABLE_VERSION (日期: $CURRENT_STABLE_DATE)"
         echo "当前预发行版版本: $CURRENT_PRE_RELEASE_VERSION (日期: $CURRENT_PRE_RELEASE_DATE)"
 
+        # 文件存在性检测函数
+        check_file_exists() {
+          local target_filename=$1
+          local key_name=$2
+          
+          if [ -f "$target_filename" ]; then
+            echo "文件存在: $target_filename"
+            return 0
+          else
+            echo "文件缺失: $target_filename"
+            return 1
+          fi
+        }
+
+        # 版本键值存在性检测函数
+        check_key_exists() {
+          local key_name=$1
+          
+          if echo "$CURRENT_VERSION_DATA" | jq -e "has(\"$key_name\")" >/dev/null; then
+            echo "版本键值存在: $key_name"
+            return 0
+          else
+            echo "版本键值缺失: $key_name"
+            return 1
+          fi
+        }
+
+        # 检查并下载APK
         check_and_download_apk() {
           local release_json="$1"
           local target_filename="$2"
           local key_name="$3"
           local current_version="$4"
+          local current_date="$5"
           
+          # 检查文件存在性
+          check_file_exists "$target_filename" "$key_name"
+          file_exists=$?
+          
+          # 检查键值存在性
+          check_key_exists "$key_name"
+          key_exists=$?
+          
+          # 获取最新版本信息
           local latest_version=$(echo "$release_json" | jq -r '.tag_name')
+          local latest_date=$(echo "$release_json" | jq -r '.published_at' | TZ=UTC date -f - +'%Y-%m-%d')
           
-          echo "检查本地APK文件是否存在: $target_filename..."
-          local apk_exists=false
-          if [ -f "$target_filename" ]; then
-            echo "本地存在APK文件: $target_filename"
-            apk_exists=true
-          else
-            echo "本地不存在APK文件: $target_filename"
-          fi
+          echo "检测更新: $key_name (当前: $current_version/$current_date, 最新: $latest_version/$latest_date)"
           
-          local need_update=false
+          # 确定是否需要更新
+          need_update=false
           
-          if [ "$latest_version" != "$current_version" ]; then
+          # 文件缺失或键值缺失必须更新
+          if [ $file_exists -ne 0 ] || [ $key_exists -ne 0 ]; then
+            echo "文件或键值缺失，必须更新"
+            need_update=true
+          # 版本不同必须更新
+          elif [ "$latest_version" != "$current_version" ]; then
             echo "发现新版本: $latest_version (当前: $current_version)"
             need_update=true
-          elif [ "$apk_exists" = false ]; then
-            echo "版本号匹配但APK文件不存在，需要重新下载"
-            need_update=true
-          elif [ -z "$current_version" ]; then
-            echo "版本文件无效，需要更新"
+          # 版本相同但日期更新也应该更新
+          elif [ "$latest_date" \> "$current_date" ]; then
+            echo "版本相同但发布日期更新: $latest_date > $current_date"
             need_update=true
           else
-            echo "版本相同 ($latest_version) 且APK文件存在，无需更新"
+            echo "版本相同且发布日期相同，无需更新"
           fi
           
           if [ "$need_update" = true ]; then
@@ -219,7 +253,7 @@ jobs:
         # 处理稳定版
         STABLE_NEED_UPDATE=false
         echo "===== 处理稳定版 ====="
-        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION"
+        check_and_download_apk "$LATEST_STABLE_RELEASE" "$STABLE_TARGET_FILENAME" "$STABLE_KEY_NAME" "$CURRENT_STABLE_VERSION" "$CURRENT_STABLE_DATE"
         STABLE_RESULT=$?
         if [ $STABLE_RESULT -eq 0 ]; then
           if [ -f "$STABLE_TARGET_FILENAME" ]; then
@@ -241,7 +275,7 @@ jobs:
         PRE_RELEASE_NEED_UPDATE=false
         if [ "$SYNC_PRE_RELEASE" = true ]; then
           echo "===== 处理预发行版 ====="
-          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION"
+          check_and_download_apk "$LATEST_PRE_RELEASE" "$PRE_RELEASE_TARGET_FILENAME" "$PRE_RELEASE_KEY_NAME" "$CURRENT_PRE_RELEASE_VERSION" "$CURRENT_PRE_RELEASE_DATE"
           PRE_RELEASE_RESULT=$?
           if [ $PRE_RELEASE_RESULT -eq 0 ]; then
             if [ -f "$PRE_RELEASE_TARGET_FILENAME" ]; then
@@ -264,6 +298,7 @@ jobs:
           echo "跳过预发行版处理"
         fi
 
+        # 更新版本数据
         NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
             --arg stable_key "$STABLE_KEY_NAME" \
             --arg stable_value "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
@@ -276,40 +311,51 @@ jobs:
         echo "更新后的版本文件内容:"
         echo "$NEW_VERSION_CONTENT"
         
-        echo "$NEW_VERSION_CONTENT" > "$WORK_DIR/new_version.txt"
+        # 检查版本文件是否有变化
         VERSION_CHANGED=true
         if [ -f "$VERSION_FILE" ]; then
-          if diff -q "$WORK_DIR/new_version.txt" "$VERSION_FILE" >/dev/null; then
+          CURRENT_VERSION_CONTENT=$(cat "$VERSION_FILE" | jq -c . 2>/dev/null || echo "{}")
+          if [ "$(echo "$NEW_VERSION_DATA" | jq -c .)" = "$CURRENT_VERSION_CONTENT" ]; then
             echo "版本文件内容未变化"
             VERSION_CHANGED=false
           fi
         fi
         
+        # 保存版本文件
         if $VERSION_CHANGED; then
           echo "$NEW_VERSION_CONTENT" > version.txt
+          echo "版本文件已更新"
         fi
 
+        # 检查是否有任何更改需要提交
         CHANGES_DETECTED=false
-        if [ "$STABLE_NEED_UPDATE" = true ] || [ "$PRE_RELEASE_NEED_UPDATE" = true ]; then
-          CHANGES_DETECTED=true
-        fi
-        
-        if $VERSION_CHANGED; then
+        if [ "$STABLE_NEED_UPDATE" = true ] || [ "$PRE_RELEASE_NEED_UPDATE" = true ] || [ "$VERSION_CHANGED" = true ]; then
           CHANGES_DETECTED=true
         fi
 
         if [ "$CHANGES_DETECTED" = true ]; then
           echo "提交更改到Git仓库..."
           git add apk/ version.txt
-          git commit -m "更新APK: 稳定版=$NEW_STABLE_VERSION, 预发行版=$NEW_PRE_RELEASE_VERSION"
+          
+          commit_msg="更新APK: "
+          if [ "$STABLE_NEED_UPDATE" = true ]; then
+            commit_msg+="稳定版=$NEW_STABLE_VERSION "
+          fi
+          if [ "$PRE_RELEASE_NEED_UPDATE" = true ]; then
+            commit_msg+="预发行版=$NEW_PRE_RELEASE_VERSION "
+          fi
+          if [ "$VERSION_CHANGED" = true ]; then
+            commit_msg+="版本文件更新"
+          fi
+          
+          git commit -m "$commit_msg"
           
           MAX_RETRIES=3
           RETRY_DELAY=10
           for i in $(seq 1 $MAX_RETRIES); do
             echo "推送更改 (尝试 $i/$MAX_RETRIES)..."
-            CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-            git pull --rebase origin $CURRENT_BRANCH
-            if git push origin $CURRENT_BRANCH; then
+            git pull --rebase origin main
+            if git push origin main; then
               echo "推送成功"
               break
             else
@@ -333,16 +379,28 @@ jobs:
         
         exit 0
 
+    # 释放仓库锁
     - name: Release Repository Lock
       if: always()
-      run: |
-        LOCK_FILE="$GITHUB_WORKSPACE/.lock/repo-lock"
-        if [ -f "$LOCK_FILE" ]; then
-          rm -f "$LOCK_FILE"
-          echo "锁已释放"
-        else
-          echo "锁文件不存在，无需释放"
-        fi
+      uses: softprops/turnstyle@v1
+      with:
+        continue-on-error: true
+        action: unlock
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const message = `🚨 Hiddify APK同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: message
+          })
 
   cleanup_self:
     name: Cleanup Self Workflow History
