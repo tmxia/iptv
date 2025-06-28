@@ -559,7 +559,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 5
-          retain_days: 3
+          keep_minimum_runs: 0
+          retain_days: 0
           delete_workflow_pattern: "Enhanced Real-time Directory Monitor"
           repository: ${{ github.repository }}
