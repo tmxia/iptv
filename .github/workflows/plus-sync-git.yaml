@@ -5,7 +5,6 @@ on:
     - cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:
 
-# 使用原生并发控制
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -60,7 +59,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y jq curl wget python3-pip
         pip install --upgrade pip
-        pip install cloudscraper requests
+        pip install cloudscraper requests beautifulsoup4
 
     - name: Download and process APK
       env:
@@ -77,38 +76,79 @@ jobs:
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
         # 使用cloudscraper绕过Cloudflare获取页面
-        echo "获取下载页面..."
-        cat > "$WORK_DIR/get_page.py" <<EOL
+        echo "获取下载页面并提取信息..."
+        cat > "$WORK_DIR/extract_info.py" <<EOL
         import cloudscraper
+        import re
         import sys
+        from bs4 import BeautifulSoup
+        from datetime import datetime
         
-        scraper = cloudscraper.create_scraper()
-        try:
-            response = scraper.get(sys.argv[1])
-            if response.status_code == 200:
-                print(response.text)
-            else:
-                print(f"错误: 状态码 {response.status_code}", file=sys.stderr)
+        def extract_info(url):
+            scraper = cloudscraper.create_scraper()
+            try:
+                response = scraper.get(url)
+                if response.status_code != 200:
+                    print(f"错误: 获取页面失败，状态码 {response.status_code}", file=sys.stderr)
+                    sys.exit(1)
+                
+                content = response.text
+                
+                # 提取APK链接
+                apk_link = None
+                soup = BeautifulSoup(content, 'html.parser')
+                download_button = soup.find('a', id='download_button')
+                if download_button and download_button.has_attr('href'):
+                    apk_link = download_button['href']
+                
+                # 如果没有找到下载按钮，尝试备用方法
+                if not apk_link:
+                    apk_link_match = re.search(r'href="(https://dl\.leeapk\.com[^"]+\.apk)"', content)
+                    if apk_link_match:
+                        apk_link = apk_link_match.group(1)
+                
+                # 提取发布日期
+                release_date = None
+                date_pattern = r"Download Plus Messenger For Android\s*([A-Za-z]+\s\d{1,2},\s\d{4})"
+                date_match = re.search(date_pattern, content)
+                if date_match:
+                    raw_date = date_match.group(1)
+                    try:
+                        # 转换日期格式
+                        date_obj = datetime.strptime(raw_date, "%B %d, %Y")
+                        release_date = date_obj.strftime("%Y-%m-%d")
+                    except Exception as e:
+                        print(f"日期转换错误: {str(e)}")
+                
+                return {
+                    "apk_link": apk_link,
+                    "release_date": release_date
+                }
+                
+            except Exception as e:
+                print(f"错误: {str(e)}", file=sys.stderr)
                 sys.exit(1)
-        except Exception as e:
-            print(f"错误: {str(e)}", file=sys.stderr)
-            sys.exit(1)
+        
+        if __name__ == "__main__":
+            if len(sys.argv) != 2:
+                print("用法: python extract_info.py <url>", file=sys.stderr)
+                sys.exit(1)
+            
+            info = extract_info(sys.argv[1])
+            print(f"APK_LINK={info['apk_link']}")
+            print(f"RELEASE_DATE={info['release_date']}")
         EOL
         
-        # 运行Python脚本获取页面
-        DOWNLOAD_PAGE=$(python3 "$WORK_DIR/get_page.py" "$DOWNLOAD_URL")
+        # 运行Python脚本提取信息
+        EXTRACTED_INFO=$(python3 "$WORK_DIR/extract_info.py" "$DOWNLOAD_URL")
         if [ $? -ne 0 ]; then
-          echo "获取页面失败"
+          echo "提取信息失败"
           exit 1
         fi
         
-        # 提取APK链接
-        echo "提取APK链接..."
-        APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'href="[^"]*id="download_button"[^"]*"' | cut -d'"' -f2)
-        
-        if [ -z "$APK_LINK" ]; then
-          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https://dl\.leeapk\.com[^"]*\.apk' | head -1)
-        fi
+        # 解析提取的信息
+        APK_LINK=$(echo "$EXTRACTED_INFO" | grep 'APK_LINK=' | cut -d'=' -f2)
+        RELEASE_DATE=$(echo "$EXTRACTED_INFO" | grep 'RELEASE_DATE=' | cut -d'=' -f2)
         
         if [ -z "$APK_LINK" ]; then
           echo "错误: 无法提取APK链接"
@@ -116,6 +156,13 @@ jobs:
         fi
         
         echo "提取到APK链接: $APK_LINK"
+        echo "提取到发布日期: ${RELEASE_DATE:-未找到}"
+        
+        # 如果未提取到发布日期，使用当前日期（北京时间）
+        if [ -z "$RELEASE_DATE" ]; then
+          RELEASE_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
+          echo "警告: 使用当前日期作为发布日期: $RELEASE_DATE"
+        fi
 
         # 从链接提取主版本号
         FILENAME=$(basename "$APK_LINK")
@@ -128,10 +175,6 @@ jobs:
         
         echo "版本号: $VERSION"
         
-        # 获取当前日期（北京时间）
-        CURRENT_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
-        echo "当前日期: $CURRENT_DATE"
-
         # 读取版本文件
         VERSION_FILE="version.txt"
         if [ -f "$VERSION_FILE" ]; then
@@ -229,7 +272,7 @@ jobs:
         echo "已保存APK文件 (大小: $FILE_SIZE 字节)"
 
         # 更新版本文件
-        NEW_VALUE="v$VERSION,$CURRENT_DATE"
+        NEW_VALUE="v$VERSION,$RELEASE_DATE"
         NEW_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq --arg key "$APK_NAME" --arg value "$NEW_VALUE" '.[$key] = $value')
         echo "$NEW_VERSION_JSON" > "$VERSION_FILE"
         echo "更新版本文件"
@@ -244,13 +287,13 @@ jobs:
         fi
 
         # 提交更改
-        git commit -m "更新Plus Messenger: v$VERSION ($CURRENT_DATE)"
+        git commit -m "更新Plus Messenger: v$VERSION ($RELEASE_DATE)"
         
         # 推送更改
         echo "推送更改到远程仓库..."
         git push origin main
 
-        echo "同步完成! 版本: v$VERSION, 日期: $CURRENT_DATE"
+        echo "同步完成! 版本: v$VERSION, 日期: $RELEASE_DATE"
 
     - name: Release Repository Lock 🔓
       if: always()
