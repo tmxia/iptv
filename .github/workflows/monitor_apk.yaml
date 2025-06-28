@@ -638,5 +638,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "Enhanced Real-time Directory Monitor"
+          delete_workflow_pattern: "Real-time Directory Monitor"
           repository: ${{ github.repository }}
