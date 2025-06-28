@@ -12,25 +12,35 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    # 基于缓存的锁机制（由concurrency配置实现）
-    
+    # 基于缓存的锁机制
+    - name: Acquire Repository Lock 🔒
+      uses: softprops/turnstyle@v1
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200  # 20分钟超时
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y jq curl
         
-    - name: Run optimized APK sync
+    - name: Run Git-based APK sync
       env:
         SOURCE_REPO: "termux/termux-app"
-        TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
         STABLE_KEY_NAME: "termux.apk"
         PRE_RELEASE_KEY_NAME: "termux-beta.apk"
@@ -39,6 +49,11 @@ jobs:
       run: |
         #!/bin/bash
         set -euo pipefail
+        
+        # 配置Git
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@users.noreply.github.com"
+        git pull origin main --rebase
         
         # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
@@ -68,16 +83,13 @@ jobs:
           sync_pre_release=true
         fi
         
-        # 2. 获取目标仓库版本文件
-        echo "获取目标仓库版本信息..."
-        version_response=$(curl -s -H "Authorization: token $TOKEN" \
-          "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
-        
-        # 初始化版本数据
-        if [ "$(echo "$version_response" | jq -r '.message')" != "Not Found" ]; then
-          current_versions=$(echo "$version_response" | jq -r '.content' | base64 -d | jq -c .)
+        # 2. 读取本地版本文件
+        echo "读取本地版本文件..."
+        VERSION_FILE="version.txt"
+        if [ -f "$VERSION_FILE" ]; then
+          current_versions=$(jq -c . "$VERSION_FILE")
           echo "当前版本信息:"
-          # 只显示的键值
+          # 只显示相关的键值
           echo "$current_versions" | jq -r ".\"$STABLE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$STABLE_KEY_NAME" '{print key ": " $0}'
           if [ "$sync_pre_release" = true ]; then
             echo "$current_versions" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$PRE_RELEASE_KEY_NAME" '{print key ": " $0}'
@@ -110,10 +122,7 @@ jobs:
           local target_path="apk/$key_name"
           
           # 检查文件是否存在
-          response=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
-          
-          if [ "$response" -eq 200 ]; then
+          if [ -f "$target_path" ]; then
             echo "文件存在: $target_path"
             return 0
           else
@@ -148,12 +157,20 @@ jobs:
           local target_filename="apk/$key_name"
           
           # 检查文件是否存在
-          file_exists=$(check_file_exists "$key_name")
-          file_missing=$?
+          if ! check_file_exists "$key_name"; then
+            echo "文件缺失，必须更新: $key_name"
+            file_missing=1
+          else
+            file_missing=0
+          fi
           
           # 检查键值是否存在
-          key_exists=$(check_key_exists "$key_name")
-          key_missing=$?
+          if ! check_key_exists "$key_name"; then
+            echo "键值缺失，必须更新: $key_name"
+            key_missing=1
+          else
+            key_missing=0
+          fi
           
           # 获取当前版本值
           local current_value=$(echo "$current_versions" | jq -r ".\"$key_name\" // \"\"")
@@ -174,6 +191,10 @@ jobs:
             
             # 更新版本数据
             update_version_data "$key_name" "$main_version" "$date"
+            
+            # 移动文件到目标目录
+            mkdir -p apk
+            mv "$WORK_DIR/$key_name" "apk/$key_name"
             return 0
           else
             echo "无需更新: $key_name ($current_value)"
@@ -181,89 +202,78 @@ jobs:
           fi
         }
         
-        # 7. 上传文件函数
-        upload_file() {
-          local file_path=$1
-          local target_path=$2
-          local version=$3
-          
-          # 获取SHA（如果存在）
-          response=$(curl -s -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
-          
-          if [ "$(echo "$response" | jq -r '.message')" = "Not Found" ]; then
-            sha=""
-          else
-            sha=$(echo "$response" | jq -r '.sha')
-          fi
-          
-          # 准备上传数据
-          content_base64=$(base64 -w0 "$file_path")
-          commit_msg="更新: $target_path 到版本 $version"
-          json_data=$(jq -n \
-            --arg msg "$commit_msg" \
-            --arg content "$content_base64" \
-            --arg sha "$sha" \
-            '{message: $msg, content: $content, sha: $sha}')
-          
-          # 上传文件
-          echo "上传: $target_path"
-          curl -s -X PUT \
-            -H "Authorization: token $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$json_data" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/$target_path" > /dev/null
-        }
-        
-        # 8. 处理稳定版
+        # 7. 处理稳定版
         echo "处理稳定版..."
         if check_and_download "$stable_release" "$STABLE_KEY_NAME" \
           "$STABLE_APK_PATTERN" "$stable_main_version" "$stable_date"; then
-          upload_file "$WORK_DIR/$STABLE_KEY_NAME" "apk/$STABLE_KEY_NAME" "$stable_main_version"
+          stable_updated=true
+        else
+          stable_updated=false
         fi
         
-        # 9. 处理预发行版
+        # 8. 处理预发行版
         if [ "$sync_pre_release" = true ]; then
           echo "处理预发行版..."
           if check_and_download "$pre_release" "$PRE_RELEASE_KEY_NAME" \
             "$PRE_RELEASE_APK_PATTERN" "$pre_main_version" "$pre_date"; then
-            upload_file "$WORK_DIR/$PRE_RELEASE_KEY_NAME" "apk/$PRE_RELEASE_KEY_NAME" "$pre_main_version"
+            beta_updated=true
+          else
+            beta_updated=false
           fi
         fi
         
-        # 10. 更新版本文件
-        echo "更新版本文件..."
-        # 获取版本文件SHA
-        if [ "$(echo "$version_response" | jq -r '.message')" = "Not Found" ]; then
-          version_sha=""
-        else
-          version_sha=$(echo "$version_response" | jq -r '.sha')
+        # 9. 更新版本文件
+        if [ "$stable_updated" = true ] || [ "$beta_updated" = true ]; then
+          echo "更新版本文件..."
+          echo "$current_versions" | jq . > "$VERSION_FILE"
+          
+          # 提交更改
+          git add apk/"$STABLE_KEY_NAME"
+          if [ "$sync_pre_release" = true ]; then
+            git add apk/"$PRE_RELEASE_KEY_NAME"
+          fi
+          git add "$VERSION_FILE"
+          
+          commit_msg="更新Termux APK"
+          [ "$stable_updated" = true ] && commit_msg+=" 稳定版: $stable_main_version"
+          [ "$beta_updated" = true ] && commit_msg+=" 测试版: $pre_main_version"
+          
+          git commit -m "$commit_msg"
+          
+          # 推送更改
+          git push origin main
         fi
         
-        # 准备版本文件内容
-        version_content=$(echo "$current_versions" | jq -c .)
-        version_base64=$(echo -n "$version_content" | base64 -w0)
-        
-        version_json=$(jq -n \
-          --arg msg "更新版本信息" \
-          --arg content "$version_base64" \
-          --arg sha "$version_sha" \
-          '{message: $msg, content: $content, sha: $sha}')
-        
-        # 上传版本文件
-        curl -s -X PUT \
-          -H "Authorization: token $TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "$version_json" \
-          "https://api.github.com/repos/$TARGET_REPO/contents/version.txt" > /dev/null
-        
-        # 11. 显示最终当前的版本信息
+        # 10. 显示最终当前的版本信息
         echo "同步完成! 当前版本信息:"
         # 只显示相应的键值
         echo "$current_versions" | jq -r ".\"$STABLE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$STABLE_KEY_NAME" '{print key ": " $0}'
         if [ "$sync_pre_release" = true ]; then
           echo "$current_versions" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$PRE_RELEASE_KEY_NAME" '{print key ": " $0}'
         fi
+
+    # 释放仓库锁
+    - name: Release Repository Lock 🔓
+      if: always()
+      uses: softprops/turnstyle@v1
+      with:
+        continue-on-error: true
+        action: unlock
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const message = `🚨 Termux APK同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: message
+          })
 
   cleanup_self:
     name: Cleanup Self Workflow History
