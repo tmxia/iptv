@@ -186,7 +186,7 @@ jobs:
           fi
           
           if [ "$need_update" = true ]; then
-            local download_url=$(echo "$release_json" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
+            local download_url=$(echo "$release_json" | jq -r '.assets[] | select(.name | contains("'"$APK_PATTERN"'")) | .browser_download_url' | head -1)
             
             if [ -z "$download_url" ]; then
               echo "错误: 未找到匹配的APK文件"
