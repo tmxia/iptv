@@ -1,6 +1,16 @@
 name: Real-time Directory Monitor
 
 on:
+  # 手动触发配置
+  workflow_dispatch:
+    inputs:
+      force-run:
+        description: "强制运行（忽略前置检查）"
+        required: false
+        default: "false"
+        type: boolean
+  
+  # 自动触发配置
   push:
     paths:
       - 'apk/**'
@@ -40,31 +50,64 @@ jobs:
     outputs:
       valid_trigger: ${{ steps.validate.outputs.valid }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # 获取最近2次提交用于变更检测
+          
       - name: Check trigger validity
         id: validate
         run: |
+          # 如果是手动触发且选择了强制运行
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.force-run }}" == "true" ]]; then
+            echo "::set-output name=valid::true"
+            echo "🔧 手动强制触发，跳过所有检查"
+            exit 0
+          fi
+          
           # 对于workflow_run触发
           if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
             if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
               echo "::set-output name=valid::false"
               echo "🛑 上游工作流未成功，终止执行"
               exit 0
-            fi
-          fi
-          
-          # 对于push触发，检查是否有实际变更
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            changed_files=$(git diff --name-only HEAD^ HEAD)
-            relevant_changes=$(echo "$changed_files" | grep -E 'apk/|kernels/|version.txt|kernel_versions.json' || true)
-            
-            if [ -z "$relevant_changes" ]; then
-              echo "::set-output name=valid::false"
-              echo "⏭️ 无相关文件变更，跳过执行"
+            else
+              echo "::set-output name=valid::true"
+              echo "✅ 上游工作流成功，继续执行"
               exit 0
             fi
           fi
           
-          echo "::set-output name=valid::true"
+          # 对于手动触发（非强制模式）和push触发
+          echo "🔍 检查文件变更..."
+          git fetch origin main --depth=2
+          
+          # 获取当前提交和前一个提交
+          current_sha=$(git rev-parse HEAD)
+          parent_sha=$(git rev-parse HEAD^)
+          
+          # 检查是否有有效的父提交
+          if [ "$parent_sha" == "$current_sha" ]; then
+            echo "ℹ️ 无父提交（可能是初始提交），视为所有文件变更"
+            echo "::set-output name=valid::true"
+            exit 0
+          fi
+          
+          # 获取变更文件列表
+          changed_files=$(git diff --name-only $parent_sha $current_sha)
+          relevant_changes=$(echo "$changed_files" | grep -E 'apk/|kernels/|version.txt|kernel_versions.json' || true)
+          
+          if [ -z "$relevant_changes" ]; then
+            echo "::set-output name=valid::false"
+            echo "⏭️ 无相关文件变更，跳过执行"
+            echo "变更文件列表:"
+            echo "$changed_files"
+          else
+            echo "::set-output name=valid::true"
+            echo "✅ 检测到相关文件变更，继续执行"
+            echo "相关变更文件:"
+            echo "$relevant_changes"
+          fi
 
   # 核心监控阶段
   detect-and-notify:
@@ -73,7 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
-      group: monitor-${{ github.ref }}-${{ github.event_name }}-${{ github.event.workflow_run.id || github.sha }}
+      group: monitor-${{ github.ref }}-${{ github.event_name }}-${{ github.event.workflow_run.id || github.run_id }}
       cancel-in-progress: false
 
     steps:
@@ -104,7 +147,7 @@ jobs:
           pytz==2024.1 \
           --no-cache-dir
         
-        echo "Installed versions:"
+        echo "已安装的依赖版本:"
         pip freeze | grep -E 'pygit2|telethon|pytz'
 
     - name: Run enhanced directory monitor
@@ -122,7 +165,6 @@ jobs:
         GITHUB_SHA: ${{ github.sha }}
       run: |
         cat << 'EOF' > enhanced_monitor.py
-        # 完整的Python监控脚本
         import os
         import re
         import time
@@ -291,7 +333,15 @@ jobs:
                 if file_path.startswith('kernels/'):
                     kernel_versions = VersionManager.load_kernel_versions()
                     # 尝试多种匹配模式
-                    for pattern in [filename, filename.split('.')[0], filename.replace('-', '_')]:
+                    patterns = [
+                        filename,
+                        filename.split('.')[0],
+                        filename.replace('-', '_'),
+                        filename.split('_')[0],
+                        '_'.join(filename.split('_')[:2])
+                    ]
+                    
+                    for pattern in patterns:
                         if pattern in kernel_versions:
                             return FileProcessor.parse_version_data(kernel_versions[pattern])
                     
@@ -412,6 +462,7 @@ jobs:
                 repo = os.getenv("GITHUB_REPOSITORY")
                 sha_short = os.getenv("GITHUB_SHA", "")[:7]
                 commit_url = f"https://github.com/{repo}/commit/{os.getenv('GITHUB_SHA')}"
+                detection_time = datetime.now(BEIJING_TZ).strftime('%Y-%m-%d %H:%M')
                 
                 html = f"""
                 <html>
@@ -426,6 +477,7 @@ jobs:
                         .file-name {{ font-weight: bold; font-size: 18px; }}
                         .file-details {{ margin-left: 35px; }}
                         .commit-link {{ color: #0366d6; text-decoration: none; }}
+                        .section-title {{ margin-top: 25px; padding-bottom: 10px; border-bottom: 1px solid #eee; }}
                     </style>
                 </head>
                 <body>
@@ -433,17 +485,25 @@ jobs:
                         <h1>🚀 文件更新通知</h1>
                     </div>
                     <div class="container">
+                        <div class="section-title">
+                            <h2>仓库信息</h2>
+                        </div>
                         <p><strong>🔖 仓库:</strong> {repo}</p>
                         <p><strong>🆔 提交:</strong> <a href="{commit_url}" class="commit-link">{sha_short}</a></p>
-                        <p><strong>📅 检测时间:</strong> {datetime.now(BEIJING_TZ).strftime('%Y-%m-%d %H:%M')} (北京时间)</p>
+                        <p><strong>📅 检测时间:</strong> {detection_time} (北京时间)</p>
                         
-                        <div class="file-list">
+                        <div class="section-title">
                             <h2>📦 更新文件 ({len(files)}个)</h2>
+                        </div>
                 """
                 
                 for file in files:
                     icon = "📱" if file['path'].endswith('.apk') else "📦"
                     file_type = "应用" if "apk" in file['path'] else "内核"
+                    
+                    # 生成代理链接
+                    gh_proxy_url = f"https://gh-proxy.com/{file['url']}"
+                    github_speedup_url = f"https://github-speedup.com/{file['url']}"
                     
                     html += f"""
                     <div class="file-item">
@@ -457,15 +517,20 @@ jobs:
                             <p><strong>更新时间:</strong> {file['date']} (北京时间)</p>
                             <p><strong>下载地址:</strong> 
                                 <a href="{file['url']}">原始地址</a> | 
-                                <a href="https://gh-proxy.com/{file['url']}">gh-proxy</a>
+                                <a href="{gh_proxy_url}">gh-proxy</a> | 
+                                <a href="{github_speedup_url}">github-speedup</a>
                             </p>
                         </div>
                     </div>
                     """
                 
                 html += """
+                        <div class="section-title">
+                            <h2>系统信息</h2>
                         </div>
-                        <p><em>此邮件由 GitHub Actions 自动发送</em></p>
+                        <p><em>此邮件由 GitHub Actions 工作流自动发送</em></p>
+                        <p><strong>工作流名称:</strong> Enhanced Real-time Directory Monitor</p>
+                        <p><strong>触发方式:</strong> ${{ github.event_name }}</p>
                     </div>
                 </body>
                 </html>
@@ -481,6 +546,7 @@ jobs:
                 # 初始化分析器
                 analyzer = ChangeAnalyzer()
                 commit_time = analyzer.get_commit_time()
+                print(f"🗓️ 提交时间（北京时间）: {commit_time}")
                 
                 # 获取变更
                 changes = analyzer.get_effective_changes()
@@ -507,8 +573,14 @@ jobs:
                 tasks = []
                 
                 # Telegram通知
-                if all([os.getenv("TELEGRAM_API_ID"), os.getenv("TELEGRAM_API_HASH"), 
-                       os.getenv("TELEGRAM_SESSION"), os.getenv("TELEGRAM_CHANNEL")]):
+                telegram_enabled = all([
+                    os.getenv("TELEGRAM_API_ID"), 
+                    os.getenv("TELEGRAM_API_HASH"),
+                    os.getenv("TELEGRAM_SESSION"), 
+                    os.getenv("TELEGRAM_CHANNEL")
+                ])
+                
+                if telegram_enabled:
                     tasks.append(notifier.send_telegram(valid_files))
                     print("📤 加入Telegram通知队列")
                 else:
@@ -526,11 +598,16 @@ jobs:
                     print("🚀 开始发送通知...")
                     results = await asyncio.gather(*tasks, return_exceptions=True)
                     
+                    # 处理通知结果
                     for i, result in enumerate(results):
                         if isinstance(result, Exception):
                             print(f"❌ 通知任务 {i+1} 失败: {str(result)}")
                         elif result:
                             print(f"✅ 通知任务 {i+1} 成功")
+                        else:
+                            print(f"⚠️ 通知任务 {i+1} 返回未知结果")
+                else:
+                    print("ℹ️ 无有效通知任务")
                 
                 print(f"🎉 监控完成! 耗时: {time.time()-start_time:.2f}秒")
                 
@@ -559,7 +636,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0
-          retain_days: 0
+          keep_minimum_runs: 5
+          retain_days: 3
           delete_workflow_pattern: "Enhanced Real-time Directory Monitor"
           repository: ${{ github.repository }}
