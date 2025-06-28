@@ -281,5 +281,3 @@ jobs:
           retain_days: 0
           delete_workflow_pattern: "Plus APK Download and Sync"
           repository: ${{ github.repository }}
-
-目前这个流程获取的更新日期是从原始元数据获取的吗？
