@@ -94,17 +94,22 @@ jobs:
           echo "$1" | sed -E 's/^V/v/; s/^([^v])/v\1/'
         }
         
-        # 解析版本文件
+        # 解析版本文件 - 保留所有现有键值对
         if [ -f "version.txt" ]; then
-          CURRENT_VERSION_JSON=$(cat version.txt | jq -c . || echo "{}")
-          echo "当前版本文件内容:"
-          echo "$CURRENT_VERSION_JSON" | jq .
+          # 安全读取JSON文件
+          if CURRENT_VERSION_JSON=$(jq -c . version.txt 2>/dev/null); then
+            echo "当前版本文件内容:"
+            echo "$CURRENT_VERSION_JSON" | jq .
+          else
+            echo "::warning::版本文件格式无效，重置为JSON格式"
+            CURRENT_VERSION_JSON="{}"
+          fi
         else
           CURRENT_VERSION_JSON="{}"
           echo "未找到版本文件，将创建新文件"
         fi
         
-        # 提取当前版本信息
+        # 提取当前版本信息 - 使用jq安全查询
         CURRENT_STABLE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"" | cut -d, -f1)
         CURRENT_STABLE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"" | cut -d, -f2)
         CURRENT_PRE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"? // \"\"" | cut -d, -f1)
@@ -147,7 +152,7 @@ jobs:
             else
               echo "下载稳定版APK: $STABLE_URL"
               if curl -fL "$STABLE_URL" -o "$WORK_DIR/$STABLE_KEY_NAME"; then
-                # 直接移动文件（移除大小验证）
+                # 直接移动文件
                 mv -f "$WORK_DIR/$STABLE_KEY_NAME" "$STABLE_FILE_PATH"
                 STABLE_UPDATED=true
                 NEW_STABLE_VERSION="$STABLE_VERSION"
@@ -190,7 +195,7 @@ jobs:
             else
               echo "下载预发布版APK: $PRE_URL"
               if curl -fL "$PRE_URL" -o "$WORK_DIR/$PRE_RELEASE_KEY_NAME"; then
-                # 直接移动文件（移除大小验证）
+                # 直接移动文件
                 mv -f "$WORK_DIR/$PRE_RELEASE_KEY_NAME" "$PRE_FILE_PATH"
                 PRE_UPDATED=true
                 NEW_PRE_VERSION="$PRE_VERSION"
@@ -211,15 +216,16 @@ jobs:
           NEW_PRE_DATE="$CURRENT_PRE_DATE"
         fi
         
-        # 更新版本文件
+        # 更新版本文件 - 仅更新特定键值
         UPDATE_VERSION_FILE=false
-        UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq -c .)
+        UPDATED_VERSION_JSON="$CURRENT_VERSION_JSON"
         
         # 稳定版更新检查
         if [ -n "$NEW_STABLE_VERSION" ] && 
            { [ "$NEW_STABLE_VERSION" != "$CURRENT_STABLE" ] || 
              [ "$NEW_STABLE_DATE" != "$CURRENT_STABLE_DATE" ]; }; then
-          UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq --arg k "$STABLE_KEY_NAME" \
+          # 使用jq安全更新JSON对象
+          UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq -c --arg k "$STABLE_KEY_NAME" \
             --arg v "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
             '.[$k] = $v')
           UPDATE_VERSION_FILE=true
@@ -230,15 +236,17 @@ jobs:
         if [ -n "$NEW_PRE_VERSION" ] && 
            { [ "$NEW_PRE_VERSION" != "$CURRENT_PRE" ] || 
              [ "$NEW_PRE_DATE" != "$CURRENT_PRE_DATE" ]; }; then
-          UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq --arg k "$PRE_RELEASE_KEY_NAME" \
+          # 使用jq安全更新JSON对象
+          UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq -c --arg k "$PRE_RELEASE_KEY_NAME" \
             --arg v "$NEW_PRE_VERSION,$NEW_PRE_DATE" \
             '.[$k] = $v')
           UPDATE_VERSION_FILE=true
           echo "更新预发布版版本信息: $NEW_PRE_VERSION ($NEW_PRE_DATE)"
         fi
         
-        # 写入版本文件
+        # 写入版本文件 - 使用格式化输出
         if $UPDATE_VERSION_FILE; then
+          # 格式化JSON输出
           echo "$UPDATED_VERSION_JSON" | jq . > version.txt
           echo "版本文件已更新"
         else
