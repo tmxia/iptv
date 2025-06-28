@@ -1,5 +1,6 @@
 name: Termux APK Sync from Source Repository
 
+# 使用原生并发控制
 concurrency: 
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -16,8 +17,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    # 使用原生并发控制（已由concurrency配置实现）
-    # 基于缓存的锁机制（已由concurrency配置实现）
+    # 基于缓存的锁机制（由concurrency配置实现）
     
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -148,20 +148,12 @@ jobs:
           local target_filename="apk/$key_name"
           
           # 检查文件是否存在
-          if ! check_file_exists "$key_name"; then
-            echo "文件缺失，必须更新: $key_name"
-            file_missing=1
-          else
-            file_missing=0
-          fi
+          file_exists=$(check_file_exists "$key_name")
+          file_missing=$?
           
           # 检查键值是否存在
-          if ! check_key_exists "$key_name"; then
-            echo "键值缺失，必须更新: $key_name"
-            key_missing=1
-          else
-            key_missing=0
-          fi
+          key_exists=$(check_key_exists "$key_name")
+          key_missing=$?
           
           # 获取当前版本值
           local current_value=$(echo "$current_versions" | jq -r ".\"$key_name\" // \"\"")
@@ -171,6 +163,11 @@ jobs:
             # 下载APK
             download_url=$(echo "$release_json" | jq -r \
               ".assets[] | select(.name | contains(\"$apk_pattern\")) | .browser_download_url" | head -1)
+            
+            if [ -z "$download_url" ]; then
+              echo "错误: 未找到匹配的APK文件: $apk_pattern"
+              return 1
+            fi
             
             echo "下载: $download_url"
             curl -sL "$download_url" -o "$WORK_DIR/$key_name"
@@ -191,8 +188,14 @@ jobs:
           local version=$3
           
           # 获取SHA（如果存在）
-          sha=$(curl -s -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/$TARGET_REPO/contents/$target_path" | jq -r '.sha // empty')
+          response=$(curl -s -H "Authorization: token $TOKEN" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/$target_path")
+          
+          if [ "$(echo "$response" | jq -r '.message')" = "Not Found" ]; then
+            sha=""
+          else
+            sha=$(echo "$response" | jq -r '.sha')
+          fi
           
           # 准备上传数据
           content_base64=$(base64 -w0 "$file_path")
@@ -203,7 +206,7 @@ jobs:
             --arg sha "$sha" \
             '{message: $msg, content: $content, sha: $sha}')
           
-          # 上传文件（输出重定向到/dev/null）
+          # 上传文件
           echo "上传: $target_path"
           curl -s -X PUT \
             -H "Authorization: token $TOKEN" \
@@ -230,7 +233,14 @@ jobs:
         
         # 10. 更新版本文件
         echo "更新版本文件..."
-        version_sha=$(echo "$version_response" | jq -r '.sha // empty')
+        # 获取版本文件SHA
+        if [ "$(echo "$version_response" | jq -r '.message')" = "Not Found" ]; then
+          version_sha=""
+        else
+          version_sha=$(echo "$version_response" | jq -r '.sha')
+        fi
+        
+        # 准备版本文件内容
         version_content=$(echo "$current_versions" | jq -c .)
         version_base64=$(echo -n "$version_content" | base64 -w0)
         
@@ -240,7 +250,7 @@ jobs:
           --arg sha "$version_sha" \
           '{message: $msg, content: $content, sha: $sha}')
         
-        # 上传版本文件（输出重定向到/dev/null）
+        # 上传版本文件
         curl -s -X PUT \
           -H "Authorization: token $TOKEN" \
           -H "Content-Type: application/json" \
