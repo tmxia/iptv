@@ -73,10 +73,10 @@ jobs:
         # 确保apk目录存在
         mkdir -p apk
         
-        # 获取源仓库仓库发布信息
+        # 获取源仓库发布信息
         RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
         if [ -z "$RELEASES_JSON" ]; then
-          echo "::error::无法获取源仓库仓库发布信息"
+          echo "::error::无法获取源仓库发布信息"
           exit 1
         fi
         
@@ -101,21 +101,21 @@ jobs:
         # 获取并解析版本文件
         if [ -f "version.txt" ]; then
           CURRENT_VERSION_JSON=$(cat version.txt | jq -c . || echo "{}")
-          echo "当前版本文件内容:"
+          echo "当前仓库版本文件内容:"
           echo "$CURRENT_VERSION_JSON" | jq .
         else
           CURRENT_VERSION_JSON="{}"
           echo "未找到版本文件，将创建新文件"
         fi
         
-        # 提取当前版本
+        # 提取当前仓库版本
         CURRENT_STABLE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"" | cut -d, -f1)
         CURRENT_STABLE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"" | cut -d, -f2)
         CURRENT_PRE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"? // \"\"" | cut -d, -f1)
         CURRENT_PRE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"? // \"\"" | cut -d, -f2)
         
-        echo "当前稳定版: ${CURRENT_STABLE:-无} (${CURRENT_STABLE_DATE:-无日期})"
-        echo "当前预发行版: ${CURRENT_PRE:-无} (${CURRENT_PRE_DATE:-无日期})"
+        echo "当前仓库稳定版: ${CURRENT_STABLE:-无} (${CURRENT_STABLE_DATE:-无日期})"
+        echo "当前仓库预发行版: ${CURRENT_PRE:-无} (${CURRENT_PRE_DATE:-无日期})"
         
         # 检查文件存在性函数
         check_file_exists() {
