@@ -7,9 +7,30 @@ on:
       - 'apk/**'
       - 'kernel_versions.json'
       - 'kernels/**'
+  
   workflow_run:
-    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "OpenWrt Kernel Sync from TELEGRAM", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM", "TV NEW APK Sync from TELEGRAM", "Hiddify APK Sync from Source Repository", "Termux APK Sync from Source Repository", "Passwall Packages Sync from Source Repository", "OpenWrt Kernel Sync from TELEGRAM", "Plus APK Download and Sync", "TAuxiliary APK Sync from TELEGRAM"]
+    workflows: 
+      - "NagramX Sync from Source Repository"
+      - "BV APK Sync from Source Repository"
+      - "GitHub XAPK Download and Sync"
+      - "Karing Beta Sync from Source Repository"
+      - "MYTV APK Sync from Source Repository"
+      - "OK PRO APK Sync from TELEGRAM"
+      - "OK APK Sync from Source Repository"
+      - "Proxypin Sync from Source Repository"
+      - "Simple_live APK Sync from Source Repository"
+      - "OpenWrt Kernel Sync from TELEGRAM"
+      - "ServerBox Sync from Source Repository"
+      - "TV APK Sync from TELEGRAM"
+      - "TV NEW APK Sync from TELEGRAM"
+      - "Hiddify APK Sync from Source Repository"
+      - "Termux APK Sync from Source Repository"
+      - "Passwall Packages Sync from Source Repository"
+      - "Plus APK Download and Sync"
+      - "TAuxiliary APK Sync from TELEGRAM"
     types: [completed]
+    branches: [main]
+  
   workflow_dispatch:
 
 permissions:
@@ -17,11 +38,50 @@ permissions:
   actions: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ github.event.workflow_run.id || github.sha }}
+  cancel-in-progress: false  # 允许并行执行
 
 jobs:
+  # 前置检查阶段
+  pre-check:
+    name: Validate Conditions
+    runs-on: ubuntu-latest
+    outputs:
+      should_proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          
+      - name: Check workflow status
+        id: check
+        run: |
+          # 对于workflow_run触发，检查上游是否成功
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
+              echo "::set-output name=proceed::false"
+              echo "🛑 上游工作流未成功，终止执行"
+              exit 0
+            fi
+          fi
+          
+          # 对于所有触发类型，检查是否有相关文件变更
+          changed_files=$(git diff --name-only HEAD^ HEAD)
+          relevant_changes=$(echo "$changed_files" | grep -E 'version.txt|kernel_versions.json|apk/|kernels/' || true)
+          
+          if [ -z "$relevant_changes" ]; then
+            echo "::set-output name=proceed::false"
+            echo "⏭️ 无相关文件变更，跳过执行"
+          else
+            echo "::set-output name=proceed::true"
+            echo "✅ 检测到相关文件变更，继续执行"
+          fi
+
+  # 核心更新任务
   update-readme:
+    needs: pre-check
+    if: ${{ needs.pre-check.outputs.should_proceed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -30,7 +90,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.REPO_PAT }}
 
-      - name: 获取最新变更
+      - name: Pull latest changes
         run: git pull origin ${{ github.ref_name }}
 
       - name: Install dependencies
@@ -44,8 +104,12 @@ jobs:
           # 检查APK版本文件
           if [ ! -f version.txt ]; then
             echo "::warning::version.txt not found"
+            echo "update_apk=false" >> $GITHUB_OUTPUT
           else
-            if ! jq empty version.txt 2>/dev/null; then
+            # 尝试解析为JSON
+            if jq empty version.txt 2>/dev/null; then
+              echo "update_apk=true" >> $GITHUB_OUTPUT
+            else
               echo "::error::Invalid JSON in version.txt"
               exit 1
             fi
@@ -54,25 +118,14 @@ jobs:
           # 检查内核版本文件
           if [ ! -f kernel_versions.json ]; then
             echo "::warning::kernel_versions.json not found"
+            echo "update_kernel=false" >> $GITHUB_OUTPUT
           else
-            if ! jq empty kernel_versions.json 2>/dev/null; then
+            if jq empty kernel_versions.json 2>/dev/null; then
+              echo "update_kernel=true" >> $GITHUB_OUTPUT
+            else
               echo "::error::Invalid JSON in kernel_versions.json"
               exit 1
             fi
-          fi
-          
-          # 检查是否需要更新APK部分
-          if [ -f version.txt ] && [ $(jq -e 'length > 0' version.txt) = "true" ]; then
-            echo "update_apk=true" >> $GITHUB_OUTPUT
-          else
-            echo "update_apk=false" >> $GITHUB_OUTPUT
-          fi
-          
-          # 检查是否需要更新内核部分
-          if [ -f kernel_versions.json ] && [ $(jq -e 'length > 0' kernel_versions.json) = "true" ]; then
-            echo "update_kernel=true" >> $GITHUB_OUTPUT
-          else
-            echo "update_kernel=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Generate new README
@@ -164,17 +217,17 @@ jobs:
             
           } > README.md
           
-          echo "Generated new README.md with APK and Kernel tables (sorted by date)"
+          echo "Generated new README.md with APK and Kernel tables"
 
-      - name: 提交更改
+      - name: Commit changes
         run: |
           # 检查是否有需要提交的更改
-          if git diff --quiet; then
-            echo "No changes to commit"
+          if git diff --quiet README.md; then
+            echo "No changes to README.md"
             exit 0
           fi
           
-          git config user.name "github-actions"
+          git config user.name "github-actions[bot]"
           git config user.email "actions@users.noreply.github.com"
           git add README.md
           
@@ -184,7 +237,7 @@ jobs:
           # 使用 PAT 令牌推送
           git push "https://${{ github.actor }}:${{ secrets.REPO_PAT }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
 
-      - name: Simple verification
+      - name: Verify README
         run: |
           # 简单验证README是否包含关键内容
           if grep -q "应用版本列表" README.md && \
@@ -192,10 +245,10 @@ jobs:
             echo "✅ README更新成功"
           else
             echo "::error::README更新失败"
-            cat README.md
             exit 1
           fi
 
+  # 工作流清理
   cleanup_self:
     name: Cleanup Workflow History
     runs-on: ubuntu-latest
@@ -209,7 +262,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0
-          retain_days: 0
+          keep_minimum_runs: 5
+          retain_days: 3
           delete_workflow_pattern: "Real-time README Updater"
           repository: ${{ github.repository }}
