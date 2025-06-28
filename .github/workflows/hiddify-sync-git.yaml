@@ -113,11 +113,14 @@ jobs:
           echo "未找到版本文件，将创建新文件"
         fi
         
-        # 提取当前版本信息
-        CURRENT_STABLE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"" | cut -d, -f1)
-        CURRENT_STABLE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"" | cut -d, -f2)
-        CURRENT_PRE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"? // \"\"" | cut -d, -f1)
-        CURRENT_PRE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"? // \"\"" | cut -d, -f2)
+        # 提取当前版本信息 (使用JSON格式)
+        CURRENT_STABLE_VALUE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"")
+        CURRENT_STABLE=$(echo "$CURRENT_STABLE_VALUE" | cut -d, -f1)
+        CURRENT_STABLE_DATE=$(echo "$CURRENT_STABLE_VALUE" | cut -d, -f2)
+        
+        CURRENT_PRE_VALUE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"? // \"\"")
+        CURRENT_PRE=$(echo "$CURRENT_PRE_VALUE" | cut -d, -f1)
+        CURRENT_PRE_DATE=$(echo "$CURRENT_PRE_VALUE" | cut -d, -f2)
         
         echo "当前稳定版: ${CURRENT_STABLE:-无} (${CURRENT_STABLE_DATE:-无日期})"
         echo "当前预发行版: ${CURRENT_PRE:-无} (${CURRENT_PRE_DATE:-无日期})"
@@ -218,26 +221,26 @@ jobs:
           echo "跳过预发行版处理"
         fi
 
-        # 更新版本文件
+        # 更新版本文件（使用JSON格式）
         UPDATE_VERSION_FILE=false
         UPDATED_VERSION_JSON="$CURRENT_VERSION_JSON"
         
-        # 更新稳定版信息
+        # 更新稳定版信息（使用"版本,日期"格式）
         if [ "$STABLE_UPDATED" = true ]; then
           UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq --arg k "$STABLE_KEY_NAME" \
             --arg v "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
             '.[$k] = $v')
           UPDATE_VERSION_FILE=true
-          echo "更新稳定版版本信息: $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
+          echo "更新稳定版版本信息: $STABLE_KEY_NAME = $NEW_STABLE_VERSION,$NEW_STABLE_DATE"
         fi
         
-        # 更新预发行版信息
+        # 更新预发行版信息（使用"版本,日期"格式）
         if [ "$PRE_UPDATED" = true ]; then
           UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq --arg k "$PRE_RELEASE_KEY_NAME" \
             --arg v "$NEW_PRE_VERSION,$NEW_PRE_DATE" \
             '.[$k] = $v')
           UPDATE_VERSION_FILE=true
-          echo "更新预发行版版本信息: $NEW_PRE_VERSION ($NEW_PRE_DATE)"
+          echo "更新预发行版版本信息: $PRE_RELEASE_KEY_NAME = $NEW_PRE_VERSION,$NEW_PRE_DATE"
         fi
         
         # 写入版本文件
@@ -257,11 +260,11 @@ jobs:
           COMMIT_MESSAGE="更新APK: "
           
           if [ "$STABLE_UPDATED" = true ]; then
-            COMMIT_MESSAGE+="稳定版=$NEW_STABLE_VERSION "
+            COMMIT_MESSAGE+="$STABLE_KEY_NAME=$NEW_STABLE_VERSION "
           fi
           
           if [ "$PRE_UPDATED" = true ]; then
-            COMMIT_MESSAGE+="预发行版=$NEW_PRE_VERSION "
+            COMMIT_MESSAGE+="$PRE_RELEASE_KEY_NAME=$NEW_PRE_VERSION "
           fi
           
           # 如果没有APK更新但版本文件更新
@@ -310,9 +313,9 @@ jobs:
         fi
         
         echo "同步完成!"
-        echo "稳定版: $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
+        echo "稳定版: $STABLE_KEY_NAME = $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
         if [ "$SYNC_PRE_RELEASE" = true ]; then
-          echo "预发行版: $NEW_PRE_VERSION ($NEW_PRE_DATE)"
+          echo "预发行版: $PRE_RELEASE_KEY_NAME = $NEW_PRE_VERSION ($NEW_PRE_DATE)"
         fi
         exit 0
 
