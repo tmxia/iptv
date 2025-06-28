@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-06-28 08:04:29 (北京时间)
+最后更新: 2025-06-28 08:10:40 (北京时间)
 
 ## 应用
 
@@ -29,7 +29,7 @@
 | <div>termux.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/termux.apk)</small></div> | N/A | v0.118.3 | 2025-05-22 |
 | <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 13.61 | v1.1.9 | 2025-05-17 |
 | <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 13.77 | v1.1.9 | 2025-05-17 |
-| <div>tv-new.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv-new.apk)</small></div> | N/A | v3.5.2 | 2025-04-21 |
+| <div>tv-new.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv-new.apk)</small></div> | 12.65 | 3.5.2 | 2025-04-21 |
 | <div>tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv.apk)</small></div> | 18.14 | v3.3.9 | 2025-01-17 |
 | <div>bv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv.apk)</small></div> | 9.99 | v0.2.9 | 2024-12-06 |
 | <div>hiddify-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/hiddify-beta.apk)</small></div> | N/A | v2.5.7 | 2024-10-03 |
