@@ -21,18 +21,15 @@ jobs:
     - name: Acquire Repository Lock 🔒
       id: lock
       run: |
-        # 创建锁文件路径
         LOCK_DIR="$GITHUB_WORKSPACE/.lock"
         mkdir -p "$LOCK_DIR"
         LOCK_FILE="$LOCK_DIR/repo-lock"
         
-        # 尝试获取锁
         for i in {1..10}; do
           if [ -f "$LOCK_FILE" ]; then
             echo "锁已被占用，等待重试 ($i/10)..."
             sleep 30
           else
-            # 创建锁文件
             touch "$LOCK_FILE"
             echo "lock-acquired=true" >> $GITHUB_OUTPUT
             echo "成功获取锁"
@@ -75,14 +72,13 @@ jobs:
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 使用cloudscraper绕过Cloudflare获取页面
+        # 使用cloudscraper获取页面
         echo "获取下载页面并提取信息..."
         cat > "$WORK_DIR/extract_info.py" <<EOL
         import cloudscraper
         import re
         import sys
         from bs4 import BeautifulSoup
-        from datetime import datetime
         
         def extract_info(url):
             scraper = cloudscraper.create_scraper()
@@ -97,28 +93,37 @@ jobs:
                 # 提取APK链接
                 apk_link = None
                 soup = BeautifulSoup(content, 'html.parser')
+                
+                # 方法1: 下载按钮链接
                 download_button = soup.find('a', id='download_button')
                 if download_button and download_button.has_attr('href'):
                     apk_link = download_button['href']
                 
-                # 如果没有找到下载按钮，尝试备用方法
+                # 方法2: 直接匹配APK链接模式
                 if not apk_link:
                     apk_link_match = re.search(r'href="(https://dl\.leeapk\.com[^"]+\.apk)"', content)
                     if apk_link_match:
                         apk_link = apk_link_match.group(1)
                 
-                # 提取发布日期
+                # 提取发布日期 - 新增更可靠的方法
                 release_date = None
-                date_pattern = r"Download Plus Messenger For Android\s*([A-Za-z]+\s\d{1,2},\s\d{4})"
-                date_match = re.search(date_pattern, content)
-                if date_match:
-                    raw_date = date_match.group(1)
-                    try:
-                        # 转换日期格式
-                        date_obj = datetime.strptime(raw_date, "%B %d, %Y")
-                        release_date = date_obj.strftime("%Y-%m-%d")
-                    except Exception as e:
-                        print(f"日期转换错误: {str(e)}")
+                
+                # 方法1: 查找包含日期的元素
+                date_element = soup.find('span', class_='date')
+                if not date_element:
+                    # 方法2: 查找包含"Updated on"文本的元素
+                    updated_elements = soup.find_all(string=re.compile(r'Updated on|Last updated'))
+                    for element in updated_elements:
+                        date_match = re.search(r'[A-Za-z]+\s\d{1,2},\s\d{4}', element)
+                        if date_match:
+                            release_date = date_match.group(0)
+                            break
+                
+                # 方法3: 使用更精确的正则表达式
+                if not release_date:
+                    date_match = re.search(r'Download Plus Messenger For Android\s*([A-Za-z]+\s\d{1,2},\s\d{4})', content)
+                    if date_match:
+                        release_date = date_match.group(1)
                 
                 return {
                     "apk_link": apk_link,
@@ -140,9 +145,10 @@ jobs:
         EOL
         
         # 运行Python脚本提取信息
-        EXTRACTED_INFO=$(python3 "$WORK_DIR/extract_info.py" "$DOWNLOAD_URL")
+        EXTRACTED_INFO=$(python3 "$WORK_DIR/extract_info.py" "$DOWNLOAD_URL" 2>"$WORK_DIR/error.log")
         if [ $? -ne 0 ]; then
-          echo "提取信息失败"
+          echo "提取信息失败. 错误日志:"
+          cat "$WORK_DIR/error.log"
           exit 1
         fi
         
@@ -158,15 +164,29 @@ jobs:
         echo "提取到APK链接: $APK_LINK"
         echo "提取到发布日期: ${RELEASE_DATE:-未找到}"
         
-        # 如果未提取到发布日期，使用当前日期（北京时间）
-        if [ -z "$RELEASE_DATE" ]; then
-          RELEASE_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
-          echo "警告: 使用当前日期作为发布日期: $RELEASE_DATE"
+        # 如果未提取到发布日期，使用可靠来源
+        if [ -z "$RELEASE_DATE" ] || [ "$RELEASE_DATE" = "None" ]; then
+          # 从APKMB获取可靠日期 
+          echo "尝试从APKMB获取发布日期..."
+          APKMB_DATE=$(curl -s "https://apkmb.com/app/plus-messenger" | grep -oP '"datePublished":\s*"\K\d{4}-\d{2}-\d{2}')
+          
+          if [ -n "$APKMB_DATE" ]; then
+            RELEASE_DATE="$APKMB_DATE"
+            echo "从APKMB获取到发布日期: $RELEASE_DATE"
+          else
+            # 最终回退：使用当前日期
+            RELEASE_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
+            echo "警告: 使用当前日期作为发布日期: $RELEASE_DATE"
+          fi
         fi
 
-        # 从链接提取主版本号
+        # 从链接提取主版本号（保持原有逻辑）
         FILENAME=$(basename "$APK_LINK")
         VERSION=$(echo "$FILENAME" | sed -n 's/.*Plus_Messenger_v\{0,1\}\([0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
+        
+        if [ -z "$VERSION" ]; then
+          VERSION=$(echo "$FILENAME" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        fi
         
         if [ -z "$VERSION" ]; then
           VERSION=$(date +%Y%m%d%H%M)
@@ -298,7 +318,6 @@ jobs:
     - name: Release Repository Lock 🔓
       if: always()
       run: |
-        # 释放锁
         LOCK_FILE="$GITHUB_WORKSPACE/.lock/repo-lock"
         if [ -f "$LOCK_FILE" ]; then
           rm -f "$LOCK_FILE"
