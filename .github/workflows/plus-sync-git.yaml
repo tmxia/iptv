@@ -5,6 +5,7 @@ on:
     - cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:
 
+# 使用原生并发控制
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -21,15 +22,18 @@ jobs:
     - name: Acquire Repository Lock 🔒
       id: lock
       run: |
+        # 创建锁文件路径
         LOCK_DIR="$GITHUB_WORKSPACE/.lock"
         mkdir -p "$LOCK_DIR"
         LOCK_FILE="$LOCK_DIR/repo-lock"
         
+        # 尝试获取锁
         for i in {1..10}; do
           if [ -f "$LOCK_FILE" ]; then
             echo "锁已被占用，等待重试 ($i/10)..."
             sleep 30
           else
+            # 创建锁文件
             touch "$LOCK_FILE"
             echo "lock-acquired=true" >> $GITHUB_OUTPUT
             echo "成功获取锁"
@@ -56,7 +60,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y jq curl wget python3-pip
         pip install --upgrade pip
-        pip install cloudscraper requests beautifulsoup4
+        pip install cloudscraper requests
 
     - name: Download and process APK
       env:
@@ -72,89 +76,39 @@ jobs:
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 使用cloudscraper获取页面
-        echo "获取下载页面并提取信息..."
-        cat > "$WORK_DIR/extract_info.py" <<EOL
+        # 使用cloudscraper绕过Cloudflare获取页面
+        echo "获取下载页面..."
+        cat > "$WORK_DIR/get_page.py" <<EOL
         import cloudscraper
-        import re
         import sys
-        from bs4 import BeautifulSoup
         
-        def extract_info(url):
-            scraper = cloudscraper.create_scraper()
-            try:
-                response = scraper.get(url)
-                if response.status_code != 200:
-                    print(f"错误: 获取页面失败，状态码 {response.status_code}", file=sys.stderr)
-                    sys.exit(1)
-                
-                content = response.text
-                
-                # 提取APK链接
-                apk_link = None
-                soup = BeautifulSoup(content, 'html.parser')
-                
-                # 方法1: 下载按钮链接
-                download_button = soup.find('a', id='download_button')
-                if download_button and download_button.has_attr('href'):
-                    apk_link = download_button['href']
-                
-                # 方法2: 直接匹配APK链接模式
-                if not apk_link:
-                    apk_link_match = re.search(r'href="(https://dl\.leeapk\.com[^"]+\.apk)"', content)
-                    if apk_link_match:
-                        apk_link = apk_link_match.group(1)
-                
-                # 提取发布日期 - 新增更可靠的方法
-                release_date = None
-                
-                # 方法1: 查找包含日期的元素
-                date_element = soup.find('span', class_='date')
-                if not date_element:
-                    # 方法2: 查找包含"Updated on"文本的元素
-                    updated_elements = soup.find_all(string=re.compile(r'Updated on|Last updated'))
-                    for element in updated_elements:
-                        date_match = re.search(r'[A-Za-z]+\s\d{1,2},\s\d{4}', element)
-                        if date_match:
-                            release_date = date_match.group(0)
-                            break
-                
-                # 方法3: 使用更精确的正则表达式
-                if not release_date:
-                    date_match = re.search(r'Download Plus Messenger For Android\s*([A-Za-z]+\s\d{1,2},\s\d{4})', content)
-                    if date_match:
-                        release_date = date_match.group(1)
-                
-                return {
-                    "apk_link": apk_link,
-                    "release_date": release_date
-                }
-                
-            except Exception as e:
-                print(f"错误: {str(e)}", file=sys.stderr)
+        scraper = cloudscraper.create_scraper()
+        try:
+            response = scraper.get(sys.argv[1])
+            if response.status_code == 200:
+                print(response.text)
+            else:
+                print(f"错误: 状态码 {response.status_code}", file=sys.stderr)
                 sys.exit(1)
-        
-        if __name__ == "__main__":
-            if len(sys.argv) != 2:
-                print("用法: python extract_info.py <url>", file=sys.stderr)
-                sys.exit(1)
-            
-            info = extract_info(sys.argv[1])
-            print(f"APK_LINK={info['apk_link']}")
-            print(f"RELEASE_DATE={info['release_date']}")
+        except Exception as e:
+            print(f"错误: {str(e)}", file=sys.stderr)
+            sys.exit(1)
         EOL
         
-        # 运行Python脚本提取信息
-        EXTRACTED_INFO=$(python3 "$WORK_DIR/extract_info.py" "$DOWNLOAD_URL" 2>"$WORK_DIR/error.log")
+        # 运行Python脚本获取页面
+        DOWNLOAD_PAGE=$(python3 "$WORK_DIR/get_page.py" "$DOWNLOAD_URL")
         if [ $? -ne 0 ]; then
-          echo "提取信息失败. 错误日志:"
-          cat "$WORK_DIR/error.log"
+          echo "获取页面失败"
           exit 1
         fi
         
-        # 解析提取的信息
-        APK_LINK=$(echo "$EXTRACTED_INFO" | grep 'APK_LINK=' | cut -d'=' -f2)
-        RELEASE_DATE=$(echo "$EXTRACTED_INFO" | grep 'RELEASE_DATE=' | cut -d'=' -f2)
+        # 提取APK链接
+        echo "提取APK链接..."
+        APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'href="[^"]*id="download_button"[^"]*"' | cut -d'"' -f2)
+        
+        if [ -z "$APK_LINK" ]; then
+          APK_LINK=$(echo "$DOWNLOAD_PAGE" | grep -o 'https://dl\.leeapk\.com[^"]*\.apk' | head -1)
+        fi
         
         if [ -z "$APK_LINK" ]; then
           echo "错误: 无法提取APK链接"
@@ -162,31 +116,10 @@ jobs:
         fi
         
         echo "提取到APK链接: $APK_LINK"
-        echo "提取到发布日期: ${RELEASE_DATE:-未找到}"
-        
-        # 如果未提取到发布日期，使用可靠来源
-        if [ -z "$RELEASE_DATE" ] || [ "$RELEASE_DATE" = "None" ]; then
-          # 从APKMB获取可靠日期 
-          echo "尝试从APKMB获取发布日期..."
-          APKMB_DATE=$(curl -s "https://apkmb.com/app/plus-messenger" | grep -oP '"datePublished":\s*"\K\d{4}-\d{2}-\d{2}')
-          
-          if [ -n "$APKMB_DATE" ]; then
-            RELEASE_DATE="$APKMB_DATE"
-            echo "从APKMB获取到发布日期: $RELEASE_DATE"
-          else
-            # 最终回退：使用当前日期
-            RELEASE_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
-            echo "警告: 使用当前日期作为发布日期: $RELEASE_DATE"
-          fi
-        fi
 
-        # 从链接提取主版本号（保持原有逻辑）
+        # 从链接提取主版本号
         FILENAME=$(basename "$APK_LINK")
         VERSION=$(echo "$FILENAME" | sed -n 's/.*Plus_Messenger_v\{0,1\}\([0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
-        
-        if [ -z "$VERSION" ]; then
-          VERSION=$(echo "$FILENAME" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-        fi
         
         if [ -z "$VERSION" ]; then
           VERSION=$(date +%Y%m%d%H%M)
@@ -195,6 +128,10 @@ jobs:
         
         echo "版本号: $VERSION"
         
+        # 获取当前日期（北京时间）
+        CURRENT_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
+        echo "当前日期: $CURRENT_DATE"
+
         # 读取版本文件
         VERSION_FILE="version.txt"
         if [ -f "$VERSION_FILE" ]; then
@@ -292,7 +229,7 @@ jobs:
         echo "已保存APK文件 (大小: $FILE_SIZE 字节)"
 
         # 更新版本文件
-        NEW_VALUE="v$VERSION,$RELEASE_DATE"
+        NEW_VALUE="v$VERSION,$CURRENT_DATE"
         NEW_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq --arg key "$APK_NAME" --arg value "$NEW_VALUE" '.[$key] = $value')
         echo "$NEW_VERSION_JSON" > "$VERSION_FILE"
         echo "更新版本文件"
@@ -307,17 +244,18 @@ jobs:
         fi
 
         # 提交更改
-        git commit -m "更新Plus Messenger: v$VERSION ($RELEASE_DATE)"
+        git commit -m "更新Plus Messenger: v$VERSION ($CURRENT_DATE)"
         
         # 推送更改
         echo "推送更改到远程仓库..."
         git push origin main
 
-        echo "同步完成! 版本: v$VERSION, 日期: $RELEASE_DATE"
+        echo "同步完成! 版本: v$VERSION, 日期: $CURRENT_DATE"
 
     - name: Release Repository Lock 🔓
       if: always()
       run: |
+        # 释放锁
         LOCK_FILE="$GITHUB_WORKSPACE/.lock/repo-lock"
         if [ -f "$LOCK_FILE" ]; then
           rm -f "$LOCK_FILE"
@@ -343,3 +281,5 @@ jobs:
           retain_days: 0
           delete_workflow_pattern: "Plus APK Download and Sync"
           repository: ${{ github.repository }}
+
+目前这个流程获取的更新日期是从原始元数据获取的吗？
