@@ -93,27 +93,25 @@ jobs:
           echo "$1" | sed -E 's/^V/v/; s/^([^v])/v\1/'
         }
         
-        # 创建临时文件用于版本JSON处理
-        VERSION_JSON_FILE=$(mktemp)
-        trap 'rm -f "$VERSION_JSON_FILE"' EXIT
-        
-        # 安全处理版本文件 - 直接复制而不是通过管道
+        # 获取并解析版本文件 - 使用Simple_live工作流的可靠方法
         if [ -f "version.txt" ]; then
-          cp version.txt "$VERSION_JSON_FILE"
-          if ! jq -e . "$VERSION_JSON_FILE" >/dev/null 2>&1; then
-            echo "::warning::版本文件格式无效，重置为JSON格式"
-            echo "{}" > "$VERSION_JSON_FILE"
-          fi
+          # 直接读取文件内容，避免管道问题
+          CURRENT_VERSION_JSON=$(cat version.txt | jq -c . || echo "{}")
+          echo "当前版本文件内容:"
+          # 避免输出整个大JSON，只输出相关键值
+          echo "相关键值:"
+          jq -r ".[\"$STABLE_KEY_NAME\"]" version.txt
+          jq -r ".[\"$PRE_RELEASE_KEY_NAME\"]" version.txt
         else
-          echo "{}" > "$VERSION_JSON_FILE"
+          CURRENT_VERSION_JSON="{}"
           echo "未找到版本文件，将创建新文件"
         fi
         
-        # 提取当前版本信息 - 使用直接文件读取
-        CURRENT_STABLE=$(jq -r ".\"$STABLE_KEY_NAME\" // \"\"" "$VERSION_JSON_FILE" | cut -d, -f1)
-        CURRENT_STABLE_DATE=$(jq -r ".\"$STABLE_KEY_NAME\" // \"\"" "$VERSION_JSON_FILE" | cut -d, -f2)
-        CURRENT_PRE=$(jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" "$VERSION_JSON_FILE" | cut -d, -f1)
-        CURRENT_PRE_DATE=$(jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"\"" "$VERSION_JSON_FILE" | cut -d, -f2)
+        # 提取当前版本信息
+        CURRENT_STABLE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"" | cut -d, -f1)
+        CURRENT_STABLE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$STABLE_KEY_NAME\"? // \"\"" | cut -d, -f2)
+        CURRENT_PRE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"? // \"\"" | cut -d, -f1)
+        CURRENT_PRE_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$PRE_RELEASE_KEY_NAME\"? // \"\"" | cut -d, -f2)
         
         echo "目标稳定版: ${CURRENT_STABLE:-无} (${CURRENT_STABLE_DATE:-无日期})"
         echo "目标预发行版: ${CURRENT_PRE:-无} (${CURRENT_PRE_DATE:-无日期})"
@@ -216,20 +214,17 @@ jobs:
           NEW_PRE_DATE="$CURRENT_PRE_DATE"
         fi
         
-        # 更新版本文件 - 使用临时文件操作避免管道问题
+        # 更新版本文件
         UPDATE_VERSION_FILE=false
-        
-        # 创建新版本JSON文件
-        NEW_VERSION_FILE=$(mktemp)
+        UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq -c .)
         
         # 稳定版更新检查
         if [ -n "$NEW_STABLE_VERSION" ] && 
            { [ "$NEW_STABLE_VERSION" != "$CURRENT_STABLE" ] || 
              [ "$NEW_STABLE_DATE" != "$CURRENT_STABLE_DATE" ]; }; then
-          # 使用jq更新JSON，但避免在管道中传输大文件
-          jq --arg k "$STABLE_KEY_NAME" --arg v "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
-            '.[$k] = $v' "$VERSION_JSON_FILE" > "$NEW_VERSION_FILE"
-          cp "$NEW_VERSION_FILE" "$VERSION_JSON_FILE"
+          UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq --arg k "$STABLE_KEY_NAME" \
+            --arg v "$NEW_STABLE_VERSION,$NEW_STABLE_DATE" \
+            '.[$k] = $v')
           UPDATE_VERSION_FILE=true
           echo "更新稳定版版本信息: $NEW_STABLE_VERSION ($NEW_STABLE_DATE)"
         fi
@@ -238,20 +233,19 @@ jobs:
         if [ -n "$NEW_PRE_VERSION" ] && 
            { [ "$NEW_PRE_VERSION" != "$CURRENT_PRE" ] || 
              [ "$NEW_PRE_DATE" != "$CURRENT_PRE_DATE" ]; }; then
-          jq --arg k "$PRE_RELEASE_KEY_NAME" --arg v "$NEW_PRE_VERSION,$NEW_PRE_DATE" \
-            '.[$k] = $v' "$VERSION_JSON_FILE" > "$NEW_VERSION_FILE"
-          cp "$NEW_VERSION_FILE" "$VERSION_JSON_FILE"
+          UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq --arg k "$PRE_RELEASE_KEY_NAME" \
+            --arg v "$NEW_PRE_VERSION,$NEW_PRE_DATE" \
+            '.[$k] = $v')
           UPDATE_VERSION_FILE=true
           echo "更新预发布版版本信息: $NEW_PRE_VERSION ($NEW_PRE_DATE)"
         fi
         
-        # 写入版本文件 - 直接复制文件避免管道
+        # 写入版本文件
         if $UPDATE_VERSION_FILE; then
-          # 直接复制格式化后的JSON文件
-          cp "$VERSION_JSON_FILE" version.txt
+          # 使用Simple_live工作流的可靠方法
+          echo "$UPDATED_VERSION_JSON" | jq . > version.txt
           echo "版本文件已更新"
-          
-          # 仅输出相关键值而不是整个文件
+          # 只输出相关键值
           echo "更新后版本文件相关键值:"
           jq -r ".[\"$STABLE_KEY_NAME\"]" version.txt
           jq -r ".[\"$PRE_RELEASE_KEY_NAME\"]" version.txt
