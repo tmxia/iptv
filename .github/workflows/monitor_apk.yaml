@@ -267,7 +267,7 @@ jobs:
                     return None
             
             @staticmethod
-            def has_file_content_changed(file_path, parent_commit, head_commit):
+            def has_file_content_changed(file_path, parent_commit):
                 """检查文件内容是否实际发生变化"""
                 # 获取当前文件内容哈希
                 current_hash = FileChangeDetector.calculate_file_hash(file_path)
@@ -311,7 +311,7 @@ jobs:
                         file_path = delta.new_file.path
                         
                         # 检查文件内容是否实际变化
-                        if FileChangeDetector.has_file_content_changed(file_path, parent_commit, self.head_commit):
+                        if FileChangeDetector.has_file_content_changed(file_path, parent_commit):
                             changes.append({
                                 'path': file_path,
                                 'status': delta.status
@@ -336,8 +336,9 @@ jobs:
             @staticmethod
             def is_relevant_file(file_path):
                 """检查文件是否在监控范围内"""
-                return (file_path.startswith(('apk/', 'kernels/')) and \
-                       any(file_path.endswith(ext) for ext in ALLOWED_EXTENSIONS)
+                # 修复括号问题
+                return (file_path.startswith(('apk/', 'kernels/'))) and \
+                       any(file_path.endswith(ext) for ext in ALLOWED_EXTENSIONS
             
             def get_commit_time(self):
                 """获取提交时间（北京时间）"""
