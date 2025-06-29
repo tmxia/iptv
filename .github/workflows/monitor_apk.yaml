@@ -1,16 +1,6 @@
 name: Real-time Directory Monitor
 
 on:
-  # 手动触发配置
-  workflow_dispatch:
-    inputs:
-      force-run:
-        description: "强制运行（忽略前置检查）"
-        required: false
-        default: "false"
-        type: boolean
-  
-  # 自动触发配置
   push:
     paths:
       - 'apk/**'
@@ -18,115 +8,25 @@ on:
       - 'version.txt'
       - 'kernel_versions.json'
     branches: [ main ]
-  
   workflow_run:
-    workflows: 
-      - "NagramX Sync from Source Repository"
-      - "BV APK Sync from Source Repository"
-      - "GitHub XAPK Download and Sync"
-      - "Karing Beta Sync from Source Repository"
-      - "MYTV APK Sync from Source Repository"
-      - "OK PRO APK Sync from TELEGRAM"
-      - "OK APK Sync from Source Repository"
-      - "Proxypin Sync from Source Repository"
-      - "Simple_live APK Sync from Source Repository"
-      - "OpenWrt Kernel Sync from TELEGRAM"
-      - "ServerBox Sync from Source Repository"
-      - "TV APK Sync from TELEGRAM"
-      - "TV NEW APK Sync from TELEGRAM"
-      - "Hiddify APK Sync from Source Repository"
-      - "Termux APK Sync from Source Repository"
-      - "Passwall Packages Sync from Source Repository"
-      - "Plus APK Download and Sync"
-      - "TAuxiliary APK Sync from TELEGRAM"
+    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "OpenWrt Kernel Sync from TELEGRAM", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM", "TV NEW APK Sync from TELEGRAM", "Hiddify APK Sync from Source Repository", "Termux APK Sync from Source Repository", "Passwall Packages Sync from Source Repository"]
     types: [completed]
-    branches: [main]
 
 jobs:
-  # 前置验证阶段
-  pre-check:
-    name: Validate Trigger Conditions
-    runs-on: ubuntu-latest
-    outputs:
-      valid_trigger: ${{ steps.validate.outputs.valid }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2  # 获取最近2次提交用于变更检测
-          
-      - name: Check trigger validity
-        id: validate
-        run: |
-          # 如果是手动触发且选择了强制运行
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.force-run }}" == "true" ]]; then
-            echo "::set-output name=valid::true"
-            echo "🔧 手动强制触发，跳过所有检查"
-            exit 0
-          fi
-          
-          # 对于workflow_run触发
-          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
-              echo "::set-output name=valid::false"
-              echo "🛑 上游工作流未成功，终止执行"
-              exit 0
-            else
-              echo "::set-output name=valid::true"
-              echo "✅ 上游工作流成功，继续执行"
-              exit 0
-            fi
-          fi
-          
-          # 对于手动触发（非强制模式）和push触发
-          echo "🔍 检查文件变更..."
-          git fetch origin main --depth=2
-          
-          # 获取当前提交和前一个提交
-          current_sha=$(git rev-parse HEAD)
-          parent_sha=$(git rev-parse HEAD^)
-          
-          # 检查是否有有效的父提交
-          if [ "$parent_sha" == "$current_sha" ]; then
-            echo "ℹ️ 无父提交（可能是初始提交），视为所有文件变更"
-            echo "::set-output name=valid::true"
-            exit 0
-          fi
-          
-          # 获取变更文件列表
-          changed_files=$(git diff --name-only $parent_sha $current_sha)
-          relevant_changes=$(echo "$changed_files" | grep -E 'apk/|kernels/|version.txt|kernel_versions.json' || true)
-          
-          if [ -z "$relevant_changes" ]; then
-            echo "::set-output name=valid::false"
-            echo "⏭️ 无相关文件变更，跳过执行"
-            echo "变更文件列表:"
-            echo "$changed_files"
-          else
-            echo "::set-output name=valid::true"
-            echo "✅ 检测到相关文件变更，继续执行"
-            echo "相关变更文件:"
-            echo "$relevant_changes"
-          fi
-
-  # 核心监控阶段
   detect-and-notify:
-    needs: pre-check
-    if: ${{ needs.pre-check.outputs.valid_trigger == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    concurrency:
-      group: monitor-${{ github.ref }}-${{ github.event_name }}-${{ github.event.workflow_run.id || github.run_id }}
-      cancel-in-progress: false
-
+    timeout-minutes: 5
+    concurrency: 
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     steps:
-    - name: Checkout with depth
+    - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 5
+        fetch-depth: 0
         token: ${{ secrets.REPO_PAT }}
 
-    - name: Pull latest changes
+    - name: 获取最新变更
       run: git pull origin ${{ github.ref }}
 
     - name: Set up Python
@@ -134,23 +34,13 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install system dependencies
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake libgit2-dev
+        pip install telethon pygit2 pytz
 
-    - name: Install pinned Python packages
-      run: |
-        pip install \
-          pygit2==1.14.1 \
-          telethon==1.34.0 \
-          pytz==2024.1 \
-          --no-cache-dir
-        
-        echo "已安装的依赖版本:"
-        pip freeze | grep -E 'pygit2|telethon|pytz'
-
-    - name: Run enhanced directory monitor
+    - name: Run enhanced detection script
       env:
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
@@ -162,13 +52,11 @@ jobs:
         SMTP_USER: ${{ secrets.SMTP_USER }}
         SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         GITHUB_REPOSITORY: ${{ github.repository }}
-        GITHUB_SHA: ${{ github.sha }}
+        GITHUB_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       run: |
-        cat << 'EOF' > enhanced_monitor.py
+        cat << 'EOF' > directory_monitor.py
         import os
         import re
-        import time
-        import json
         import pygit2
         import asyncio
         import smtplib
@@ -179,523 +67,332 @@ jobs:
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         from urllib.parse import quote
-        import hashlib
+        import json
         
-        # ---- 配置常量 ----
+        # 设置时区
         UTC_TZ = timezone('UTC')
         BEIJING_TZ = timezone('Asia/Shanghai')
-        VERSION_FILES = {
-            'apk/': 'version.txt',
-            'kernels/': 'kernel_versions.json'
-        }
-        ALLOWED_EXTENSIONS = ['.apk', '.zip', '.tar.gz', '.json', '.txt']
         
-        # ---- 重试装饰器 ----
-        def retry(max_attempts=3, delay=1):
-            def decorator(func):
-                async def async_wrapper(*args, **kwargs):
-                    for attempt in range(max_attempts):
-                        try:
-                            return await func(*args, **kwargs)
-                        except Exception as e:
-                            if attempt == max_attempts - 1:
-                                raise
-                            print(f"尝试 {attempt+1}/{max_attempts} 失败: {str(e)}")
-                            await asyncio.sleep(delay * (2 ** attempt))
-                return async_wrapper
-            return decorator
-        
-        # ---- 版本管理 ----
-        class VersionManager:
-            _apk_versions = None
-            _kernel_versions = None
-            
-            @classmethod
-            def load_apk_versions(cls):
-                """加载APK版本数据"""
-                if cls._apk_versions is None:
-                    cls._apk_versions = cls._load_version_file('version.txt')
-                return cls._apk_versions
-            
-            @classmethod
-            def load_kernel_versions(cls):
-                """加载内核版本数据"""
-                if cls._kernel_versions is None:
-                    cls._kernel_versions = cls._load_version_file('kernel_versions.json')
-                return cls._kernel_versions
-            
-            @staticmethod
-            def _load_version_file(path):
-                """加载版本文件"""
-                if not os.path.exists(path):
-                    return {}
-                
+        # 获取内核版本信息
+        def get_kernel_versions():
+            """从kernel_versions.json获取内核版本信息"""
+            kernel_version_path = "kernel_versions.json"
+            if os.path.exists(kernel_version_path):
                 try:
-                    with open(path, 'r') as f:
-                        if path.endswith('.json'):
-                            return json.load(f)
-                        # 处理version.txt格式
-                        versions = {}
-                        for line in f:
-                            if ',' in line:
-                                key, value = line.strip().split(',', 1)
-                                versions[key] = value
-                        return versions
+                    with open(kernel_version_path, "r") as f:
+                        return json.load(f)
                 except Exception as e:
-                    print(f"⚠️ 加载版本文件失败 {path}: {str(e)}")
-                    return {}
-            
-            @classmethod
-            def reset_cache(cls):
-                """重置缓存"""
-                cls._apk_versions = None
-                cls._kernel_versions = None
+                    print(f"❌ 解析kernel_versions.json失败: {str(e)}")
+            return {}
         
-        # ---- 文件内容变更检测 ----
-        class FileChangeDetector:
-            @staticmethod
-            def calculate_file_hash(file_path):
-                """计算文件内容的SHA256哈希值"""
-                if not os.path.exists(file_path):
-                    return None
+        # 获取准确版本号
+        def get_accurate_version(filename, file_path):
+            """
+            获取文件的准确版本信息
+            apk文件: 从version.txt获取
+            kernels文件: 从kernel_versions.json获取
+            """
+            # 处理内核文件
+            if file_path.startswith('kernels/'):
+                kernel_versions = get_kernel_versions()
                 
-                try:
-                    with open(file_path, 'rb') as f:
-                        return hashlib.sha256(f.read()).hexdigest()
-                except Exception as e:
-                    print(f"⚠️ 无法计算文件哈希 {file_path}: {str(e)}")
-                    return None
-            
-            @staticmethod
-            def has_file_content_changed(file_path, parent_commit):
-                """检查文件内容是否实际发生变化"""
-                # 获取当前文件内容哈希
-                current_hash = FileChangeDetector.calculate_file_hash(file_path)
-                if not current_hash:
-                    return False
+                # 从文件名提取组名 (格式: openwrt_flippy6.1_6.1.141-flippy-93+o.zip)
+                match = re.match(r'^([a-zA-Z0-9_]+)_(\d+\..*)\.zip$', filename)
+                if match:
+                    group = match.group(1)
+                    file_version = match.group(2)
+                    
+                    # 在版本数据中查找组
+                    if group in kernel_versions:
+                        version_data = kernel_versions[group]
+                        return {
+                            "version": version_data.get("version", file_version),
+                            "date": version_data.get("date", "未知日期")
+                        }
+                    else:
+                        print(f"⚠️ kernel_versions.json中未找到组: {group}")
                 
-                # 获取父提交中的文件内容哈希
-                try:
-                    parent_blob = parent_commit.tree[file_path]
-                    parent_content = parent_blob.data
-                    parent_hash = hashlib.sha256(parent_content).hexdigest()
-                except KeyError:
-                    # 文件在父提交中不存在（新增文件）
-                    return True
-                except Exception as e:
-                    print(f"⚠️ 无法获取父提交文件内容 {file_path}: {str(e)}")
-                    return True
-                
-                return current_hash != parent_hash
-        
-        # ---- 变更分析器增强版 ----
-        class EnhancedChangeAnalyzer:
-            def __init__(self, repo_path='.'):
-                self.repo = pygit2.Repository(repo_path)
-                self.head_commit = self.repo.head.peel()
-            
-            def get_effective_changes(self):
-                """获取有效变更文件（包括内容变化）"""
-                if not self.head_commit.parents:
-                    return self._handle_initial_commit()
-                
-                # 使用第一个父提交进行比较
-                parent_commit = self.head_commit.parents[0]
-                changes = []
-                
-                # 计算差异
-                diff = self.repo.diff(parent_commit, self.head_commit)
-                
-                for delta in diff.deltas:
-                    if delta.status in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):
-                        file_path = delta.new_file.path
-                        
-                        # 检查文件内容是否实际变化
-                        if FileChangeDetector.has_file_content_changed(file_path, parent_commit):
-                            changes.append({
-                                'path': file_path,
-                                'status': delta.status
-                            })
-                        else:
-                            print(f"  - 跳过: {file_path} (内容未变化)")
-                
-                return changes
-            
-            def _handle_initial_commit(self):
-                """处理初始提交"""
-                changes = []
-                for entry in self.head_commit.tree:
-                    file_path = entry.name
-                    if self.is_relevant_file(file_path):
-                        changes.append({
-                            'path': file_path,
-                            'status': pygit2.GIT_DELTA_ADDED
-                        })
-                return changes
-            
-            @staticmethod
-            def is_relevant_file(file_path):
-                """检查文件是否在监控范围内"""
-                # 修复括号问题
-                return (file_path.startswith(('apk/', 'kernels/'))) and \
-                       any(file_path.endswith(ext) for ext in ALLOWED_EXTENSIONS
-            
-            def get_commit_time(self):
-                """获取提交时间（北京时间）"""
-                utc_time = datetime.utcfromtimestamp(self.head_commit.commit_time)
-                utc_time = UTC_TZ.localize(utc_time)
-                return utc_time.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M')
-        
-        # ---- 文件处理器增强版 ----
-        class EnhancedFileProcessor:
-            @staticmethod
-            def get_file_info(file_path, commit_time):
-                """获取文件详细信息（增强版本检测）"""
-                filename = os.path.basename(file_path)
-                
-                # 检查版本文件更新
-                EnhancedFileProcessor.check_version_file_update(file_path)
-                
-                # 获取版本信息
-                version_info = EnhancedFileProcessor.get_version_info(filename, file_path, commit_time)
-                
+                # 如果无法解析文件名，返回默认值
                 return {
-                    'path': file_path,
-                    'name': filename,
-                    'version': version_info.get('version', '未知版本'),
-                    'date': version_info.get('date', commit_time),
-                    'url': f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{quote(file_path)}"
+                    "version": "未知版本",
+                    "date": "未知日期"
                 }
             
-            @staticmethod
-            def check_version_file_update(file_path):
-                """检查版本文件是否需要更新"""
-                for prefix, vfile in VERSION_FILES.items():
-                    if file_path.startswith(prefix):
-                        if os.path.exists(vfile) and os.path.getmtime(vfile) > os.path.getmtime(file_path):
-                            print(f"🔄 检测到版本文件 {vfile} 已更新，重置缓存")
-                            VersionManager.reset_cache()
+            # 处理APK文件
+            version_path = "version.txt"
+            if os.path.exists(version_path):
+                try:
+                    with open(version_path, "r") as f:
+                        version_data = json.load(f)
+                    
+                    # 查找匹配的文件名
+                    if filename in version_data:
+                        version_info = version_data[filename]
+                        if isinstance(version_info, str):
+                            if ',' in version_info:
+                                version, date = version_info.split(',', 1)
+                                return {"version": version, "date": date}
+                            return {"version": version_info, "date": "未知日期"}
+                        elif isinstance(version_info, dict):
+                            return {
+                                "version": version_info.get("version", "未知版本"),
+                                "date": version_info.get("date", "未知日期")
+                            }
+                except Exception as e:
+                    print(f"❌ 解析version.txt失败: {str(e)}")
             
-            @staticmethod
-            def get_version_info(filename, file_path, default_date):
-                """获取版本信息（增强匹配逻辑）"""
-                # 内核文件处理
-                if file_path.startswith('kernels/'):
-                    kernel_versions = VersionManager.load_kernel_versions()
-                    
-                    # 尝试多种匹配模式
-                    patterns = [
-                        filename,
-                        filename.split('.')[0],
-                        filename.replace('-', '_'),
-                        filename.split('_')[0],
-                        '_'.join(filename.split('_')[:2])
-                    ]
-                    
-                    for pattern in patterns:
-                        if pattern in kernel_versions:
-                            return EnhancedFileProcessor.parse_version_data(kernel_versions[pattern])
-                    
-                    # 模糊匹配
-                    for key in kernel_versions:
-                        if key in filename:
-                            return EnhancedFileProcessor.parse_version_data(kernel_versions[key])
-                    
-                    # 尝试从文件名中提取版本
-                    version_match = re.search(r'(\d+\.\d+\.\d+)', filename)
-                    if version_match:
-                        return {
-                            'version': version_match.group(1),
-                            'date': default_date
-                        }
-                
-                # APK文件处理
-                apk_versions = VersionManager.load_apk_versions()
-                if filename in apk_versions:
-                    return EnhancedFileProcessor.parse_version_data(apk_versions[filename])
-                
-                # 尝试从文件名中提取版本
-                version_match = re.search(r'[vV]?(\d+\.\d+\.\d+)', filename)
-                if version_match:
-                    return {
-                        'version': version_match.group(1),
-                        'date': default_date
-                    }
-                
-                return {'version': '未知版本', 'date': default_date}
-            
-            @staticmethod
-            def parse_version_data(data):
-                """解析版本数据"""
-                if isinstance(data, dict):
-                    return data
-                if isinstance(data, str):
-                    parts = data.split(',', 1)
-                    return {
-                        'version': parts[0].strip(),
-                        'date': parts[1].strip() if len(parts) > 1 else "未知日期"
-                    }
-                return {'version': str(data), 'date': "未知日期"}
+            return None
         
-        # ---- 通知服务 ----
-        class Notifier:
-            @retry()
-            async def send_telegram(self, files):
-                """发送Telegram通知"""
-                try:
-                    api_id = int(os.getenv("TELEGRAM_API_ID"))
-                    api_hash = os.getenv("TELEGRAM_API_HASH")
-                    session_str = os.getenv("TELEGRAM_SESSION")
-                    channel = os.getenv("TELEGRAM_CHANNEL")
-                    
-                    async with TelegramClient(
-                        StringSession(session_str), 
-                        api_id, 
-                        api_hash
-                    ) as client:
-                        message = self._build_telegram_message(files)
-                        await client.send_message(
-                            entity=channel,
-                            message=message,
-                            parse_mode='md',
-                            link_preview=False
-                        )
-                        return True
-                except Exception as e:
-                    print(f"❌ Telegram发送失败: {str(e)}")
-                    raise
-            
-            def send_email(self, files, receiver):
-                """发送邮件通知"""
-                try:
-                    # 配置检查
-                    smtp_server = os.getenv("SMTP_SERVER")
-                    smtp_port = int(os.getenv("SMTP_PORT", 465))
-                    smtp_user = os.getenv("SMTP_USER")
-                    smtp_pass = os.getenv("SMTP_PASSWORD")
-                    
-                    if not all([smtp_server, smtp_user, smtp_pass]):
-                        print("⚠️ SMTP配置不完整，跳过邮件发送")
-                        return False
-                    
-                    # 创建邮件
-                    msg = MIMEMultipart()
-                    msg['From'] = smtp_user
-                    msg['To'] = receiver
-                    msg['Subject'] = f"文件更新通知 - {datetime.now(BEIJING_TZ).strftime('%Y-%m-%d %H:%M')}"
-                    
-                    # 构建HTML内容
-                    html_content = self._build_email_content(files)
-                    msg.attach(MIMEText(html_content, 'html'))
-                    
-                    # 发送邮件
-                    with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
-                        server.login(smtp_user, smtp_pass)
-                        server.sendmail(smtp_user, receiver, msg.as_string())
-                    
-                    return True
-                except Exception as e:
-                    print(f"❌ 邮件发送失败: {str(e)}")
+        def generate_proxy_urls(raw_url):
+            """生成代理下载链接"""
+            return {
+                "gh-proxy": f"https://gh-proxy.com/{raw_url}",
+                "github-speedup": f"https://github-speedup.com/{raw_url}"
+            }
+        
+        def get_file_type(path):
+            """根据路径确定文件类型"""
+            if path.startswith('apk/'):
+                return "App File"
+            elif path.startswith('kernels/'):
+                return "Kernel File"
+            return "File"
+        
+        def get_file_icon(path):
+            """获取文件类型图标"""
+            if path.endswith('.apk'):
+                return "📱"
+            elif path.endswith('.zip'):
+                return "📦"
+            elif path.endswith('.tar.gz'):
+                return "🗜️"
+            return "📄"
+        
+        async def send_telegram_message(files):
+            """使用Telethon发送消息"""
+            try:
+                api_id = int(os.getenv("TELEGRAM_API_ID"))
+                api_hash = os.getenv("TELEGRAM_API_HASH")
+                session_str = os.getenv("TELEGRAM_SESSION")
+                channel = os.getenv("TELEGRAM_CHANNEL")
+                
+                if not all([api_id, api_hash, session_str, channel]):
+                    print("❌ Telegram配置不完整")
                     return False
-            
-            def _build_telegram_message(self, files):
-                """构建Telegram消息"""
-                repo = os.getenv("GITHUB_REPOSITORY")
-                sha_short = os.getenv("GITHUB_SHA", "")[:7]
-                commit_url = f"https://github.com/{repo}/commit/{os.getenv('GITHUB_SHA')}"
                 
-                message = [
-                    "🚀 **实时文件更新通知**",
-                    f"🔖 仓库: `{repo}`",
-                    f"🆔 提交: [{sha_short}]({commit_url})",
-                    "",
-                    "📦 更新文件列表:"
-                ]
-                
-                for file in files:
-                    icon = "📱" if file['path'].endswith('.apk') else "📦"
-                    file_type = "应用" if "apk" in file['path'] else "内核"
+                async with TelegramClient(
+                    StringSession(session_str), 
+                    api_id, 
+                    api_hash
+                ) as client:
+                    # 构建简洁消息
+                    message = "🚀 **实时文件更新通知**\n\n"
+                    message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n"
+                    message += f"🆔 提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\n\n"
                     
-                    message.append(
-                        f"{icon} **{file_type}文件**: `{file['name']}`\n"
-                        f"  - 版本: `{file['version']}`\n"
-                        f"  - 更新时间: `{file['date']}` (北京时间)"
+                    # 添加文件列表
+                    for file in files:
+                        icon = get_file_icon(file['path'])
+                        file_type = get_file_type(file['path'])
+                        message += f"{icon} **{file_type}**: `{file['name']}`\n"
+                        message += f"  - 版本: `{file['version']}`\n"
+                        message += f"  - 更新时间: `{file['date']}` (北京时间)\n"
+                        message += f"  - \n\n"
+                    
+                    await client.send_message(
+                        entity=channel,
+                        message=message,
+                        parse_mode='md',
+                        link_preview=False
                     )
+                    return True
+            except Exception as e:
+                print(f"❌ Telethon错误: {str(e)}")
+                return False
+        
+        def send_email(files, receiver_email):
+            """发送邮件通知"""
+            try:
+                # 从环境变量获取SMTP配置
+                smtp_server = os.getenv("SMTP_SERVER")
+                smtp_port = int(os.getenv("SMTP_PORT", 587))
+                smtp_user = os.getenv("SMTP_USER")
+                smtp_password = os.getenv("SMTP_PASSWORD")
                 
-                return "\n".join(message)
-            
-            def _build_email_content(self, files):
-                """构建邮件HTML内容"""
-                repo = os.getenv("GITHUB_REPOSITORY")
-                sha_short = os.getenv("GITHUB_SHA", "")[:7]
-                commit_url = f"https://github.com/{repo}/commit/{os.getenv('GITHUB_SHA')}"
-                detection_time = datetime.now(BEIJING_TZ).strftime('%Y-%m-%d %H:%M')
+                # 验证配置完整性
+                if not all([smtp_server, smtp_user, smtp_password]):
+                    print("❌ SMTP配置不完整")
+                    return False
                 
-                html = f"""
+                # 构建邮件主题和内容
+                subject = f"实时文件更新通知 - {os.getenv('GITHUB_REPOSITORY')}"
+                
+                # HTML格式的邮件内容
+                html_content = f"""
                 <html>
-                <head>
-                    <style>
-                        body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
-                        .header {{ background-color: #f8f9fa; padding: 20px; border-bottom: 1px solid #eaeaea; }}
-                        .container {{ max-width: 800px; margin: 0 auto; padding: 20px; }}
-                        .file-list {{ margin-top: 20px; }}
-                        .file-item {{ border: 1px solid #eaeaea; border-radius: 5px; padding: 15px; margin-bottom: 15px; }}
-                        .file-icon {{ font-size: 24px; margin-right: 10px; }}
-                        .file-name {{ font-weight: bold; font-size: 18px; }}
-                        .file-details {{ margin-left: 35px; }}
-                        .commit-link {{ color: #0366d6; text-decoration: none; }}
-                        .section-title {{ margin-top: 25px; padding-bottom: 10px; border-bottom: 1px solid #eee; }}
-                    </style>
-                </head>
                 <body>
-                    <div class="header">
-                        <h1>🚀 文件更新通知</h1>
-                    </div>
-                    <div class="container">
-                        <div class="section-title">
-                            <h2>仓库信息</h2>
-                        </div>
-                        <p><strong>🔖 仓库:</strong> {repo}</p>
-                        <p><strong>🆔 提交:</strong> <a href="{commit_url}" class="commit-link">{sha_short}</a></p>
-                        <p><strong>📅 检测时间:</strong> {detection_time} (北京时间)</p>
-                        
-                        <div class="section-title">
-                            <h2>📦 更新文件 ({len(files)}个)</h2>
-                        </div>
+                    <h2>🚀 实时文件更新通知</h2>
+                    <p><strong>🔖 仓库:</strong> {os.getenv('GITHUB_REPOSITORY')}</p>
+                    <p><strong>🆔 提交:</strong> <a href="https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')}">{os.getenv('GITHUB_SHA')[:7]}</a></p>
+                    <p><strong>📦 检测到 {len(files)} 个文件更新:</strong> (所有时间均为北京时间)</p>
+                    <ul>
                 """
                 
                 for file in files:
-                    icon = "📱" if file['path'].endswith('.apk') else "📦"
-                    file_type = "应用" if "apk" in file['path'] else "内核"
-                    
-                    # 生成代理链接
-                    gh_proxy_url = f"https://gh-proxy.com/{file['url']}"
-                    github_speedup_url = f"https://github-speedup.com/{file['url']}"
-                    
-                    html += f"""
-                    <div class="file-item">
-                        <div>
-                            <span class="file-icon">{icon}</span>
-                            <span class="file-name">{file['name']}</span>
-                        </div>
-                        <div class="file-details">
-                            <p><strong>类型:</strong> {file_type}文件</p>
-                            <p><strong>版本:</strong> {file['version']}</p>
-                            <p><strong>更新时间:</strong> {file['date']} (北京时间)</p>
-                            <p><strong>下载地址:</strong> 
+                    proxy_urls = generate_proxy_urls(file['url'])
+                    icon = get_file_icon(file['path'])
+                    file_type = get_file_type(file['path'])
+                    html_content += f"""
+                    <li>
+                        <p><strong>{icon} {file_type}: {file['name']}</strong></p>
+                        <ul>
+                            <li><strong>版本:</strong> {file['version']}</li>
+                            <li><strong>更新时间:</strong> {file['date']} (北京时间)</li>
+                            <li><strong>下载地址:</strong> 
                                 <a href="{file['url']}">原始地址</a> | 
-                                <a href="{gh_proxy_url}">gh-proxy</a> | 
-                                <a href="{github_speedup_url}">github-speedup</a>
-                            </p>
-                        </div>
-                    </div>
+                                <a href="{proxy_urls['gh-proxy']}">gh-proxy</a> | 
+                                <a href="{proxy_urls['github-speedup']}">github-speedup</a>
+                            </li>
+                        </ul>
+                    </li>
                     """
                 
-                html += """
-                        <div class="section-title">
-                            <h2>系统信息</h2>
-                        </div>
-                        <p><em>此邮件由 GitHub Actions 工作流自动发送</em></p>
-                        <p><strong>工作流名称:</strong> Enhanced Real-time Directory Monitor</p>
-                        <p><strong>触发方式:</strong> ${{ github.event_name }}</p>
-                    </div>
+                html_content += """
+                    </ul>
+                    <p>此邮件由 GitHub Actions 自动发送</p>
                 </body>
                 </html>
                 """
-                return html
-        
-        # ---- 主流程增强版 ----
-        async def enhanced_main():
-            print("🔄 启动增强型目录监控")
-            start_time = time.time()
-            
-            try:
-                # 初始化分析器
-                analyzer = EnhancedChangeAnalyzer()
-                commit_time = analyzer.get_commit_time()
-                print(f"🗓️ 提交时间（北京时间）: {commit_time}")
                 
-                # 获取变更
-                changes = analyzer.get_effective_changes()
-                if not changes:
-                    print("✅ 未检测到有效变更")
-                    return
+                # 创建邮件
+                msg = MIMEMultipart()
+                msg['From'] = smtp_user
+                msg['To'] = receiver_email
+                msg['Subject'] = subject
+                msg.attach(MIMEText(html_content, 'html'))
                 
-                print(f"🔍 发现 {len(changes)} 个变更文件")
-                for change in changes:
-                    print(f"  - {change['path']} (状态: {change['status']})")
+                # 使用SSL连接SMTP服务器
+                server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+                server.login(smtp_user, smtp_password)
+                server.sendmail(smtp_user, receiver_email, msg.as_string())
+                server.quit()
                 
-                # 处理文件信息
-                valid_files = []
-                for change in changes:
-                    if analyzer.is_relevant_file(change['path']):
-                        file_info = EnhancedFileProcessor.get_file_info(change['path'], commit_time)
-                        valid_files.append(file_info)
-                        print(f"  - 有效变更: {change['path']} (v{file_info['version']})")
-                    else:
-                        print(f"  - 跳过: {change['path']} (非监控文件)")
-                
-                if not valid_files:
-                    print("ℹ️ 无监控目录内的相关文件变更")
-                    return
-                
-                # 发送通知
-                notifier = Notifier()
-                tasks = []
-                
-                # Telegram通知
-                telegram_enabled = all([
-                    os.getenv("TELEGRAM_API_ID"), 
-                    os.getenv("TELEGRAM_API_HASH"),
-                    os.getenv("TELEGRAM_SESSION"), 
-                    os.getenv("TELEGRAM_CHANNEL")
-                ])
-                
-                if telegram_enabled:
-                    tasks.append(notifier.send_telegram(valid_files))
-                    print("📤 加入Telegram通知队列")
-                else:
-                    print("⚠️ Telegram配置不完整，跳过通知")
-                
-                # 邮件通知
-                email_receiver = os.getenv("EMAIL_RECEIVER")
-                if email_receiver:
-                    tasks.append(asyncio.to_thread(notifier.send_email, valid_files, email_receiver))
-                    print("📧 加入邮件通知队列")
-                else:
-                    print("⚠️ 未配置邮件接收者，跳过邮件通知")
-                
-                if tasks:
-                    print("🚀 开始发送通知...")
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
-                    # 处理通知结果
-                    for i, result in enumerate(results):
-                        if isinstance(result, Exception):
-                            print(f"❌ 通知任务 {i+1} 失败: {str(result)}")
-                        elif result:
-                            print(f"✅ 通知任务 {i+1} 成功")
-                        else:
-                            print(f"⚠️ 通知任务 {i+1} 返回未知结果")
-                else:
-                    print("ℹ️ 无有效通知任务")
-                
-                print(f"🎉 监控完成! 耗时: {time.time()-start_time:.2f}秒")
-                
+                print(f"✅ 邮件已发送至: {receiver_email}")
+                return True
             except Exception as e:
-                print(f"🔥 严重错误: {str(e)}")
-                # 这里可以添加额外的错误通知逻辑
-                raise
+                # 打印详细的错误信息
+                import traceback
+                traceback.print_exc()
+                print(f"❌ 邮件发送失败: {str(e)}")
+                return False
+        
+        def main():
+            print("🚀 开始实时监控目录变更...")
+            repo = pygit2.Repository('.')
+            
+            # 获取当前提交
+            head_commit = repo.head.peel()
+            print(f"当前提交: {head_commit.id}")
+            
+            # 获取父提交
+            parent_commits = head_commit.parents
+            if not parent_commits:
+                print("⚠️ 初始提交 - 无前一版本")
+                return
+            
+            # 使用第一个父提交进行比较
+            parent_commit = parent_commits[0]
+            print(f"父提交: {parent_commit.id}")
+            
+            # 计算差异
+            diff = repo.diff(parent_commit, head_commit)
+            changed_files = []
+            
+            # 解析差异
+            for delta in diff.deltas:
+                # 只处理新增和修改的文件，忽略删除的文件
+                if delta.status not in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):
+                    continue
+                
+                file_path = delta.new_file.path or delta.old_file.path
+                print(f"检测到变更: {file_path} [状态: {delta.status}]")
+                
+                # 只处理apk和kernels目录下的文件
+                if not (file_path.startswith('apk/') or file_path.startswith('kernels/')):
+                    continue
+                
+                # 获取文件名
+                filename = os.path.basename(file_path)
+                
+                # 获取UTC时间并转换为北京时间
+                utc_time = datetime.utcfromtimestamp(head_commit.commit_time)
+                utc_time = UTC_TZ.localize(utc_time)  # 标记为UTC时区
+                beijing_time = utc_time.astimezone(BEIJING_TZ)
+                commit_time = beijing_time.strftime('%Y-%m-%d %H:%M')
+                
+                # 构建原始下载URL
+                encoded_path = quote(file_path)
+                raw_url = f"https://raw.githubusercontent.com/{os.getenv('GITHUB_REPOSITORY')}/main/{encoded_path}"
+                
+                # 获取准确版本信息
+                version_info = get_accurate_version(filename, file_path)
+                
+                if version_info:
+                    version = version_info.get("version", "未知版本")
+                    version_date = version_info.get("date", commit_time)
+                    version_source = "版本文件"
+                else:
+                    version = "未知版本"
+                    version_date = commit_time
+                    version_source = "默认时间"
+                
+                changed_files.append({
+                    "path": file_path,
+                    "name": filename,
+                    "version": version,
+                    "date": version_date,
+                    "url": raw_url,
+                    "version_source": version_source
+                })
+            
+            if not changed_files:
+                print("✅ 未检测到文件变更")
+                return
+            
+            print(f"📦 检测到 {len(changed_files)} 个文件变更:")
+            for file in changed_files:
+                print(f"  - {file['path']} (v{file['version']}, {file['date']} 北京时间) [来源: {file['version_source']}]")
+            
+            # 发送到Telegram
+            loop = asyncio.get_event_loop()
+            telegram_success = loop.run_until_complete(send_telegram_message(changed_files))
+            
+            # 发送到邮箱
+            email_receiver = os.getenv("EMAIL_RECEIVER")
+            if email_receiver:
+                email_success = send_email(changed_files, email_receiver)
+            else:
+                print("⚠️ 未配置EMAIL_RECEIVER，跳过邮件通知")
+                email_success = False
+            
+            if telegram_success:
+                print("✅ Telegram通知发送成功!")
+            else:
+                print("❌ Telegram通知发送失败")
+            
+            if email_success:
+                print("✅ 邮件通知发送成功!")
+            else:
+                print("❌ 邮件通知发送失败")
         
         if __name__ == "__main__":
-            asyncio.run(enhanced_main())
+            main()
         EOF
         
-        python enhanced_monitor.py
+        python directory_monitor.py
 
-  # 工作流历史清理
   cleanup_self:
-    name: Cleanup Workflow History
+    name: Cleanup Self Workflow History
     runs-on: ubuntu-latest
     needs: detect-and-notify
     if: ${{ always() }}
