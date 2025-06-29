@@ -35,7 +35,11 @@ jobs:
         python-version: '3.10'
 
     - name: Install dependencies
-      run: pip install telethon pytz requests > /dev/null
+      run: |
+        pip install --upgrade telethon==1.34.0 pytz requests
+        
+        # 安装修复会话解析问题的必要依赖
+        pip install cryptography cffi
 
     - name: Sync TAuxiliary APK
       env:
@@ -148,11 +152,15 @@ jobs:
             apk_exists = github_api_file_exists(APK_PATH)
             log(f"APK file exists: {apk_exists}")
             
-            # 连接Telegram
+            # 连接Telegram - 添加详细的连接设置
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
                 int(os.environ['TELEGRAM_API_ID']),
-                os.environ['TELEGRAM_API_HASH']
+                os.environ['TELEGRAM_API_HASH'],
+                connection_retries=5,
+                request_retries=5,
+                auto_reconnect=True,
+                use_ipv6=False  # 强制使用IPv4连接
             )
             
             try:
@@ -219,6 +227,8 @@ jobs:
                 return 0
             except Exception as e:
                 log(f"Error: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 return 1
             finally:
                 await client.disconnect()
