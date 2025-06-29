@@ -3,26 +3,62 @@ name: Real-time README Updater
 on:
   push:
     paths:
-      - 'version.txt'
       - 'apk/**'
-      - 'kernel_versions.json'
       - 'kernels/**'
+      - 'version.txt'
+      - 'kernel_versions.json'
+    branches: [ main ]
   workflow_run:
-    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "OpenWrt Kernel Sync from TELEGRAM", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM", "TV NEW APK Sync from TELEGRAM", "Hiddify APK Sync from Source Repository", "Termux APK Sync from Source Repository", "Passwall Packages Sync from Source Repository", "OpenWrt Kernel Sync from TELEGRAM", "Plus APK Download and Sync", "TAuxiliary APK Sync from TELEGRAM"]
+    workflows: ${{ fromJSON(needs.setup.outputs.all_workflows_excluded) }}
     types: [completed]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  actions: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  update-readme:
+  setup:
     runs-on: ubuntu-latest
+    outputs:
+      all_workflows_excluded: ${{ steps.exclude.outputs.workflow_list }}
+    steps:
+      - name: 获取所有工作流
+        id: get-workflows
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const workflows = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            const names = workflows.data.workflow_runs.map(w => w.name);
+            const uniqueNames = [...new Set(names)];
+            return uniqueNames.filter(name => name !== 'Real-time Directory Monitor');
+
+      - name: 排除指定工作流
+        id: exclude
+        run: |
+          # 在此添加要排除的工作流名称
+          EXCLUDE=(
+            "Cleanup All Workflow Runs"
+            "Trigger All Workflows"
+            "Real-time Directory Monitor"
+          )
+          
+          # 转换为JSON数组
+          ALL_WORKFLOWS=${{ steps.get-workflows.outputs.result }}
+          FILTERED=$(echo "$ALL_WORKFLOWS" | jq --argjson exclude "$(printf '%s\n' "${EXCLUDE[@]}" | jq -R . | jq -s .)" 'map(select(. as $w | $exclude | index($w) | not)')
+          
+          # 输出处理后的列表
+          echo "workflow_list=$FILTERED" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  detect-and-notify:
+    runs-on: ubuntu-latest
+    needs: [setup]
+    timeout-minutes: 5
+    concurrency: 
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
