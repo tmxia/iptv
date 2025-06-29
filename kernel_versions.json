@@ -1,14 +1,14 @@
 {
   "openwrt_flippy6.1": {
-    "version": "6.1.141-flippy-93+o",
-    "date": "2025-06-05"
+    "version": "6.1.142-flippy-93+o",
+    "date": "2025-06-28"
   },
   "openwrt_flippy6.12": {
-    "version": "6.12.34-flippy-93+",
-    "date": "2025-06-22"
+    "version": "6.12.35-flippy-93+",
+    "date": "2025-06-28"
   },
   "openwrt_flippy6.6": {
-    "version": "6.6.94-flippy-93+",
-    "date": "2025-06-22"
+    "version": "6.6.95-flippy-93+",
+    "date": "2025-06-28"
   }
 }
