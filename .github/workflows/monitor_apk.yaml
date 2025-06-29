@@ -1,4 +1,4 @@
-name: Enhanced Real-time Directory Monitor
+name: Real-time Directory Monitor
 
 on:
   # 手动触发配置
@@ -706,7 +706,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 5
-          retain_days: 3
-          delete_workflow_pattern: "Enhanced Real-time Directory Monitor"
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "Real-time Directory Monitor"
           repository: ${{ github.repository }}
