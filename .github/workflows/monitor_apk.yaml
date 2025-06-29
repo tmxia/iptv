@@ -11,9 +11,16 @@ on:
   workflow_run:
     workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "OpenWrt Kernel Sync from TELEGRAM", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM", "TV NEW APK Sync from TELEGRAM", "Hiddify APK Sync from Source Repository", "Termux APK Sync from Source Repository", "Passwall Packages Sync from Source Repository", "Plus APK Download and Sync", "TAuxiliary APK Sync from TELEGRAM"]
     types: [completed]
+    branches: [main]
+    # 关键修改：确保只有上游工作流成功完成时才触发
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
 jobs:
   detect-and-notify:
+    # 添加条件检查：确保在push事件或workflow_run成功时执行
+    if: |
+      github.event_name == 'push' || 
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency: 
