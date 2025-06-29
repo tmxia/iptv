@@ -1,4 +1,4 @@
-name: Real-time Directory Monitor
+name: Enhanced Real-time Directory Monitor
 
 on:
   # 手动触发配置
@@ -179,6 +179,7 @@ jobs:
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         from urllib.parse import quote
+        import hashlib
         
         # ---- 配置常量 ----
         UTC_TZ = timezone('UTC')
@@ -250,39 +251,93 @@ jobs:
                 cls._apk_versions = None
                 cls._kernel_versions = None
         
-        # ---- 变更分析器 ----
-        class ChangeAnalyzer:
+        # ---- 文件内容变更检测 ----
+        class FileChangeDetector:
+            @staticmethod
+            def calculate_file_hash(file_path):
+                """计算文件内容的SHA256哈希值"""
+                if not os.path.exists(file_path):
+                    return None
+                
+                try:
+                    with open(file_path, 'rb') as f:
+                        return hashlib.sha256(f.read()).hexdigest()
+                except Exception as e:
+                    print(f"⚠️ 无法计算文件哈希 {file_path}: {str(e)}")
+                    return None
+            
+            @staticmethod
+            def has_file_content_changed(file_path, parent_commit, head_commit):
+                """检查文件内容是否实际发生变化"""
+                # 获取当前文件内容哈希
+                current_hash = FileChangeDetector.calculate_file_hash(file_path)
+                if not current_hash:
+                    return False
+                
+                # 获取父提交中的文件内容哈希
+                try:
+                    parent_blob = parent_commit.tree[file_path]
+                    parent_content = parent_blob.data
+                    parent_hash = hashlib.sha256(parent_content).hexdigest()
+                except KeyError:
+                    # 文件在父提交中不存在（新增文件）
+                    return True
+                except Exception as e:
+                    print(f"⚠️ 无法获取父提交文件内容 {file_path}: {str(e)}")
+                    return True
+                
+                return current_hash != parent_hash
+        
+        # ---- 变更分析器增强版 ----
+        class EnhancedChangeAnalyzer:
             def __init__(self, repo_path='.'):
                 self.repo = pygit2.Repository(repo_path)
                 self.head_commit = self.repo.head.peel()
             
             def get_effective_changes(self):
-                """获取有效变更文件"""
+                """获取有效变更文件（包括内容变化）"""
                 if not self.head_commit.parents:
                     return self._handle_initial_commit()
                 
+                # 使用第一个父提交进行比较
+                parent_commit = self.head_commit.parents[0]
                 changes = []
-                for parent in self.head_commit.parents:
-                    diff = self.repo.diff(parent, self.head_commit)
-                    for delta in diff.deltas:
-                        if delta.status in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):
-                            file_path = delta.new_file.path
-                            if file_path not in [c['path'] for c in changes]:
-                                changes.append({
-                                    'path': file_path,
-                                    'status': delta.status
-                                })
+                
+                # 计算差异
+                diff = self.repo.diff(parent_commit, self.head_commit)
+                
+                for delta in diff.deltas:
+                    if delta.status in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):
+                        file_path = delta.new_file.path
+                        
+                        # 检查文件内容是否实际变化
+                        if FileChangeDetector.has_file_content_changed(file_path, parent_commit, self.head_commit):
+                            changes.append({
+                                'path': file_path,
+                                'status': delta.status
+                            })
+                        else:
+                            print(f"  - 跳过: {file_path} (内容未变化)")
+                
                 return changes
             
             def _handle_initial_commit(self):
                 """处理初始提交"""
                 changes = []
                 for entry in self.head_commit.tree:
-                    changes.append({
-                        'path': entry.name,
-                        'status': pygit2.GIT_DELTA_ADDED
-                    })
+                    file_path = entry.name
+                    if self.is_relevant_file(file_path):
+                        changes.append({
+                            'path': file_path,
+                            'status': pygit2.GIT_DELTA_ADDED
+                        })
                 return changes
+            
+            @staticmethod
+            def is_relevant_file(file_path):
+                """检查文件是否在监控范围内"""
+                return (file_path.startswith(('apk/', 'kernels/')) and \
+                       any(file_path.endswith(ext) for ext in ALLOWED_EXTENSIONS)
             
             def get_commit_time(self):
                 """获取提交时间（北京时间）"""
@@ -290,24 +345,18 @@ jobs:
                 utc_time = UTC_TZ.localize(utc_time)
                 return utc_time.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M')
         
-        # ---- 文件处理器 ----
-        class FileProcessor:
-            @staticmethod
-            def is_relevant_file(file_path):
-                """检查文件是否相关"""
-                return (file_path.startswith(('apk/', 'kernels/')) and 
-                        any(file_path.endswith(ext) for ext in ALLOWED_EXTENSIONS))
-            
+        # ---- 文件处理器增强版 ----
+        class EnhancedFileProcessor:
             @staticmethod
             def get_file_info(file_path, commit_time):
-                """获取文件详细信息"""
+                """获取文件详细信息（增强版本检测）"""
                 filename = os.path.basename(file_path)
                 
                 # 检查版本文件更新
-                FileProcessor.check_version_file_update(file_path)
+                EnhancedFileProcessor.check_version_file_update(file_path)
                 
                 # 获取版本信息
-                version_info = FileProcessor.get_version_info(filename, file_path, commit_time)
+                version_info = EnhancedFileProcessor.get_version_info(filename, file_path, commit_time)
                 
                 return {
                     'path': file_path,
@@ -328,10 +377,11 @@ jobs:
             
             @staticmethod
             def get_version_info(filename, file_path, default_date):
-                """获取版本信息"""
+                """获取版本信息（增强匹配逻辑）"""
                 # 内核文件处理
                 if file_path.startswith('kernels/'):
                     kernel_versions = VersionManager.load_kernel_versions()
+                    
                     # 尝试多种匹配模式
                     patterns = [
                         filename,
@@ -343,17 +393,33 @@ jobs:
                     
                     for pattern in patterns:
                         if pattern in kernel_versions:
-                            return FileProcessor.parse_version_data(kernel_versions[pattern])
+                            return EnhancedFileProcessor.parse_version_data(kernel_versions[pattern])
                     
                     # 模糊匹配
                     for key in kernel_versions:
                         if key in filename:
-                            return FileProcessor.parse_version_data(kernel_versions[key])
+                            return EnhancedFileProcessor.parse_version_data(kernel_versions[key])
+                    
+                    # 尝试从文件名中提取版本
+                    version_match = re.search(r'(\d+\.\d+\.\d+)', filename)
+                    if version_match:
+                        return {
+                            'version': version_match.group(1),
+                            'date': default_date
+                        }
                 
                 # APK文件处理
                 apk_versions = VersionManager.load_apk_versions()
                 if filename in apk_versions:
-                    return FileProcessor.parse_version_data(apk_versions[filename])
+                    return EnhancedFileProcessor.parse_version_data(apk_versions[filename])
+                
+                # 尝试从文件名中提取版本
+                version_match = re.search(r'[vV]?(\d+\.\d+\.\d+)', filename)
+                if version_match:
+                    return {
+                        'version': version_match.group(1),
+                        'date': default_date
+                    }
                 
                 return {'version': '未知版本', 'date': default_date}
             
@@ -537,14 +603,14 @@ jobs:
                 """
                 return html
         
-        # ---- 主流程 ----
-        async def main():
+        # ---- 主流程增强版 ----
+        async def enhanced_main():
             print("🔄 启动增强型目录监控")
             start_time = time.time()
             
             try:
                 # 初始化分析器
-                analyzer = ChangeAnalyzer()
+                analyzer = EnhancedChangeAnalyzer()
                 commit_time = analyzer.get_commit_time()
                 print(f"🗓️ 提交时间（北京时间）: {commit_time}")
                 
@@ -555,14 +621,18 @@ jobs:
                     return
                 
                 print(f"🔍 发现 {len(changes)} 个变更文件")
+                for change in changes:
+                    print(f"  - {change['path']} (状态: {change['status']})")
                 
                 # 处理文件信息
                 valid_files = []
                 for change in changes:
-                    if FileProcessor.is_relevant_file(change['path']):
-                        file_info = FileProcessor.get_file_info(change['path'], commit_time)
+                    if analyzer.is_relevant_file(change['path']):
+                        file_info = EnhancedFileProcessor.get_file_info(change['path'], commit_time)
                         valid_files.append(file_info)
-                        print(f"  - {change['path']} (v{file_info['version']})")
+                        print(f"  - 有效变更: {change['path']} (v{file_info['version']})")
+                    else:
+                        print(f"  - 跳过: {change['path']} (非监控文件)")
                 
                 if not valid_files:
                     print("ℹ️ 无监控目录内的相关文件变更")
@@ -617,7 +687,7 @@ jobs:
                 raise
         
         if __name__ == "__main__":
-            asyncio.run(main())
+            asyncio.run(enhanced_main())
         EOF
         
         python enhanced_monitor.py
@@ -636,7 +706,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 0
-          retain_days: 0
-          delete_workflow_pattern: "Real-time Directory Monitor"
+          keep_minimum_runs: 5
+          retain_days: 3
+          delete_workflow_pattern: "Enhanced Real-time Directory Monitor"
           repository: ${{ github.repository }}
