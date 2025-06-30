@@ -17,7 +17,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    # =========== 新增锁管理步骤 ===========
     - name: Acquire Repository Lock
       id: lock
       run: |
