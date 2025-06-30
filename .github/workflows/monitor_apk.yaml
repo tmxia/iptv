@@ -39,7 +39,8 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake libgit2-dev
-        pip install telethon pygit2 pytz
+        # 修复Telethon兼容性问题
+        pip install --force-reinstall -v "telethon==1.34.0" pygit2 pytz
 
     - name: Run enhanced detection script
       env:
