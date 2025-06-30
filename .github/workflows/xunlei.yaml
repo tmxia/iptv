@@ -1,0 +1,223 @@
+name: Xunlei Download Automation
+on: [workflow_dispatch]
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          pip install cloudscraper requests beautifulsoup4 tqdm
+          
+      - name: Run Xunlei downloader
+        env:
+          XUNLEI_URL: "https://pan.xunlei.com/s/VOOlHjZarK69yZ7BxcLd1WrsA1?pwd=ckit"
+        run: |
+          cat <<EOF > xunlei_downloader.py
+          import os
+          import re
+          import json
+          import cloudscraper
+          import requests
+          from bs4 import BeautifulSoup
+          from tqdm import tqdm
+          from urllib.parse import urlparse, parse_qs
+          
+          # 配置参数
+          XUNLEI_URL = os.environ.get('XUNLEI_URL', '')
+          REFERER = "https://pan.xunlei.com/"
+          USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+          
+          def extract_share_id(url):
+              """从分享链接中提取share_id"""
+              parsed = urlparse(url)
+              path_segments = parsed.path.split('/')
+              if len(path_segments) > 2 and path_segments[2]:
+                  return path_segments[2]
+              return None
+          
+          def extract_password(url):
+              """从URL中提取密码"""
+              parsed = urlparse(url)
+              query = parse_qs(parsed.query)
+              return query.get('pwd', [None])[0]
+          
+          def bypass_cloudflare_get_content(url):
+              """使用cloudscraper绕过Cloudflare获取内容"""
+              scraper = cloudscraper.create_scraper()
+              headers = {
+                  "User-Agent": USER_AGENT,
+                  "Referer": REFERER,
+                  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                  "Accept-Language": "en-US,en;q=0.5",
+                  "Connection": "keep-alive",
+                  "Upgrade-Insecure-Requests": "1",
+              }
+              response = scraper.get(url, headers=headers)
+              response.raise_for_status()
+              return response.text
+          
+          def verify_share_password(share_id, password):
+              """验证分享密码并获取cookie"""
+              verify_url = f"https://pan.xunlei.com/share/verify"
+              payload = {
+                  "share_id": share_id,
+                  "passwd": password,
+                  "t": os.urandom(4).hex()  # 添加随机参数防止缓存
+              }
+              
+              scraper = cloudscraper.create_scraper()
+              headers = {
+                  "User-Agent": USER_AGENT,
+                  "Referer": f"https://pan.xunlei.com/s/{share_id}",
+                  "Origin": "https://pan.xunlei.com",
+                  "Content-Type": "application/json",
+                  "X-Requested-With": "XMLHttpRequest"
+              }
+              
+              response = scraper.post(verify_url, json=payload, headers=headers)
+              response.raise_for_status()
+              
+              # 检查验证结果
+              result = response.json()
+              if result.get("code") != 0:
+                  raise Exception(f"密码验证失败: {result.get('message', '未知错误')}")
+              
+              # 返回验证后的cookie
+              return response.cookies.get_dict()
+          
+          def get_file_list(share_id, cookies):
+              """获取分享文件列表"""
+              api_url = f"https://pan.xunlei.com/share/list?share_id={share_id}"
+              
+              scraper = cloudscraper.create_scraper()
+              headers = {
+                  "User-Agent": USER_AGENT,
+                  "Referer": f"https://pan.xunlei.com/s/{share_id}",
+                  "Accept": "application/json, text/plain, */*"
+              }
+              
+              response = scraper.get(api_url, headers=headers, cookies=cookies)
+              response.raise_for_status()
+              return response.json()
+          
+          def get_direct_download_url(file_id, cookies):
+              """获取文件直链"""
+              api_url = "https://pan.xunlei.com/share/download"
+              payload = {
+                  "file_id": file_id,
+                  "t": os.urandom(4).hex()  # 随机参数
+              }
+              
+              scraper = cloudscraper.create_scraper()
+              headers = {
+                  "User-Agent": USER_AGENT,
+                  "Referer": f"https://pan.xunlei.com/share",
+                  "Origin": "https://pan.xunlei.com",
+                  "Content-Type": "application/json",
+                  "X-Requested-With": "XMLHttpRequest"
+              }
+              
+              response = scraper.post(api_url, json=payload, headers=headers, cookies=cookies)
+              response.raise_for_status()
+              
+              result = response.json()
+              if result.get("code") != 0:
+                  raise Exception(f"获取直链失败: {result.get('message', '未知错误')}")
+              
+              return result["data"]["download_url"]
+          
+          def download_file(url, filename, cookies=None):
+              """下载文件并显示进度条"""
+              headers = {
+                  "User-Agent": USER_AGENT,
+                  "Referer": REFERER
+              }
+              
+              # 创建会话以保持cookie
+              session = requests.Session()
+              if cookies:
+                  session.cookies.update(cookies)
+              
+              # 获取文件大小
+              response = session.head(url, headers=headers, allow_redirects=True)
+              file_size = int(response.headers.get('Content-Length', 0))
+              
+              # 下载文件
+              response = session.get(url, headers=headers, stream=True)
+              response.raise_for_status()
+              
+              # 创建进度条
+              progress = tqdm(total=file_size, unit='B', unit_scale=True, desc=filename)
+              
+              # 写入文件
+              with open(filename, 'wb') as f:
+                  for chunk in response.iter_content(chunk_size=8192):
+                      if chunk:
+                          f.write(chunk)
+                          progress.update(len(chunk))
+              progress.close()
+              
+              print(f"文件下载完成: {filename}")
+          
+          def main():
+              print("=== 迅雷网盘下载自动化 ===")
+              print(f"目标分享链接: {XUNLEI_URL}")
+              
+              # 提取分享ID和密码
+              share_id = extract_share_id(XUNLEI_URL)
+              password = extract_password(XUNLEI_URL)
+              
+              if not share_id:
+                  raise ValueError("无法从URL中提取share_id")
+              
+              print(f"分享ID: {share_id}")
+              print(f"提取密码: {password or '无密码'}")
+              
+              # 绕过Cloudflare获取初始页面
+              print("\n绕过Cloudflare防护中...")
+              page_content = bypass_cloudflare_get_content(XUNLEI_URL)
+              
+              # 验证密码（如果需要）
+              cookies = {}
+              if password:
+                  print("验证分享密码...")
+                  cookies = verify_share_password(share_id, password)
+                  print("密码验证成功!")
+              
+              # 获取文件列表
+              print("获取文件列表...")
+              file_list_data = get_file_list(share_id, cookies)
+              
+              # 解析文件信息
+              if not file_list_data.get("data") or not file_list_data["data"].get("list"):
+                  raise Exception("未找到可下载文件")
+              
+              print("\n分享包含的文件:")
+              for idx, file_info in enumerate(file_list_data["data"]["list"]):
+                  print(f"{idx+1}. {file_info['name']} ({file_info['file_size_formatted']})")
+              
+              # 下载所有文件
+              for file_info in file_list_data["data"]["list"]:
+                  file_id = file_info["file_id"]
+                  file_name = file_info["name"]
+                  
+                  print(f"\n获取文件直链: {file_name}")
+                  download_url = get_direct_download_url(file_id, cookies)
+                  
+                  print(f"开始下载: {file_name}")
+                  download_file(download_url, file_name, cookies)
+          
+          if __name__ == "__main__":
+              main()
+          EOF
+          
+          python xunlei_downloader.py
