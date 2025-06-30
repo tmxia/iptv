@@ -81,9 +81,22 @@ jobs:
           exit 1
         fi
         
+        # 修复：验证JSON格式
+        if ! echo "$RELEASES_JSON" | jq -e . >/dev/null 2>&1; then
+          echo "::error::获取的发布信息不是有效的JSON格式"
+          echo "$RELEASES_JSON"
+          exit 1
+        fi
+        
         # 版本信息提取函数
         extract_version_info() {
           local release_json="$1"
+          # 修复：使用jq处理前验证是否是对象
+          if ! echo "$release_json" | jq -e 'type=="object"' >/dev/null; then
+            echo "::error::无效的发布对象: $release_json"
+            exit 1
+          fi
+          
           local tag_name=$(jq -r '.tag_name' <<< "$release_json")
           local published_at=$(jq -r '.published_at' <<< "$release_json")
           local date_utc8=$(TZ=UTC date -d "$published_at" +'%Y-%m-%d')
@@ -128,6 +141,7 @@ jobs:
         }
         
         # 处理稳定版
+        # 修复：使用jq正确提取最新稳定版
         LATEST_STABLE=$(echo "$RELEASES_JSON" | jq -r '[.[] | select(.prerelease == false)] | sort_by(.published_at) | reverse | .[0]')
         STABLE_UPDATED=false
         if [ -n "$LATEST_STABLE" ] && [ "$LATEST_STABLE" != "null" ]; then
@@ -173,6 +187,7 @@ jobs:
         fi
         
         # 处理预发布版
+        # 修复：使用jq正确提取最新预发布版
         LATEST_PRE=$(echo "$RELEASES_JSON" | jq -r '[.[] | select(.prerelease == true)] | sort_by(.published_at) | reverse | .[0]')
         PRE_UPDATED=false
         if [ -n "$LATEST_PRE" ] && [ "$LATEST_PRE" != "null" ]; then
