@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-06-30 21:43:39 (北京时间)
+最后更新: 2025-06-30 21:56:16 (北京时间)
 
 ## 应用
 
@@ -23,7 +23,7 @@
 | <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 47.54 | v11.12.0 | 2025-06-21 |
 | <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 21.27 | v1.0.1189 | 2025-06-11 |
 | <div>nagramx.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk)</small></div> | 47.12 | v11.9.1.1210 | 2025-06-05 |
-| <div>simple_live-tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live-tv.apk)</small></div> | 13.45 | vtv_v1.3.5 | 2025-05-27 |
+| <div>simple_live-tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live-tv.apk)</small></div> | 13.45 | v1.3.5 | 2025-05-27 |
 | <div>simple_live.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live.apk)</small></div> | 17.46 | v1.8.6 | 2025-05-27 |
 | <div>termux-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/termux-beta.apk)</small></div> | 34.08 | v0.119.0 | 2025-05-22 |
 | <div>termux.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/termux.apk)</small></div> | 33.48 | v0.118.3 | 2025-05-22 |
