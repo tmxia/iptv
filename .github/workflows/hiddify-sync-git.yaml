@@ -5,8 +5,8 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  schedule:
-    - cron: '#0 */48 * * *'  # 每48小时运行一次
+  #schedule:
+    #- cron: '0 */48 * * *'  # 每48小时运行一次
   workflow_dispatch:
 
 permissions:
