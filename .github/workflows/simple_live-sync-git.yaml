@@ -118,19 +118,14 @@ jobs:
           fi
         }
         
-        # 版本信息提取函数 - 确保版本号有v前缀
+        # 版本信息提取函数 - 修复空参数问题
         extract_version_info() {
           local release_json="$1"
           local tag_name=$(jq -r '.tag_name' <<< "$release_json")
           local published_at=$(jq -r '.published_at' <<< "$release_json")
           local date_utc8=$(TZ=UTC date -d "$published_at" +'%Y-%m-%d')
           
-          # 确保版本号有v前缀
-          if [[ ! "$tag_name" =~ ^v ]]; then
-            tag_name="v$tag_name"
-          fi
-          
-          # 如果是TV版，去除tv_前缀（如果有）
+          # 如果是预发布版（TV版），处理版本号前缀
           if [[ "${2:-}" == "tv" ]]; then
             tag_name=$(echo "$tag_name" | sed 's/^tv_//')
           fi
