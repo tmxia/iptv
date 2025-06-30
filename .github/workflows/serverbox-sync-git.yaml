@@ -17,6 +17,30 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+    # =========== 新增锁管理步骤 ===========
+    - name: Acquire Repository Lock
+      id: lock
+      run: |
+        LOCK_DIR="$GITHUB_WORKSPACE/.lock"
+        LOCK_FILE="$LOCK_DIR/repo-lock"
+        mkdir -p "$LOCK_DIR"
+        
+        for i in {1..10}; do
+          if [ -f "$LOCK_FILE" ]; then
+            echo "锁已被占用，等待重试 ($i/10)..."
+            sleep 30
+          else
+            touch "$LOCK_FILE"
+            echo "lock-acquired=true" >> $GITHUB_OUTPUT
+            echo "成功获取锁"
+            exit 0
+          fi
+        done
+        
+        echo "::error::无法在5分钟内获取锁"
+        exit 1
+        
+    # =========== 原有步骤保持不变 ===========
     - name: Checkout current repository
       uses: actions/checkout@v4
       with:
@@ -31,6 +55,7 @@ jobs:
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
+        git config pull.rebase true
         
     - name: Pull latest changes
       run: git pull origin ${{ github.ref }}
@@ -181,6 +206,18 @@ jobs:
         echo "同步完成! 状态: 成功"
         echo "Android文件: $ANDROID_TARGET_PATH ($STABLE_VERSION, $RELEASE_DATE)"
         exit 0
+
+    # =========== 新增锁释放步骤 ===========
+    - name: Release Repository Lock
+      if: always()
+      run: |
+        LOCK_FILE="$GITHUB_WORKSPACE/.lock/repo-lock"
+        if [ -f "$LOCK_FILE" ]; then
+          rm -f "$LOCK_FILE"
+          echo "锁已释放"
+        else
+          echo "锁文件不存在，无需释放"
+        fi
 
   cleanup_self:
     name: Cleanup Self Workflow History
