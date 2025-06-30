@@ -16,7 +16,7 @@ on:
 jobs:
   detect-and-notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     concurrency: 
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -39,7 +39,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake libgit2-dev
-        pip install telethon pygit2 pytz
+        pip install telethon pygit2 pytz hashlib
 
     - name: Run enhanced detection script
       env:
@@ -61,6 +61,7 @@ jobs:
         import pygit2
         import asyncio
         import smtplib
+        import hashlib
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
         from datetime import datetime
@@ -169,6 +170,28 @@ jobs:
                 return "🗜️"
             return "📄"
         
+        def calculate_file_hash(file_path):
+            """计算文件的SHA-256哈希值（用于去重）"""
+            sha256_hash = hashlib.sha256()
+            try:
+                with open(file_path, "rb") as f:
+                    # 分块读取以避免大文件内存问题
+                    for byte_block in iter(lambda: f.read(4096), b""):
+                        sha256_hash.update(byte_block)
+                return sha256_hash.hexdigest()
+            except Exception as e:
+                print(f"❌ 计算文件哈希失败: {file_path} - {str(e)}")
+                return None
+        
+        def get_file_size(file_path):
+            """获取文件大小（MB）"""
+            try:
+                size_bytes = os.path.getsize(file_path)
+                return f"{size_bytes / (1024 * 1024):.2f} MB"
+            except Exception as e:
+                print(f"❌ 获取文件大小失败: {file_path} - {str(e)}")
+                return "未知大小"
+        
         async def send_telegram_message(files):
             """使用Telethon发送消息"""
             try:
@@ -197,6 +220,7 @@ jobs:
                         file_type = get_file_type(file['path'])
                         message += f"{icon} **{file_type}**: `{file['name']}`\n"
                         message += f"  - 版本: `{file['version']}`\n"
+                        message += f"  - 大小: `{file['size']}`\n"
                         message += f"  - 更新时间: `{file['date']}` (北京时间)\n"
                         message += f"  - \n\n"
                     
@@ -248,6 +272,7 @@ jobs:
                         <p><strong>{icon} {file_type}: {file['name']}</strong></p>
                         <ul>
                             <li><strong>版本:</strong> {file['version']}</li>
+                            <li><strong>大小:</strong> {file['size']}</li>
                             <li><strong>更新时间:</strong> {file['date']} (北京时间)</li>
                             <li><strong>下载地址:</strong> 
                                 <a href="{file['url']}">原始地址</a> | 
@@ -308,6 +333,7 @@ jobs:
             # 计算差异
             diff = repo.diff(parent_commit, head_commit)
             changed_files = []
+            changed_hashes = set()
             
             # 解析差异
             for delta in diff.deltas:
@@ -320,6 +346,22 @@ jobs:
                 
                 # 只处理apk和kernels目录下的文件
                 if not (file_path.startswith('apk/') or file_path.startswith('kernels/')):
+                    continue
+                
+                # 检查文件是否存在
+                if not os.path.exists(file_path):
+                    print(f"⚠️ 文件不存在: {file_path} - 跳过")
+                    continue
+                
+                # 计算文件哈希（用于去重）
+                file_hash = calculate_file_hash(file_path)
+                if not file_hash:
+                    print(f"⚠️ 无法计算文件哈希: {file_path} - 跳过")
+                    continue
+                
+                # 检查哈希是否已存在（避免重复通知）
+                if file_hash in changed_hashes:
+                    print(f"⚠️ 文件哈希已存在: {file_path} - 跳过重复文件")
                     continue
                 
                 # 获取文件名
@@ -347,14 +389,21 @@ jobs:
                     version_date = commit_time
                     version_source = "默认时间"
                 
+                # 获取文件大小
+                file_size = get_file_size(file_path)
+                
                 changed_files.append({
                     "path": file_path,
                     "name": filename,
                     "version": version,
                     "date": version_date,
                     "url": raw_url,
-                    "version_source": version_source
+                    "version_source": version_source,
+                    "size": file_size
                 })
+                
+                # 添加到哈希集合
+                changed_hashes.add(file_hash)
             
             if not changed_files:
                 print("✅ 未检测到文件变更")
@@ -362,7 +411,7 @@ jobs:
             
             print(f"📦 检测到 {len(changed_files)} 个文件变更:")
             for file in changed_files:
-                print(f"  - {file['path']} (v{file['version']}, {file['date']} 北京时间) [来源: {file['version_source']}]")
+                print(f"  - {file['path']} (v{file['version']}, {file['date']} 北京时间) [大小: {file['size']}]")
             
             # 发送到Telegram
             loop = asyncio.get_event_loop()
