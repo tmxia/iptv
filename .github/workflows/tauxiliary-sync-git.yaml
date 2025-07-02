@@ -49,9 +49,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-        # 创建临时目录存放更新文件
-        mkdir -p sync_updates
-        
         python - << "EOF"
         import os
         import re
@@ -68,8 +65,6 @@ jobs:
         # 配置参数
         GROUP = "TAuxiliary"  # 群组用户名
         TOPIC_ID = 3763       # 话题ID
-        TEMP_APK_PATH = "sync_updates/tauxiliary.apk"
-        TEMP_VERSION_PATH = "sync_updates/version.txt"
         APK_PATH = "apk/tauxiliary.apk"
         VERSION_FILE = "version.txt"
         VERSION_KEY = "tauxiliary.apk"
@@ -87,9 +82,55 @@ jobs:
             res = requests.get(url, headers=headers)
             return res.status_code == 200
         
-        def load_current_version():
-            """加载当前版本信息"""
+        def github_api_upload(path, content, message):
+            """使用GitHub API上传文件"""
+            token = os.environ['GITHUB_TOKEN']
+            repo = os.environ['GITHUB_REPOSITORY']
+            url = f"{API_BASE}/repos/{repo}/contents/{path}"
+            
+            # 获取当前文件SHA（如果存在）
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            res = requests.get(url, headers=headers)
+            sha = res.json().get("sha", "") if res.status_code == 200 else ""
+            
+            # 准备上传数据 - 统一处理内容编码
+            if isinstance(content, str):
+                # 文本内容直接编码为base64
+                encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+            elif isinstance(content, bytes):
+                # 二进制内容直接编码为base64
+                encoded_content = base64.b64encode(content).decode("utf-8")
+            else:
+                log(f"Unsupported content type: {type(content)}")
+                return False
+                
+            data = {
+                "message": message,
+                "content": encoded_content,
+                "sha": sha
+            }
+            
+            # 上传文件
+            res = requests.put(url, headers=headers, json=data)
+            if res.status_code in [200, 201]:
+                log(f"Successfully uploaded {path}")
+                return True
+            else:
+                log(f"Failed to upload {path}: {res.status_code} - {res.text}")
+                return False
+        
+        async def main():
+            """主同步逻辑"""
+            log("Starting TAuxiliary APK sync")
+            
+            # 初始化版本信息
             versions = {}
+            current = ""
+            
+            # 尝试获取当前版本信息
             try:
                 token = os.environ['GITHUB_TOKEN']
                 repo = os.environ['GITHUB_REPOSITORY']
@@ -99,32 +140,19 @@ jobs:
                 
                 if res.status_code == 200:
                     content = base64.b64decode(res.json()["content"]).decode("utf-8")
-                    return json.loads(content)
+                    versions = json.loads(content)
+                    current = versions.get(VERSION_KEY, "")
+                    log(f"Current version: {current.split(',')[0] if current else 'None'}")
+                else:
+                    log("No existing version file found")
             except Exception as e:
                 log(f"Error getting version file: {str(e)}")
-            return {}
-        
-        def write_local_file(path, content, is_binary=False):
-            """将内容写入本地文件"""
-            mode = 'wb' if is_binary else 'w'
-            with open(path, mode) as f:
-                f.write(content)
-            log(f"Successfully wrote {path} locally")
-        
-        async def main():
-            """主同步逻辑"""
-            log("Starting TAuxiliary APK sync")
-            
-            # 加载当前版本信息
-            current_versions = load_current_version()
-            current_version = current_versions.get(VERSION_KEY, "")
-            log(f"Current version: {current_version.split(',')[0] if current_version else 'None'}")
             
             # 检查APK文件是否存在
             apk_exists = github_api_file_exists(APK_PATH)
             log(f"APK file exists: {apk_exists}")
             
-            # 连接Telegram
+            # 连接Telegram - 添加详细的连接设置
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
                 int(os.environ['TELEGRAM_API_ID']),
@@ -132,7 +160,7 @@ jobs:
                 connection_retries=5,
                 request_retries=5,
                 auto_reconnect=True,
-                use_ipv6=False
+                use_ipv6=False  # 强制使用IPv4连接
             )
             
             try:
@@ -167,24 +195,25 @@ jobs:
                         date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                         new_value = f"{version},{date}"
                         
-                        # 检查是否需要更新
-                        if not apk_exists or not current_version or new_value != current_version:
+                        # 检查是否需要更新（目标文件不存在或版本不匹配）
+                        if not apk_exists or not current or new_value != current:
                             # 下载APK到内存
                             log(f"Downloading new version: {version}")
                             apk_content = await client.download_media(msg, file=bytes)
                             
-                            # 写入临时APK文件
-                            write_local_file(TEMP_APK_PATH, apk_content, is_binary=True)
-                            
-                            # 更新版本信息
-                            new_versions = current_versions.copy()
-                            new_versions[VERSION_KEY] = new_value
-                            version_content = json.dumps(new_versions, indent=2)
-                            
-                            # 写入临时版本文件
-                            write_local_file(TEMP_VERSION_PATH, version_content)
-                            
-                            log(f"Prepared update to {version}")
+                            # 上传APK文件
+                            if github_api_upload(APK_PATH, apk_content, f"Update TAuxiliary APK to {version}"):
+                                # 更新版本信息
+                                versions[VERSION_KEY] = new_value
+                                version_content = json.dumps(versions, indent=2)
+                                
+                                # 上传版本文件
+                                github_api_upload(
+                                    VERSION_FILE, 
+                                    version_content,  # 直接传递字符串
+                                    f"Update TAuxiliary version to {version}"
+                                )
+                                log(f"Successfully updated to {version}")
                         else:
                             log("Already on latest version")
                         
@@ -208,41 +237,6 @@ jobs:
             import asyncio
             sys.exit(asyncio.run(main()))
         EOF
-
-    - name: Commit updates together
-      if: |
-        exists('sync_updates/tauxiliary.apk') && 
-        exists('sync_updates/version.txt')
-      run: |
-        echo "Committing both files together"
-        
-        # 设置Git用户信息
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        
-        # 移动文件到正确位置
-        mv sync_updates/tauxiliary.apk apk/
-        mv sync_updates/version.txt .
-        
-        # 添加并提交
-        git add apk/tauxiliary.apk
-        git add version.txt
-        
-        # 获取版本号用于提交消息
-        VERSION=$(python -c "import json; print(json.load(open('version.txt'))['tauxiliary.apk'].split(',')[0]")
-        
-        git commit -m "Update TAuxiliary APK to $VERSION"
-        git push origin main
-        
-        echo "✅ Both files committed together"
-
-    - name: Clean up if no update
-      if: |
-        !exists('sync_updates/tauxiliary.apk') || 
-        !exists('sync_updates/version.txt')
-      run: |
-        echo "No updates to commit"
-        rm -rf sync_updates
 
     - name: Release Repository Lock
       if: always()
