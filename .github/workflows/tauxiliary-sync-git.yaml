@@ -28,6 +28,8 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        # 添加token以允许后续推送
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Setup Python
       uses: actions/setup-python@v5
@@ -37,23 +39,20 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --upgrade telethon==1.34.0 pytz requests
-        
-        # 安装修复会话解析问题的必要依赖
         pip install cryptography cffi
 
+    - name: Configure Git
+      run: |
+        git config user.name "github-actions"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
     - name: Sync TAuxiliary APK
+      id: sync_apk
       env:
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
         TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        GITHUB_ACTOR: ${{ github.actor }}
       run: |
-        # 配置Git用户信息
-        git config --global user.name "github-actions"
-        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        
         python - << "EOF"
         import os
         import re
@@ -94,12 +93,14 @@ jobs:
                     log("No existing version file found")
             except Exception as e:
                 log(f"Error reading version file: {str(e)}")
+                # 文件存在但解析错误，我们视为需要更新
+                pass
             
             # 检查APK文件是否存在
             apk_exists = os.path.exists(APK_PATH)
             log(f"APK file exists: {apk_exists}")
             
-            # 连接Telegram - 添加详细的连接设置
+            # 连接Telegram
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
                 int(os.environ['TELEGRAM_API_ID']),
@@ -107,7 +108,7 @@ jobs:
                 connection_retries=5,
                 request_retries=5,
                 auto_reconnect=True,
-                use_ipv6=False  # 强制使用IPv4连接
+                use_ipv6=False
             )
             
             try:
@@ -119,6 +120,7 @@ jobs:
                 
                 # 查找话题中的最新APK
                 found = False
+                update_available = False
                 async for msg in client.iter_messages(group, reply_to=TOPIC_ID, limit=10):
                     if not msg.media or not hasattr(msg.media, "document"):
                         continue
@@ -161,9 +163,7 @@ jobs:
                                 json.dump(versions, f, indent=2)
                             
                             log(f"Successfully updated to {version}")
-                            
-                            # 返回成功状态码（用于后续提交）
-                            return 100
+                            update_available = True
                         else:
                             log("Already on latest version")
                         
@@ -174,33 +174,32 @@ jobs:
                 
                 if not found:
                     log("No valid TAuxiliary APK found in topic")
-                return 0
+                
+                return 1 if update_available else 0
             except Exception as e:
                 log(f"Error: {str(e)}")
                 import traceback
                 traceback.print_exc()
-                return 1
+                return 2
             finally:
                 await client.disconnect()
         
         if __name__ == "__main__":
             import asyncio
-            exit_code = asyncio.run(main())
+            result = asyncio.run(main())
             
-            # 如果有更新(返回100)，则提交更改
-            if exit_code == 100:
-                # 添加并提交文件
-                os.system("git add apk/tauxiliary.apk version.txt")
-                os.system('git commit -m "Update TAuxiliary APK and version"')
-                
-                # 使用token推送更改
-                token = os.environ['GITHUB_TOKEN']
-                actor = os.environ['GITHUB_ACTOR']
-                repo = os.environ['GITHUB_REPOSITORY']
-                os.system(f"git push https://{actor}:{token}@github.com/{repo}.git HEAD:${{GITHUB_REF}}")
-            
-            sys.exit(0 if exit_code in [0, 100] else 1)
+            # 设置输出标志
+            if result == 1:
+                print("::set-output name=update_available::true")
+            sys.exit(0)
         EOF
+
+    - name: Commit and push changes
+      if: steps.sync_apk.outputs.update_available == 'true'
+      run: |
+        git add apk/tauxiliary.apk version.txt
+        git commit -m "Update TAuxiliary APK and version"
+        git push
 
     - name: Release Repository Lock
       if: always()
