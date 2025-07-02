@@ -1,4 +1,4 @@
-name: TAuxiliary APK Sync from TELEGRAM
+name: TAuxiliary APK 从 Telegram 同步
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,10 +13,10 @@ permissions:
   contents: write
 
 jobs:
-  sync:
+  同步:
     runs-on: ubuntu-latest
     steps:
-    - name: Acquire Repository Lock
+    - name: 获取仓库锁
       uses: softprops/turnstyle@v1
       with:
         same-branch-only: true
@@ -24,29 +24,29 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Checkout repository
+    - name: 检出仓库
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
         # 添加token以允许后续推送
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Setup Python
+    - name: 设置Python环境
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    - name: Install dependencies
+    - name: 安装依赖
       run: |
         pip install --upgrade telethon==1.34.0 pytz requests
         pip install cryptography cffi
 
-    - name: Configure Git
+    - name: 配置Git
       run: |
         git config user.name "github-actions"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-    - name: Sync TAuxiliary APK
+    - name: 同步TAuxiliary APK
       id: sync_apk
       env:
         TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
@@ -76,7 +76,7 @@ jobs:
         
         async def main():
             """主同步逻辑"""
-            log("Starting TAuxiliary APK sync")
+            log("开始同步 TAuxiliary APK")
             
             # 初始化版本信息
             versions = {}
@@ -88,17 +88,20 @@ jobs:
                     with open(VERSION_FILE, 'r') as f:
                         versions = json.load(f)
                         current = versions.get(VERSION_KEY, "")
-                        log(f"Current version: {current.split(',')[0] if current else 'None'}")
+                        if current:
+                            log(f"当前版本: {current.split(',')[0]}")
+                        else:
+                            log("未找到当前版本信息")
                 else:
-                    log("No existing version file found")
+                    log("版本文件不存在")
             except Exception as e:
-                log(f"Error reading version file: {str(e)}")
+                log(f"读取版本文件错误: {str(e)}")
                 # 文件存在但解析错误，我们视为需要更新
                 pass
             
             # 检查APK文件是否存在
             apk_exists = os.path.exists(APK_PATH)
-            log(f"APK file exists: {apk_exists}")
+            log(f"APK文件存在: {'是' if apk_exists else '否'}")
             
             # 连接Telegram
             client = TelegramClient(
@@ -113,10 +116,11 @@ jobs:
             
             try:
                 await client.start()
-                log("Connected to Telegram")
+                log("成功连接 Telegram")
                 
                 # 获取群组实体
                 group = await client.get_entity(GROUP)
+                log(f"已进入群组: {group.title}")
                 
                 # 查找话题中的最新APK
                 found = False
@@ -137,6 +141,7 @@ jobs:
                         # 使用精确的正则表达式匹配文件名
                         match = re.search(r'TAuxiliary-([\d.]+)_([a-f0-9]+)\.apk$', filename)
                         if not match:
+                            log(f"跳过无效文件名: {filename}")
                             continue
                         
                         version = f"v{match.group(1)}"
@@ -144,10 +149,12 @@ jobs:
                         date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                         new_value = f"{version},{date}"
                         
+                        log(f"发现新版本: {version} (发布于 {date})")
+                        
                         # 检查是否需要更新（目标文件不存在或版本不匹配）
                         if not apk_exists or not current or new_value != current:
                             # 下载APK到内存
-                            log(f"Downloading new version: {version}")
+                            log(f"正在下载新版本: {version}")
                             apk_content = await client.download_media(msg, file=bytes)
                             
                             # 确保目录存在
@@ -162,10 +169,10 @@ jobs:
                             with open(VERSION_FILE, 'w') as f:
                                 json.dump(versions, f, indent=2)
                             
-                            log(f"Successfully updated to {version}")
+                            log(f"成功更新到版本: {version}")
                             update_available = True
                         else:
-                            log("Already on latest version")
+                            log("当前已是最新版本")
                         
                         found = True
                         break
@@ -173,16 +180,17 @@ jobs:
                         break
                 
                 if not found:
-                    log("No valid TAuxiliary APK found in topic")
+                    log("未在话题中找到有效的 TAuxiliary APK")
                 
                 return 1 if update_available else 0
             except Exception as e:
-                log(f"Error: {str(e)}")
+                log(f"同步过程中发生错误: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 return 2
             finally:
                 await client.disconnect()
+                log("已断开 Telegram 连接")
         
         if __name__ == "__main__":
             import asyncio
@@ -191,17 +199,27 @@ jobs:
             # 设置输出标志
             if result == 1:
                 print("::set-output name=update_available::true")
-            sys.exit(0)
+            
+            # 根据结果输出状态
+            if result == 0:
+                log("同步完成: 无新版本")
+            elif result == 1:
+                log("同步完成: 已更新到新版本")
+            elif result == 2:
+                log("同步失败: 发生错误")
+            
+            sys.exit(0 if result in [0, 1] else 1)
         EOF
 
-    - name: Commit and push changes
+    - name: 提交并推送更改
       if: steps.sync_apk.outputs.update_available == 'true'
       run: |
         git add apk/tauxiliary.apk version.txt
-        git commit -m "Update TAuxiliary APK and version"
+        git commit -m "更新 TAuxiliary APK 和版本信息"
         git push
+        echo "已提交并推送更新"
 
-    - name: Release Repository Lock
+    - name: 释放仓库锁
       if: always()
       uses: softprops/turnstyle@v1
       with:
@@ -209,7 +227,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Notify on failure
+    - name: 失败通知
       if: failure()
       uses: actions/github-script@v6
       with:
@@ -218,23 +236,23 @@ jobs:
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: `🚨 TAuxiliary同步失败！[查看详情](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+            body: `🚨 TAuxiliary 同步失败！[查看详情](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
           })
 
-  cleanup_self:
-    name: Cleanup Workflow History
+  清理工作流:
+    name: 清理工作流历史
     runs-on: ubuntu-latest
-    needs: sync
+    needs: 同步
     if: always()
     permissions:
       actions: write
       contents: read
     steps:
-      - name: Delete old runs
+      - name: 删除旧运行记录
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "TAuxiliary APK Sync from TELEGRAM"
+          delete_workflow_pattern: "TAuxiliary APK 从 Telegram 同步"
           repository: ${{ github.repository }}
