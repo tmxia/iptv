@@ -48,14 +48,17 @@ jobs:
         TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_ACTOR: ${{ github.actor }}
       run: |
+        # 配置Git用户信息
+        git config --global user.name "github-actions"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        
         python - << "EOF"
         import os
         import re
         import json
         import sys
-        import base64
-        import requests
         from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
@@ -68,59 +71,9 @@ jobs:
         APK_PATH = "apk/tauxiliary.apk"
         VERSION_FILE = "version.txt"
         VERSION_KEY = "tauxiliary.apk"
-        API_BASE = "https://api.github.com"
         
         def log(msg):
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
-        
-        def github_api_file_exists(path):
-            """检查文件是否存在"""
-            token = os.environ['GITHUB_TOKEN']
-            repo = os.environ['GITHUB_REPOSITORY']
-            url = f"{API_BASE}/repos/{repo}/contents/{path}"
-            headers = {"Authorization": f"Bearer {token}"}
-            res = requests.get(url, headers=headers)
-            return res.status_code == 200
-        
-        def github_api_upload(path, content, message):
-            """使用GitHub API上传文件"""
-            token = os.environ['GITHUB_TOKEN']
-            repo = os.environ['GITHUB_REPOSITORY']
-            url = f"{API_BASE}/repos/{repo}/contents/{path}"
-            
-            # 获取当前文件SHA（如果存在）
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github.v3+json"
-            }
-            res = requests.get(url, headers=headers)
-            sha = res.json().get("sha", "") if res.status_code == 200 else ""
-            
-            # 准备上传数据 - 统一处理内容编码
-            if isinstance(content, str):
-                # 文本内容直接编码为base64
-                encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
-            elif isinstance(content, bytes):
-                # 二进制内容直接编码为base64
-                encoded_content = base64.b64encode(content).decode("utf-8")
-            else:
-                log(f"Unsupported content type: {type(content)}")
-                return False
-                
-            data = {
-                "message": message,
-                "content": encoded_content,
-                "sha": sha
-            }
-            
-            # 上传文件
-            res = requests.put(url, headers=headers, json=data)
-            if res.status_code in [200, 201]:
-                log(f"Successfully uploaded {path}")
-                return True
-            else:
-                log(f"Failed to upload {path}: {res.status_code} - {res.text}")
-                return False
         
         async def main():
             """主同步逻辑"""
@@ -132,24 +85,18 @@ jobs:
             
             # 尝试获取当前版本信息
             try:
-                token = os.environ['GITHUB_TOKEN']
-                repo = os.environ['GITHUB_REPOSITORY']
-                url = f"{API_BASE}/repos/{repo}/contents/{VERSION_FILE}"
-                headers = {"Authorization": f"Bearer {token}"}
-                res = requests.get(url, headers=headers)
-                
-                if res.status_code == 200:
-                    content = base64.b64decode(res.json()["content"]).decode("utf-8")
-                    versions = json.loads(content)
-                    current = versions.get(VERSION_KEY, "")
-                    log(f"Current version: {current.split(',')[0] if current else 'None'}")
+                if os.path.exists(VERSION_FILE):
+                    with open(VERSION_FILE, 'r') as f:
+                        versions = json.load(f)
+                        current = versions.get(VERSION_KEY, "")
+                        log(f"Current version: {current.split(',')[0] if current else 'None'}")
                 else:
                     log("No existing version file found")
             except Exception as e:
-                log(f"Error getting version file: {str(e)}")
+                log(f"Error reading version file: {str(e)}")
             
             # 检查APK文件是否存在
-            apk_exists = github_api_file_exists(APK_PATH)
+            apk_exists = os.path.exists(APK_PATH)
             log(f"APK file exists: {apk_exists}")
             
             # 连接Telegram - 添加详细的连接设置
@@ -201,19 +148,22 @@ jobs:
                             log(f"Downloading new version: {version}")
                             apk_content = await client.download_media(msg, file=bytes)
                             
-                            # 上传APK文件
-                            if github_api_upload(APK_PATH, apk_content, f"Update TAuxiliary APK to {version}"):
-                                # 更新版本信息
-                                versions[VERSION_KEY] = new_value
-                                version_content = json.dumps(versions, indent=2)
-                                
-                                # 上传版本文件
-                                github_api_upload(
-                                    VERSION_FILE, 
-                                    version_content,  # 直接传递字符串
-                                    f"Update TAuxiliary version to {version}"
-                                )
-                                log(f"Successfully updated to {version}")
+                            # 确保目录存在
+                            os.makedirs(os.path.dirname(APK_PATH), exist_ok=True)
+                            
+                            # 写入APK文件
+                            with open(APK_PATH, 'wb') as f:
+                                f.write(apk_content)
+                            
+                            # 更新版本信息
+                            versions[VERSION_KEY] = new_value
+                            with open(VERSION_FILE, 'w') as f:
+                                json.dump(versions, f, indent=2)
+                            
+                            log(f"Successfully updated to {version}")
+                            
+                            # 返回成功状态码（用于后续提交）
+                            return 100
                         else:
                             log("Already on latest version")
                         
@@ -235,7 +185,21 @@ jobs:
         
         if __name__ == "__main__":
             import asyncio
-            sys.exit(asyncio.run(main()))
+            exit_code = asyncio.run(main())
+            
+            # 如果有更新(返回100)，则提交更改
+            if exit_code == 100:
+                # 添加并提交文件
+                os.system("git add apk/tauxiliary.apk version.txt")
+                os.system('git commit -m "Update TAuxiliary APK and version"')
+                
+                # 使用token推送更改
+                token = os.environ['GITHUB_TOKEN']
+                actor = os.environ['GITHUB_ACTOR']
+                repo = os.environ['GITHUB_REPOSITORY']
+                os.system(f"git push https://{actor}:{token}@github.com/{repo}.git HEAD:${{GITHUB_REF}}")
+            
+            sys.exit(0 if exit_code in [0, 100] else 1)
         EOF
 
     - name: Release Repository Lock
