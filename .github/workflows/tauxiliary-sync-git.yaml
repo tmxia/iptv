@@ -253,7 +253,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 5  # 保留最近5次运行
-          retain_days: 7  # 保留7天内的运行记录
+          keep_minimum_runs: 0
+          retain_days: 0
           delete_workflow_pattern: "TAuxiliary APK 从 Telegram 同步"
           repository: ${{ github.repository }}
