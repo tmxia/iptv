@@ -1,12 +1,12 @@
 # 应用版本列表
 
-最后更新: 2025-07-06 21:22:38 (北京时间)
+最后更新: 2025-07-06 22:10:01 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
-| <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.08 | v3.2.7 | 2025-07-06 |
+| <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.08 | v3.2.8 | 2025-07-06 |
 | <div>24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/24.10_luci-passwall.zip)</small></div> | .93 | 25.7.6-1 | 2025-07-05 |
 | <div>19.07_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/19.07_luci-passwall.zip)</small></div> | .93 | 25.7.6-1 | 2025-07-05 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 12.95 | v1.3.0.163 | 2025-07-05 |
