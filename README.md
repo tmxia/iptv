@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-07-06 10:06:53 (北京时间)
+最后更新: 2025-07-06 10:11:59 (北京时间)
 
 ## 应用
 
@@ -10,7 +10,7 @@
 | <div>24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/24.10_luci-passwall.zip)</small></div> | .93 | 25.7.6-1 | 2025-07-05 |
 | <div>19.07_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/19.07_luci-passwall.zip)</small></div> | .93 | 25.7.6-1 | 2025-07-05 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 12.95 | v1.3.0.163 | 2025-07-05 |
-| <div>bv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk)</small></div> | 13.35 | v0.3.0 | 2025-07-04 |
+| <div>bv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk)</small></div> | 13.36 | v0.3.0 | 2025-07-04 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 46.52 | v1.2.0.810 | 2025-07-03 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 45.32 | v1.2.0.810 | 2025-07-03 |
 | <div>mobile-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk)</small></div> | 85.14 | v3.3.7 | 2025-06-30 |
