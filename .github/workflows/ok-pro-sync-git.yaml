@@ -162,8 +162,8 @@ jobs:
                 for apk, ver in new_versions.items():
                     logger.info(f"版本更新: {apk} => {ver}")
         
-        def extract_apk_version(apk_path):
-            """使用aapt2从APK提取版本号"""
+        def extract_apk_info(apk_path):
+            """使用aapt2从APK提取版本号和构建日期"""
             try:
                 aapt2 = os.path.join(
                     os.environ['ANDROID_HOME'],
@@ -178,14 +178,25 @@ jobs:
                 )
                 
                 # 查找versionName
-                match = re.search(r"versionName='([^']*)'", result.stdout)
-                if match:
-                    version = match.group(1)
-                    return f"v{version}" if not version.startswith('v') else version
-                return None
+                version_match = re.search(r"versionName='([^']*)'", result.stdout)
+                version = version_match.group(1) if version_match else None
+                
+                # 查找构建时间戳
+                build_date_match = re.search(r"compileSdkVersion='\d+' compileSdkVersionCodename='.*' (.*)", result.stdout)
+                build_date = None
+                if build_date_match:
+                    # 尝试解析时间戳
+                    timestamp_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', build_date_match.group(1))
+                    if timestamp_match:
+                        try:
+                            build_date = datetime.strptime(timestamp_match.group(1), "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d")
+                        except:
+                            pass
+                
+                return version, build_date
             except Exception as e:
-                logger.error(f"提取版本号失败: {str(e)}")
-                return None
+                logger.error(f"提取APK信息失败: {str(e)}")
+                return None, None
         
         async def download_apk(client, message, target_filename, original_filename):
             """下载APK文件并提取元数据"""
@@ -203,8 +214,14 @@ jobs:
             if not os.path.exists(download_path):
                 raise FileNotFoundError(f"文件下载失败: {download_path}")
             
-            # 提取版本信息
-            version = extract_apk_version(download_path)
+            # 提取版本信息和构建日期
+            version, build_date = extract_apk_info(download_path)
+            
+            # 后备方案：如果无法提取构建日期，使用消息发布日期
+            if not build_date:
+                build_date = message.date.strftime("%Y-%m-%d")
+                logger.info(f"使用消息发布日期作为后备: {build_date}")
+            
             if not version:
                 # 尝试从原始文件名提取版本号
                 ver_match = re.search(r'[-﹣]([\d.]+)\.apk$', original_filename)
@@ -212,13 +229,13 @@ jobs:
                     version = f"v{ver_match.group(1)}"
                     logger.info(f"从文件名提取版本号: {version}")
                 else:
-                    version = f"v{target_filename.split('.')[0]}-{message.date.strftime('%Y%m%d')}"
+                    version = f"v{target_filename.split('.')[0]}-{build_date.replace('-', '')}"
                     logger.info(f"使用后备版本号: {version}")
             
             return {
                 "path": download_path,
                 "version": version,
-                "date": message.date.strftime("%Y-%m-%d")
+                "date": build_date  # 使用APK构建日期而不是消息日期
             }
         
         def map_filename(original_name):
@@ -270,34 +287,18 @@ jobs:
                     
                     # 检查是否需要下载
                     current = current_versions.get(target_name, "")
-                    msg_date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                     
-                    # 版本对比逻辑 - 修复点：正确使用版本文件中的信息
+                    # 版本对比逻辑 - 仅基于文件名判断
                     skip = False
-                    if current:
-                        try:
-                            # 正确解析版本文件中的信息
-                            stored_version, stored_date = current.split(',')
-                            stored_version = stored_version.strip()
-                            stored_date = stored_date.strip()
-                            
-                            # 调试信息
-                            logger.info(f"版本对比: {target_name} | 存储: {stored_version},{stored_date} | 消息日期: {msg_date}")
-                            
-                            # 严格版本对比
-                            if msg_date < stored_date:
-                                logger.info(f"跳过旧版本: {target_name} ({msg_date} < {stored_date})")
-                                skip = True
-                            elif msg_date == stored_date:
-                                # 同一天版本需要进一步检查
-                                logger.info(f"同一天版本: {target_name} ({msg_date})，等待进一步检查")
-                        except (IndexError, ValueError) as e:
-                            logger.warning(f"版本文件格式错误({current})，继续处理: {str(e)}")
+                    target_path = os.path.join(APK_DIR, target_name)
                     
                     # 目标文件不存在时强制更新
-                    target_path = os.path.join(APK_DIR, target_name)
                     if not os.path.exists(target_path):
                         logger.warning(f"目标文件不存在，强制更新: {target_name}")
+                        skip = False
+                    else:
+                        # 文件存在时跳过，因为版本信息需要下载后才能确定
+                        logger.info(f"文件已存在，加入候选列表: {target_name}")
                         skip = False
                     
                     if not skip:
@@ -314,7 +315,7 @@ jobs:
                     apk_data = await download_apk(client, msg, target_name, original_name)
                     new_value = f"{apk_data['version']},{apk_data['date']}"
                     
-                    # 下载后再次验证版本
+                    # 下载后验证版本
                     current_value = current_versions.get(target_name, "")
                     if current_value == new_value:
                         logger.info(f"跳过相同版本: {target_name} (当前: {current_value} == 新: {new_value})")
