@@ -272,30 +272,41 @@ jobs:
                     current = current_versions.get(target_name, "")
                     msg_date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                     
-                    # 版本对比逻辑
+                    # 版本对比逻辑 - 修复点：正确使用版本文件中的信息
                     skip = False
                     if current:
                         try:
+                            # 正确解析版本文件中的信息
                             stored_version, stored_date = current.split(',')
+                            stored_version = stored_version.strip()
+                            stored_date = stored_date.strip()
+                            
+                            # 调试信息
+                            logger.info(f"版本对比: {target_name} | 存储: {stored_version},{stored_date} | 消息日期: {msg_date}")
+                            
                             # 严格版本对比
                             if msg_date < stored_date:
+                                logger.info(f"跳过旧版本: {target_name} ({msg_date} < {stored_date})")
                                 skip = True
                             elif msg_date == stored_date:
                                 # 同一天版本需要进一步检查
-                                pass
+                                logger.info(f"同一天版本: {target_name} ({msg_date})，等待进一步检查")
                         except (IndexError, ValueError) as e:
                             logger.warning(f"版本文件格式错误({current})，继续处理: {str(e)}")
                     
                     # 目标文件不存在时强制更新
                     target_path = os.path.join(APK_DIR, target_name)
                     if not os.path.exists(target_path):
+                        logger.warning(f"目标文件不存在，强制更新: {target_name}")
                         skip = False
                     
                     if not skip:
                         message_candidates.append((msg, target_name, original_name))
+                        logger.info(f"添加候选: {target_name} ({original_name})")
             
             # 第二遍处理：按时间倒序处理候选消息
             message_candidates.sort(key=lambda x: x[0].date, reverse=True)
+            logger.info(f"频道 {channel_name} 共有 {len(message_candidates)} 个候选APK")
             
             # 处理候选消息
             for msg, target_name, original_name in message_candidates:
@@ -304,12 +315,13 @@ jobs:
                     new_value = f"{apk_data['version']},{apk_data['date']}"
                     
                     # 下载后再次验证版本
-                    if current_versions.get(target_name) == new_value:
-                        logger.info(f"跳过相同版本: {target_name} ({new_value})")
+                    current_value = current_versions.get(target_name, "")
+                    if current_value == new_value:
+                        logger.info(f"跳过相同版本: {target_name} (当前: {current_value} == 新: {new_value})")
                         os.remove(apk_data['path'])  # 删除临时文件
                     else:
                         updates[target_name] = new_value
-                        logger.info(f"发现新版本: {target_name} ({current_versions.get(target_name, '无')} → {new_value})")
+                        logger.info(f"发现新版本: {target_name} (当前: {current_value} → 新: {new_value})")
                         # 成功获取更新后不再处理同类型文件
                         processed_targets.add(target_name)
                 except Exception as e:
@@ -332,27 +344,36 @@ jobs:
             os.makedirs(WORK_DIR, exist_ok=True)
             os.makedirs(APK_DIR, exist_ok=True)
             
+            # 获取当前版本
+            current_versions = get_versions()
+            logger.info(f"当前版本信息: {json.dumps(current_versions, indent=2)}")
+            
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
                 int(os.environ['TELEGRAM_API_ID']),
                 os.environ['TELEGRAM_API_HASH']
             )
             
-            # 获取当前版本
-            current_versions = get_versions()
             all_updates = {}
             
             async with client:
                 # 检查所有硬编码的频道
                 for channel in TELEGRAM_CHANNELS:
                     try:
+                        logger.info(f"开始检查频道: {channel}")
                         updates = await check_channel(client, channel, current_versions)
                         all_updates.update(updates)
+                        
+                        # 更新当前版本信息用于后续频道检查
+                        current_versions.update(updates)
+                        logger.info(f"频道 {channel} 检查完成，更新: {len(updates)} 个APK")
                     except Exception as e:
                         logger.error(f"处理频道 {channel} 时出错: {str(e)}")
                         # 继续处理下一个频道
             
             if all_updates:
+                logger.info(f"发现 {len(all_updates)} 个APK需要更新")
+                
                 # 复制APK文件到仓库
                 for apk in all_updates.keys():
                     src = os.path.join(WORK_DIR, apk)
@@ -371,6 +392,8 @@ jobs:
                 commit_msg = f"更新APK: {', '.join(all_updates.keys())}"
                 if not git_commit_push(commit_msg):
                     raise RuntimeError("提交失败")
+                else:
+                    logger.info("所有更新已成功提交")
             else:
                 logger.info("没有需要更新的APK文件")
             
