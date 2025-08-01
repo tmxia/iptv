@@ -187,7 +187,7 @@ jobs:
                 logger.error(f"提取版本号失败: {str(e)}")
                 return None
         
-        async def download_apk(client, message, target_filename, original_filename):
+        async def download_apk(client, message, target_filename, original_filename, channel_name):
             """下载APK文件并提取元数据"""
             download_path = os.path.join(WORK_DIR, target_filename)
             total_size = message.document.size
@@ -203,7 +203,20 @@ jobs:
             if not os.path.exists(download_path):
                 raise FileNotFoundError(f"文件下载失败: {download_path}")
             
-            # 提取版本信息
+            # 针对tvboxjk频道优先使用文件名中的版本号
+            if channel_name == "tvboxjk":
+                # 从文件名提取版本号 (例如: "OK影视Pro-手机版---3.4.1.apk")
+                ver_match = re.search(r'([\d.]+)\.apk$', original_filename)
+                if ver_match:
+                    version = f"v{ver_match.group(1)}"
+                    logger.info(f"使用文件名版本号: {version}")
+                    return {
+                        "path": download_path,
+                        "version": version,
+                        "date": message.date.strftime("%Y-%m-%d")
+                    }
+            
+            # 其他情况使用aapt2提取版本号
             version = extract_apk_version(download_path)
             if not version:
                 # 尝试从原始文件名提取版本号
@@ -221,21 +234,22 @@ jobs:
                 "date": message.date.strftime("%Y-%m-%d")
             }
         
-        def map_filename(original_name):
+        def map_filename(original_name, channel_name):
             """将原始文件名映射到标准文件名"""
             # 精确排除模拟器专版
             if "模拟器" in original_name or "模拟器专版" in original_name:
                 return None
             
             # 第一个频道的直接匹配
-            if original_name in APK_FILES:
+            if channel_name == "tvb_ys" and original_name in APK_FILES:
                 return original_name
             
             # 第二个频道的文件名映射规则
-            if "电视版" in original_name or "leanback" in original_name.lower():
-                return "leanback-pro.apk"
-            elif "手机版" in original_name or "mobile" in original_name.lower():
-                return "mobile-pro.apk"
+            if channel_name == "tvboxjk":
+                if "电视版" in original_name or "leanback" in original_name.lower():
+                    return "leanback-pro.apk"
+                elif "手机版" in original_name or "mobile" in original_name.lower():
+                    return "mobile-pro.apk"
             
             return None
         
@@ -258,7 +272,7 @@ jobs:
                         continue
                         
                     original_name = attr.file_name
-                    target_name = map_filename(original_name)
+                    target_name = map_filename(original_name, channel_name)
                     
                     if not target_name:
                         continue
@@ -272,7 +286,31 @@ jobs:
                     current = current_versions.get(target_name, "")
                     msg_date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                     
-                    # 版本对比逻辑 - 修复点：正确使用版本文件中的信息
+                    # 对于tvboxjk频道，优先使用文件名中的版本号进行预检查
+                    if channel_name == "tvboxjk":
+                        # 尝试从文件名提取版本号
+                        ver_match = re.search(r'([\d.]+)\.apk$', original_name)
+                        if ver_match:
+                            file_version = f"v{ver_match.group(1)}"
+                            
+                            # 如果当前有存储版本，直接比较版本号
+                            if current:
+                                try:
+                                    stored_version = current.split(',')[0].strip()
+                                    if stored_version == file_version:
+                                        logger.info(f"预跳过相同版本: {target_name} (版本 {file_version})")
+                                        continue  # 跳过下载
+                                except Exception:
+                                    pass
+                    
+                    # 目标文件不存在时强制更新
+                    target_path = os.path.join(APK_DIR, target_name)
+                    if not os.path.exists(target_path):
+                        logger.warning(f"目标文件不存在，强制更新: {target_name}")
+                        message_candidates.append((msg, target_name, original_name))
+                        continue
+                    
+                    # 常规版本对比逻辑
                     skip = False
                     if current:
                         try:
@@ -294,12 +332,6 @@ jobs:
                         except (IndexError, ValueError) as e:
                             logger.warning(f"版本文件格式错误({current})，继续处理: {str(e)}")
                     
-                    # 目标文件不存在时强制更新
-                    target_path = os.path.join(APK_DIR, target_name)
-                    if not os.path.exists(target_path):
-                        logger.warning(f"目标文件不存在，强制更新: {target_name}")
-                        skip = False
-                    
                     if not skip:
                         message_candidates.append((msg, target_name, original_name))
                         logger.info(f"添加候选: {target_name} ({original_name})")
@@ -311,7 +343,7 @@ jobs:
             # 处理候选消息
             for msg, target_name, original_name in message_candidates:
                 try:
-                    apk_data = await download_apk(client, msg, target_name, original_name)
+                    apk_data = await download_apk(client, msg, target_name, original_name, channel_name)
                     new_value = f"{apk_data['version']},{apk_data['date']}"
                     
                     # 下载后再次验证版本
@@ -422,7 +454,6 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # 修复通知失败问题
     - name: Notify on failure
       if: failure()
       uses: actions/github-script@v6
