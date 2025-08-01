@@ -223,7 +223,7 @@ jobs:
         
         def map_filename(original_name):
             """将原始文件名映射到标准文件名"""
-            # 修复点1：精确排除模拟器专版
+            # 精确排除模拟器专版
             if "模拟器" in original_name or "模拟器专版" in original_name:
                 return None
             
@@ -247,6 +247,8 @@ jobs:
             updates = {}
             processed_targets = set()
             
+            # 第一遍扫描：仅收集消息ID和日期，不下载
+            message_candidates = []
             async for msg in client.iter_messages(entity, limit=20):
                 if not (msg.media and hasattr(msg.media, "document")):
                     continue
@@ -263,7 +265,6 @@ jobs:
                     
                     # 避免重复处理同一目标文件
                     if target_name in processed_targets:
-                        logger.info(f"跳过已处理的目标文件: {target_name}")
                         continue
                     processed_targets.add(target_name)
                     
@@ -276,37 +277,44 @@ jobs:
                     if current:
                         try:
                             stored_version, stored_date = current.split(',')
-                            # 修复点2：严格版本对比
+                            # 严格版本对比
                             if msg_date < stored_date:
-                                logger.info(f"跳过旧版本: {target_name} ({msg_date} < {stored_date})")
                                 skip = True
                             elif msg_date == stored_date:
-                                logger.info(f"同一天版本: {target_name} ({msg_date})，等待进一步检查")
+                                # 同一天版本需要进一步检查
+                                pass
                         except (IndexError, ValueError) as e:
                             logger.warning(f"版本文件格式错误({current})，继续处理: {str(e)}")
-                    
-                    if skip:
-                        continue
                     
                     # 目标文件不存在时强制更新
                     target_path = os.path.join(APK_DIR, target_name)
                     if not os.path.exists(target_path):
-                        logger.warning(f"目标文件不存在，强制更新: {target_name}")
+                        skip = False
                     
-                    # 下载APK
-                    try:
-                        apk_data = await download_apk(client, msg, target_name, original_name)
-                        new_value = f"{apk_data['version']},{apk_data['date']}"
-                        
-                        # 修复点3：下载后再次验证版本
-                        if current and new_value == current:
-                            logger.info(f"跳过相同版本: {target_name} ({new_value})")
-                            os.remove(apk_data['path'])  # 删除临时文件
-                        else:
-                            updates[target_name] = new_value
-                            logger.info(f"发现新版本: {target_name} ({current} → {new_value})")
-                    except Exception as e:
-                        logger.error(f"下载失败: {original_name} -> {target_name}, 错误: {str(e)}")
+                    if not skip:
+                        message_candidates.append((msg, target_name, original_name))
+            
+            # 第二遍处理：按时间倒序处理候选消息
+            message_candidates.sort(key=lambda x: x[0].date, reverse=True)
+            
+            # 处理候选消息
+            for msg, target_name, original_name in message_candidates:
+                try:
+                    apk_data = await download_apk(client, msg, target_name, original_name)
+                    new_value = f"{apk_data['version']},{apk_data['date']}"
+                    
+                    # 下载后再次验证版本
+                    if current_versions.get(target_name) == new_value:
+                        logger.info(f"跳过相同版本: {target_name} ({new_value})")
+                        os.remove(apk_data['path'])  # 删除临时文件
+                    else:
+                        updates[target_name] = new_value
+                        logger.info(f"发现新版本: {target_name} ({current_versions.get(target_name, '无')} → {new_value})")
+                        # 成功获取更新后不再处理同类型文件
+                        processed_targets.add(target_name)
+                except Exception as e:
+                    logger.error(f"下载失败: {original_name} -> {target_name}, 错误: {str(e)}")
+            
             return updates
         
         async def main_async():
@@ -319,7 +327,7 @@ jobs:
                 raise ValueError(f"缺少环境变量: {', '.join(missing)}")
             
             git_setup()
-            # 修复点4：确保清理临时目录
+            # 确保清理临时目录
             shutil.rmtree(WORK_DIR, ignore_errors=True)
             os.makedirs(WORK_DIR, exist_ok=True)
             os.makedirs(APK_DIR, exist_ok=True)
@@ -340,9 +348,6 @@ jobs:
                     try:
                         updates = await check_channel(client, channel, current_versions)
                         all_updates.update(updates)
-                        
-                        # 更新当前版本信息用于后续频道检查
-                        current_versions.update(updates)
                     except Exception as e:
                         logger.error(f"处理频道 {channel} 时出错: {str(e)}")
                         # 继续处理下一个频道
