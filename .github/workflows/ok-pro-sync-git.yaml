@@ -244,8 +244,12 @@ jobs:
             if channel_name == "tvb_ys" and original_name in APK_FILES:
                 return original_name
             
-            # 第二个频道的文件名映射规则
+            # 第二个频道的文件名映射规则 - 增加"ok影视"检查
             if channel_name == "tvboxjk":
+                # 必须包含"ok影视"或"OK影视"字样（不区分大小写）
+                if "ok影视" not in original_name.lower():
+                    return None
+                    
                 if "电视版" in original_name or "leanback" in original_name.lower():
                     return "leanback-pro.apk"
                 elif "手机版" in original_name or "mobile" in original_name.lower():
