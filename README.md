@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-08-04 23:22:33 (北京时间)
+最后更新: 2025-08-05 00:18:03 (北京时间)
 
 ## 应用
 
@@ -8,11 +8,11 @@
 |----------|------------|--------|----------|
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.08 | v3.3.2 | 2025-08-04 |
 | <div>plus_mod.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_mod.apk)</small></div> | 62.86 | v11.13.0.1 | 2025-08-04 |
+| <div>24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/24.10_luci-passwall.zip)</small></div> | .92 | 25.8.5-1 | 2025-08-04 |
+| <div>19.07_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/19.07_luci-passwall.zip)</small></div> | .92 | 25.8.5-1 | 2025-08-04 |
 | <div>mytv-tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv.apk)</small></div> | 13.44 | v1.3.0.172 | 2025-08-04 |
 | <div>bv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk)</small></div> | 16.39 | v0.3.0 | 2025-08-02 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 13.44 | v1.3.0.171 | 2025-08-02 |
-| <div>24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/24.10_luci-passwall.zip)</small></div> | .92 | 25.8.1-1 | 2025-08-01 |
-| <div>19.07_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/19.07_luci-passwall.zip)</small></div> | .92 | 25.8.1-1 | 2025-08-01 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 46.81 | v1.2.2.834 | 2025-08-01 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 44.13 | v1.2.2.834 | 2025-08-01 |
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 16.39 | v1.219.1 | 2025-08-01 |
