@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-08-20 07:12:09 (北京时间)
+最后更新: 2025-08-20 08:48:18 (北京时间)
 
 ## 应用
 
@@ -12,6 +12,8 @@
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.14 | v3.4.2 | 2025-08-17 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 32.54 | v2.0.0.175 | 2025-08-16 |
 | <div>bv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk)</small></div> | 16.39 | v0.3.0 | 2025-08-14 |
+| <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 13.65 | v1.2.0 | 2025-08-10 |
+| <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 13.96 | v1.2.0 | 2025-08-10 |
 | <div>mobile-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk)</small></div> | 46.53 | v3.0.1 | 2025-08-09 |
 | <div>leanback-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk)</small></div> | 44.18 | v3.0.1 | 2025-08-09 |
 | <div>24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/24.10_luci-passwall.zip)</small></div> | .92 | 25.8.5-2 | 2025-08-05 |
@@ -27,8 +29,6 @@
 | <div>simple_live.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live.apk)</small></div> | 17.46 | v1.8.6 | 2025-05-27 |
 | <div>termux-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/termux-beta.apk)</small></div> | 34.08 | v0.119.0 | 2025-05-22 |
 | <div>termux.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/termux.apk)</small></div> | 33.48 | v0.118.3 | 2025-05-22 |
-| <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 13.61 | v1.1.9 | 2025-05-17 |
-| <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 13.77 | v1.1.9 | 2025-05-17 |
 | <div>tv-new.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv-new.apk)</small></div> | 12.65 | 3.5.2 | 2025-04-21 |
 | <div>tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv.apk)</small></div> | 18.14 | v3.3.9 | 2025-01-17 |
 | <div>bv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv.apk)</small></div> | 9.99 | v0.2.9 | 2024-12-06 |
