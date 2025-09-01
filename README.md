@@ -1,11 +1,13 @@
 # 应用版本列表
 
-最后更新: 2025-09-01 11:49:06 (北京时间)
+最后更新: 2025-09-01 12:01:25 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
+| <div>mobile-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk)</small></div> | 84.65 | v3.4.3 | 2025-09-01 |
+| <div>leanback-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk)</small></div> | 69.65 | v3.4.3 | 2025-09-01 |
 | <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 38.75 | v1.0.1231 | 2025-08-31 |
 | <div>bv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk)</small></div> | 16.35 | v0.3.0 | 2025-08-30 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 32.59 | v2.0.0.177 | 2025-08-30 |
@@ -17,8 +19,6 @@
 | <div>plus_mod.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_mod.apk)</small></div> | 63.41 | v11.14.1.0 | 2025-08-20 |
 | <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 13.65 | v1.2.0 | 2025-08-10 |
 | <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 13.96 | v1.2.0 | 2025-08-10 |
-| <div>mobile-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk)</small></div> | 46.53 | v3.0.1 | 2025-08-09 |
-| <div>leanback-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk)</small></div> | 44.18 | v3.0.1 | 2025-08-09 |
 | <div>mytv-tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv.apk)</small></div> | 13.44 | v1.3.0.172 | 2025-08-04 |
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 16.39 | v1.219.1 | 2025-08-01 |
 | <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 47.44 | v11.13.0 | 2025-07-28 |
