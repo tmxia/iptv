@@ -56,6 +56,107 @@ jobs:
         run: |
           pip install telethon requests pytz
 
+      - name: Create external Python script
+        run: |
+          cat > telegram_sync.py << 'EOF'
+import os
+import sys
+import re
+import asyncio
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+from telethon.tl.types import DocumentAttributeFilename
+
+# 配置参数
+TELEGRAM_CHANNEL = os.environ.get('TELEGRAM_CHANNEL', 'tvboxjk')
+
+def map_filename(original_name, channel_name):
+    """将原始文件名映射到标准文件名"""
+    if "模拟器" in original_name or "模拟器专版" in original_name:
+        return None
+    
+    if channel_name == "tvboxjk":
+        if "ok影视" not in original_name.lower():
+            return None
+            
+        if "电视版" in original_name or "leanback" in original_name.lower():
+            return "leanback-armeabi_v7a.apk"
+        elif "手机版" in original_name or "mobile" in original_name.lower():
+            return "mobile-arm64_v8a.apk"
+    
+    return None
+
+async def download_apk(apk_type, target_filename, work_dir):
+    """下载APK文件"""
+    # 初始化Telegram客户端
+    client = TelegramClient(
+        StringSession(os.environ['TELEGRAM_SESSION']),
+        int(os.environ['TELEGRAM_API_ID']),
+        os.environ['TELEGRAM_API_HASH']
+    )
+    
+    await client.start()
+    
+    # 获取频道实体
+    entity = await client.get_entity(TELEGRAM_CHANNEL)
+    
+    # 搜索最新的APK文件
+    target_file = None
+    async for message in client.iter_messages(entity, limit=50):
+        if not message.media:
+            continue
+            
+        # 检查是否是文档
+        if hasattr(message.media, 'document'):
+            for attr in message.media.document.attributes:
+                if isinstance(attr, DocumentAttributeFilename):
+                    filename = attr.file_name
+                    target_name = map_filename(filename, TELEGRAM_CHANNEL)
+                    
+                    if target_name and target_name.endswith(".apk"):
+                        # 排除模拟器版本
+                        if "模拟器" not in filename:
+                            target_file = {
+                                'message': message,
+                                'filename': filename
+                            }
+                            break
+            if target_file:
+                break
+    
+    if not target_file:
+        print(f"在Telegram频道 {TELEGRAM_CHANNEL} 中未找到符合条件的APK文件")
+        return False
+    
+    print(f"找到APK文件: {target_file['filename']}")
+    
+    # 下载文件
+    download_path = os.path.join(work_dir, target_filename)
+    await client.download_media(target_file['message'], file=download_path)
+    
+    print(f"文件已下载到: {download_path}")
+    
+    # 检查文件是否成功下载
+    if os.path.exists(download_path) and os.path.getsize(download_path) > 0:
+        print("下载成功")
+        return True
+    else:
+        print("下载失败")
+        return False
+
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        print("用法: python telegram_sync.py <apk_type> <target_filename> <work_dir>")
+        sys.exit(1)
+        
+    apk_type = sys.argv[1]
+    target_filename = sys.argv[2]
+    work_dir = sys.argv[3]
+    
+    success = asyncio.run(download_apk(apk_type, target_filename, work_dir))
+    sys.exit(0 if success else 1)
+EOF
+
       - name: Run APK sync script
         env:
           SOURCE_REPO: "FongMi/Release"
@@ -166,94 +267,8 @@ jobs:
             
             echo "尝试从Telegram频道获取APK: $apk_type -> $target_filename"
             
-            # 创建Python脚本从Telegram获取APK
-            cat > "$WORK_DIR/telegram_sync.py" << 'EOF'
-import os
-import sys
-import re
-from telethon import TelegramClient
-from telethon.sessions import StringSession
-from telethon.tl.types import DocumentAttributeFilename
-
-# 配置参数
-TELEGRAM_CHANNEL = os.environ.get('TELEGRAM_CHANNEL', 'tvboxjk')
-APK_TYPE = sys.argv[1]
-TARGET_FILENAME = sys.argv[2]
-WORK_DIR = sys.argv[3]
-
-# 根据APK类型确定要搜索的文件名模式
-if APK_TYPE == "tv":
-    FILE_PATTERNS = [
-        r"OK电视版.*32位.*\.apk",
-        r"OK电视版.*\.apk",
-        r"leanback.*\.apk"
-    ]
-else:
-    FILE_PATTERNS = [
-        r"OK手机版.*64位.*\.apk",
-        r"OK手机版.*\.apk",
-        r"mobile.*\.apk"
-    ]
-
-async def main():
-    client = TelegramClient(
-        StringSession(os.environ['TELEGRAM_SESSION']),
-        int(os.environ['TELEGRAM_API_ID']),
-        os.environ['TELEGRAM_API_HASH']
-    )
-    
-    await client.start()
-    
-    entity = await client.get_entity(TELEGRAM_CHANNEL)
-    
-    target_file = None
-    async for message in client.iter_messages(entity, limit=50):
-        if not message.media:
-            continue
-            
-        if hasattr(message.media, 'document'):
-            for attr in message.media.document.attributes:
-                if isinstance(attr, DocumentAttributeFilename):
-                    filename = attr.file_name
-                    
-                    for pattern in FILE_PATTERNS:
-                        if re.search(pattern, filename, re.IGNORECASE):
-                            if "模拟器" not in filename:
-                                target_file = {
-                                    'message': message,
-                                    'filename': filename
-                                }
-                                break
-                    if target_file:
-                        break
-            if target_file:
-                break
-    
-    if not target_file:
-        print(f"在Telegram频道 {TELEGRAM_CHANNEL} 中未找到符合条件的APK文件")
-        return False
-    
-    print(f"找到APK文件: {target_file['filename']}")
-    
-    download_path = os.path.join(WORK_DIR, TARGET_FILENAME)
-    await client.download_media(target_file['message'], file=download_path)
-    
-    print(f"文件已下载到: {download_path}")
-    
-    if os.path.exists(download_path) and os.path.getsize(download_path) > 0:
-        print("下载成功")
-        return True
-    else:
-        print("下载失败")
-        return False
-
-if __name__ == "__main__":
-    import asyncio
-    success = asyncio.run(main())
-    sys.exit(0 if success else 1)
-EOF
-
-            python "$WORK_DIR/telegram_sync.py" "$apk_type" "$target_filename" "$WORK_DIR"
+            # 使用外部Python脚本
+            python telegram_sync.py "$apk_type" "$target_filename" "$WORK_DIR"
             return $?
           }
           
