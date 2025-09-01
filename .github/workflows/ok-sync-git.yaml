@@ -1,4 +1,4 @@
-name: OK APK Sync from Multiple Sources
+name: OK APK Sync from Multiple
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
