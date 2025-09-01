@@ -1,4 +1,4 @@
-name: OK APK Sync from Source Repository
+name: OK APK Sync from Multiple Sources
 
 # 使用原生并发控制
 concurrency: 
@@ -52,20 +52,34 @@ jobs:
         yes | android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=$GITHUB_WORKSPACE/android-sdk "build-tools;34.0.0"
         echo "aapt2路径: $GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2"
         
+    - name: Set up Python for Telegram sync
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        
+    - name: Install Python dependencies
+      run: |
+        pip install telethon requests pytz
+
     - name: Run APK sync script
       env:
         SOURCE_REPO: "FongMi/Release"
         SOURCE_BRANCH: "okjack"
         APK_DIR: "apk/release"
         TARGET_REPO: "${{ github.repository }}"
-        STABLE_APK_NAME: "leanback-armeabi_v7a.apk"
-        PRE_RELEASE_APK_NAME: "mobile-arm64_v8a.apk"
-        STABLE_TARGET_NAME: "leanback.apk"
-        PRE_RELEASE_TARGET_NAME: "mobile.apk"
+        TV_APK_NAME: "leanback-armeabi_v7a.apk"
+        MOBILE_APK_NAME: "mobile-arm64_v8a.apk"
+        TV_TARGET_NAME: "leanback.apk"
+        MOBILE_TARGET_NAME: "mobile.apk"
+        # Telegram 相关环境变量
+        TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+        TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+        TELEGRAM_CHANNEL: "tvboxjk"  # 指定Telegram频道
       run: |
         # 目标文件路径
-        STABLE_TARGET_PATH="apk/$STABLE_TARGET_NAME"
-        PRE_RELEASE_TARGET_PATH="apk/$PRE_RELEASE_TARGET_NAME"
+        TV_TARGET_PATH="apk/$TV_TARGET_NAME"
+        MOBILE_TARGET_PATH="apk/$MOBILE_TARGET_NAME"
         
         # 工作目录
         WORK_DIR=$(mktemp -d)
@@ -78,21 +92,21 @@ jobs:
         
         # 1. 目标文件存在性检测
         echo "检查目标文件存在性..."
-        STABLE_EXISTS=0
-        PRE_RELEASE_EXISTS=0
+        TV_EXISTS=0
+        MOBILE_EXISTS=0
         
-        if [ -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
-          echo "稳定版目标文件存在: $TARGET_DIR/$STABLE_TARGET_PATH"
-          STABLE_EXISTS=1
+        if [ -f "$TARGET_DIR/$TV_TARGET_PATH" ]; then
+          echo "电视TV版目标文件存在: $TARGET_DIR/$TV_TARGET_PATH"
+          TV_EXISTS=1
         else
-          echo "稳定版目标文件不存在: $TARGET_DIR/$STABLE_TARGET_PATH"
+          echo "电视TV版目标文件不存在: $TARGET_DIR/$TV_TARGET_PATH"
         fi
         
-        if [ -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
-          echo "预发行版目标文件存在: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
-          PRE_RELEASE_EXISTS=1
+        if [ -f "$TARGET_DIR/$MOBILE_TARGET_PATH" ]; then
+          echo "手机版目标文件存在: $TARGET_DIR/$MOBILE_TARGET_PATH"
+          MOBILE_EXISTS=1
         else
-          echo "预发行版目标文件不存在: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
+          echo "手机版目标文件不存在: $TARGET_DIR/$MOBILE_TARGET_PATH"
         fi
         
         # 2. 版本文件键值存在性检测
@@ -107,8 +121,8 @@ jobs:
         fi
         
         # 3. 触发更新下载逻辑
-        NEED_UPDATE_STABLE=0
-        NEED_UPDATE_PRE=0
+        NEED_UPDATE_TV=0
+        NEED_UPDATE_MOBILE=0
         
         # 提取版本号函数
         extract_apk_version() {
@@ -120,7 +134,7 @@ jobs:
           
           if [ -z "$VERSION" ]; then
             echo "警告: 无法提取版本号, 使用提交哈希" >&2
-            COMMIT_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/commits?path=$APK_DIR/$STABLE_APK_NAME&sha=$SOURCE_BRANCH&per_page=1")
+            COMMIT_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/commits?path=$APK_DIR/$TV_APK_NAME&sha=$SOURCE_BRANCH&per_page=1")
             VERSION=$(echo "$COMMIT_JSON" | jq -r '.[0].commit.message' | grep -oP 'v\d+\.\d+\.\d+' | head -1)
             if [ -z "$VERSION" ]; then
               VERSION="unknown"
@@ -152,75 +166,200 @@ jobs:
           echo "$COMMIT_DATE_UTC8"
         }
         
-        # 下载稳定版APK
-        echo "下载稳定版APK..."
-        STABLE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$STABLE_APK_NAME"
-        curl -sL "$STABLE_DOWNLOAD_URL" -o "$WORK_DIR/$STABLE_APK_NAME"
-        if [ ! -f "$WORK_DIR/$STABLE_APK_NAME" ]; then
-          echo "错误: 稳定版APK下载失败"
-          exit 1
+        # 从Telegram获取APK的函数
+        get_apk_from_telegram() {
+          local apk_type="$1"  # tv 或 mobile
+          local target_filename="$2"
+          
+          echo "尝试从Telegram频道获取APK: $apk_type -> $target_filename"
+          
+          # 创建Python脚本从Telegram获取APK
+          cat > "$WORK_DIR/telegram_sync.py" << 'EOF'
+import os
+import sys
+import re
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+from telethon.tl.types import DocumentAttributeFilename
+
+# 配置参数
+TELEGRAM_CHANNEL = os.environ.get('TELEGRAM_CHANNEL', 'tvboxjk')
+APK_TYPE = sys.argv[1]
+TARGET_FILENAME = sys.argv[2]
+WORK_DIR = sys.argv[3]
+
+# 根据APK类型确定要搜索的文件名模式
+if APK_TYPE == "tv":
+    # 电视TV版文件名模式
+    FILE_PATTERNS = [
+        r"OK电视版.*32位.*\.apk",
+        r"OK电视版.*\.apk",
+        r"leanback.*\.apk"
+    ]
+else:  # mobile
+    # 手机版文件名模式
+    FILE_PATTERNS = [
+        r"OK手机版.*64位.*\.apk",
+        r"OK手机版.*\.apk",
+        r"mobile.*\.apk"
+    ]
+
+async def main():
+    # 初始化Telegram客户端
+    client = TelegramClient(
+        StringSession(os.environ['TELEGRAM_SESSION']),
+        int(os.environ['TELEGRAM_API_ID']),
+        os.environ['TELEGRAM_API_HASH']
+    )
+    
+    await client.start()
+    
+    # 获取频道实体
+    entity = await client.get_entity(TELEGRAM_CHANNEL)
+    
+    # 搜索最新的APK文件
+    target_file = None
+    async for message in client.iter_messages(entity, limit=50):
+        if not message.media:
+            continue
+            
+        # 检查是否是文档
+        if hasattr(message.media, 'document'):
+            for attr in message.media.document.attributes:
+                if isinstance(attr, DocumentAttributeFilename):
+                    filename = attr.file_name
+                    
+                    # 检查文件名是否符合模式
+                    for pattern in FILE_PATTERNS:
+                        if re.search(pattern, filename, re.IGNORECASE):
+                            # 排除模拟器版本
+                            if "模拟器" not in filename:
+                                target_file = {
+                                    'message': message,
+                                    'filename': filename
+                                }
+                                break
+                    if target_file:
+                        break
+            if target_file:
+                break
+    
+    if not target_file:
+        print(f"在Telegram频道 {TELEGRAM_CHANNEL} 中未找到符合条件的APK文件")
+        return False
+    
+    print(f"找到APK文件: {target_file['filename']}")
+    
+    # 下载文件
+    download_path = os.path.join(WORK_DIR, TARGET_FILENAME)
+    await client.download_media(target_file['message'], file=download_path)
+    
+    print(f"文件已下载到: {download_path}")
+    
+    # 检查文件是否成功下载
+    if os.path.exists(download_path) and os.path.getsize(download_path) > 0:
+        print("下载成功")
+        return True
+    else:
+        print("下载失败")
+        return False
+
+if __name__ == "__main__":
+    import asyncio
+    success = asyncio.run(main())
+    sys.exit(0 if success else 1)
+EOF
+
+          # 运行Python脚本
+          python "$WORK_DIR/telegram_sync.py" "$apk_type" "$target_filename" "$WORK_DIR"
+          return $?
+        }
+        
+        # 尝试从GitHub源下载APK
+        echo "尝试从GitHub源下载APK..."
+        
+        # 下载电视TV版APK
+        echo "下载电视TV版APK..."
+        TV_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$TV_APK_NAME"
+        curl -sL "$TV_DOWNLOAD_URL" -o "$WORK_DIR/$TV_APK_NAME"
+        
+        # 下载手机版APK
+        echo "下载手机版APK..."
+        MOBILE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$MOBILE_APK_NAME"
+        curl -sL "$MOBILE_DOWNLOAD_URL" -o "$WORK_DIR/$MOBILE_APK_NAME"
+        
+        # 如果GitHub下载失败，尝试从Telegram获取
+        if [ ! -f "$WORK_DIR/$TV_APK_NAME" ]; then
+          echo "GitHub电视TV版APK下载失败，尝试从Telegram获取..."
+          if get_apk_from_telegram "tv" "$TV_APK_NAME"; then
+            echo "从Telegram成功获取电视TV版APK"
+          else
+            echo "错误: 电视TV版APK下载失败"
+            exit 1
+          fi
         fi
         
-        # 下载预发行版APK
-        echo "下载预发行版APK..."
-        PRE_RELEASE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$PRE_RELEASE_APK_NAME"
-        curl -sL "$PRE_RELEASE_DOWNLOAD_URL" -o "$WORK_DIR/$PRE_RELEASE_APK_NAME"
-        if [ ! -f "$WORK_DIR/$PRE_RELEASE_APK_NAME" ]; then
-          echo "错误: 预发行版APK下载失败"
-          exit 1
+        if [ ! -f "$WORK_DIR/$MOBILE_APK_NAME" ]; then
+          echo "GitHub手机版APK下载失败，尝试从Telegram获取..."
+          if get_apk_from_telegram "mobile" "$MOBILE_APK_NAME"; then
+            echo "从Telegram成功获取手机版APK"
+          else
+            echo "错误: 手机版APK下载失败"
+            exit 1
+          fi
         fi
         
         # 提取版本信息
-        STABLE_VERSION=$(extract_apk_version "$WORK_DIR/$STABLE_APK_NAME")
-        PRE_RELEASE_VERSION=$(extract_apk_version "$WORK_DIR/$PRE_RELEASE_APK_NAME")
-        STABLE_COMMIT_DATE=$(get_file_commit_date "$STABLE_APK_NAME")
-        PRE_RELEASE_COMMIT_DATE=$(get_file_commit_date "$PRE_RELEASE_APK_NAME")
+        TV_VERSION=$(extract_apk_version "$WORK_DIR/$TV_APK_NAME")
+        MOBILE_VERSION=$(extract_apk_version "$WORK_DIR/$MOBILE_APK_NAME")
+        TV_COMMIT_DATE=$(get_file_commit_date "$TV_APK_NAME")
+        MOBILE_COMMIT_DATE=$(get_file_commit_date "$MOBILE_APK_NAME")
         
-        echo "稳定版版本: $STABLE_VERSION, 日期: $STABLE_COMMIT_DATE"
-        echo "预发行版版本: $PRE_RELEASE_VERSION, 日期: $PRE_RELEASE_COMMIT_DATE"
+        echo "电视TV版版本: $TV_VERSION, 日期: $TV_COMMIT_DATE"
+        echo "手机版版本: $MOBILE_VERSION, 日期: $MOBILE_COMMIT_DATE"
         
         # 4. 对比更新逻辑
-        CURRENT_STABLE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$STABLE_TARGET_NAME")
-        CURRENT_PRE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$PRE_RELEASE_TARGET_NAME")
+        CURRENT_TV=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$TV_TARGET_NAME")
+        CURRENT_MOBILE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$MOBILE_TARGET_NAME")
         
-        NEW_STABLE_VALUE="$STABLE_VERSION,$STABLE_COMMIT_DATE"
-        NEW_PRE_VALUE="$PRE_RELEASE_VERSION,$PRE_RELEASE_COMMIT_DATE"
+        NEW_TV_VALUE="$TV_VERSION,$TV_COMMIT_DATE"
+        NEW_MOBILE_VALUE="$MOBILE_VERSION,$MOBILE_COMMIT_DATE"
         
-        # 稳定版更新检测
-        if [ "$STABLE_EXISTS" -eq 0 ]; then
-          echo "稳定版目标文件不存在，需要更新"
-          NEED_UPDATE_STABLE=1
-        elif [ "$CURRENT_STABLE" != "$NEW_STABLE_VALUE" ]; then
-          echo "稳定版版本变化：$CURRENT_STABLE -> $NEW_STABLE_VALUE，需要更新"
-          NEED_UPDATE_STABLE=1
+        # 电视TV版更新检测
+        if [ "$TV_EXISTS" -eq 0 ]; then
+          echo "电视TV版目标文件不存在，需要更新"
+          NEED_UPDATE_TV=1
+        elif [ "$CURRENT_TV" != "$NEW_TV_VALUE" ]; then
+          echo "电视TV版版本变化：$CURRENT_TV -> $NEW_TV_VALUE，需要更新"
+          NEED_UPDATE_TV=1
         else
-          echo "稳定版无变化，跳过更新"
+          echo "电视TV版无变化，跳过更新"
         fi
         
-        # 预发行版更新检测
-        if [ "$PRE_RELEASE_EXISTS" -eq 0 ]; then
-          echo "预发行版目标文件不存在，需要更新"
-          NEED_UPDATE_PRE=1
-        elif [ "$CURRENT_PRE" != "$NEW_PRE_VALUE" ]; then
-          echo "预发行版版本变化：$CURRENT_PRE -> $NEW_PRE_VALUE，需要更新"
-          NEED_UPDATE_PRE=1
+        # 手机版更新检测
+        if [ "$MOBILE_EXISTS" -eq 0 ]; then
+          echo "手机版目标文件不存在，需要更新"
+          NEED_UPDATE_MOBILE=1
+        elif [ "$CURRENT_MOBILE" != "$NEW_MOBILE_VALUE" ]; then
+          echo "手机版版本变化：$CURRENT_MOBILE -> $NEW_MOBILE_VALUE，需要更新"
+          NEED_UPDATE_MOBILE=1
         else
-          echo "预发行版无变化，跳过更新"
+          echo "手机版无变化，跳过更新"
         fi
         
         # 检查是否需要更新
-        if [ "$NEED_UPDATE_STABLE" -eq 0 ] && [ "$NEED_UPDATE_PRE" -eq 0 ]; then
+        if [ "$NEED_UPDATE_TV" -eq 0 ] && [ "$NEED_UPDATE_MOBILE" -eq 0 ]; then
           echo "没有需要更新的APK文件"
           exit 0
         fi
         
         # 5. 更新版本文件
         NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
-            --arg stable_key "$STABLE_TARGET_NAME" \
-            --arg stable_value "$NEW_STABLE_VALUE" \
-            --arg pre_key "$PRE_RELEASE_TARGET_NAME" \
-            --arg pre_value "$NEW_PRE_VALUE" \
-            '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
+            --arg tv_key "$TV_TARGET_NAME" \
+            --arg tv_value "$NEW_TV_VALUE" \
+            --arg mobile_key "$MOBILE_TARGET_NAME" \
+            --arg mobile_value "$NEW_MOBILE_VALUE" \
+            '.[$tv_key] = $tv_value | .[$mobile_key] = $mobile_value')
             
         echo "$NEW_VERSION_DATA" | jq -r . > "$VERSION_FILE"
         echo "版本文件已更新"
@@ -228,24 +367,24 @@ jobs:
         # 6. 复制文件到目标仓库
         mkdir -p "$TARGET_DIR/apk"
         
-        if [ "$NEED_UPDATE_STABLE" -eq 1 ]; then
-          cp "$WORK_DIR/$STABLE_APK_NAME" "$TARGET_DIR/$STABLE_TARGET_PATH"
-          echo "稳定版APK已复制到目标仓库"
+        if [ "$NEED_UPDATE_TV" -eq 1 ]; then
+          cp "$WORK_DIR/$TV_APK_NAME" "$TARGET_DIR/$TV_TARGET_PATH"
+          echo "电视TV版APK已复制到目标仓库"
           
           # 验证复制成功
-          if [ ! -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
-            echo "错误: 稳定版APK复制失败"
+          if [ ! -f "$TARGET_DIR/$TV_TARGET_PATH" ]; then
+            echo "错误: 电视TV版APK复制失败"
             exit 1
           fi
         fi
         
-        if [ "$NEED_UPDATE_PRE" -eq 1 ]; then
-          cp "$WORK_DIR/$PRE_RELEASE_APK_NAME" "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
-          echo "预发行版APK已复制到目标仓库"
+        if [ "$NEED_UPDATE_MOBILE" -eq 1 ]; then
+          cp "$WORK_DIR/$MOBILE_APK_NAME" "$TARGET_DIR/$MOBILE_TARGET_PATH"
+          echo "手机版APK已复制到目标仓库"
           
           # 验证复制成功
-          if [ ! -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
-            echo "错误: 预发行版APK复制失败"
+          if [ ! -f "$TARGET_DIR/$MOBILE_TARGET_PATH" ]; then
+            echo "错误: 手机版APK复制失败"
             exit 1
           fi
         fi
@@ -265,11 +404,16 @@ jobs:
         fi
 
         COMMIT_MESSAGE="更新APK: "
-        if [ "$NEED_UPDATE_STABLE" -eq 1 ]; then
-          COMMIT_MESSAGE+="$STABLE_TARGET_NAME ($STABLE_VERSION) "
+        if [ "$NEED_UPDATE_TV" -eq 1 ]; then
+          COMMIT_MESSAGE+="$TV_TARGET_NAME ($TV_VERSION) "
         fi
-        if [ "$NEED_UPDATE_PRE" -eq 1 ]; then
-          COMMIT_MESSAGE+="$PRE_RELEASE_TARGET_NAME ($PRE_RELEASE_VERSION) "
+        if [ "$NEED_UPDATE_MOBILE" -eq 1 ]; then
+          COMMIT_MESSAGE+="$MOBILE_TARGET_NAME ($MOBILE_VERSION) "
+        fi
+        
+        # 添加来源信息
+        if [ ! -f "$WORK_DIR/$TV_APK_NAME" ] || [ ! -f "$WORK_DIR/$MOBILE_APK_NAME" ]; then
+          COMMIT_MESSAGE+="(部分来自Telegram) "
         fi
         
         git commit -m "$COMMIT_MESSAGE"
@@ -300,16 +444,16 @@ jobs:
 
         # 8. 最终验证
         echo "同步完成，验证结果:"
-        echo "稳定版: $([ -f "$TARGET_DIR/$STABLE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
-        echo "预发行版: $([ -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
+        echo "电视TV版: $([ -f "$TARGET_DIR/$TV_TARGET_PATH" ] && echo "存在" || echo "缺失")"
+        echo "手机版: $([ -f "$TARGET_DIR/$MOBILE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
         
-        if [ "$NEED_UPDATE_STABLE" -eq 1 ] && [ ! -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
-          echo "错误: 稳定版APK同步后验证失败"
+        if [ "$NEED_UPDATE_TV" -eq 1 ] && [ ! -f "$TARGET_DIR/$TV_TARGET_PATH" ]; then
+          echo "错误: 电视TV版APK同步后验证失败"
           exit 1
         fi
         
-        if [ "$NEED_UPDATE_PRE" -eq 1 ] && [ ! -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
-          echo "错误: 预发行版APK同步后验证失败"
+        if [ "$NEED_UPDATE_MOBILE" -eq 1 ] && [ ! -f "$TARGET_DIR/$MOBILE_TARGET_PATH" ]; then
+          echo "错误: 手机版APK同步后验证失败"
           exit 1
         fi
         
@@ -376,5 +520,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "OK APK Sync from Source Repository"
+          delete_workflow_pattern: "OK APK Sync from Multiple Sources"
           repository: ${{ github.repository }}
