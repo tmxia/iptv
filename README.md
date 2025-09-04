@@ -1,12 +1,12 @@
 # 应用版本列表
 
-最后更新: 2025-09-04 21:22:50 (北京时间)
+最后更新: 2025-09-04 22:24:38 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
-| <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.13 | v3.5.1 | 2025-09-04 |
+| <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.13 | v3.5.2 | 2025-09-04 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 47.14 | v1.2.4.861 | 2025-09-04 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 91.10 | v1.2.4.861 | 2025-09-04 |
 | <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 38.85 | v1.0.1241 | 2025-09-03 |
