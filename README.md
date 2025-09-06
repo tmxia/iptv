@@ -1,12 +1,13 @@
 # 应用版本列表
 
-最后更新: 2025-09-06 09:41:21 (北京时间)
+最后更新: 2025-09-06 09:45:01 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.13 | v3.5.4 | 2025-09-06 |
+| <div>tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv.apk)</small></div> | 18.03 | v3.3.10 | 2025-09-05 |
 | <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 38.85 | v1.0.1246 | 2025-09-05 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 47.14 | v1.2.4.861 | 2025-09-04 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 91.10 | v1.2.4.861 | 2025-09-04 |
@@ -30,7 +31,6 @@
 | <div>termux-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/termux-beta.apk)</small></div> | 34.08 | v0.119.0 | 2025-05-22 |
 | <div>termux.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/termux.apk)</small></div> | 33.48 | v0.118.3 | 2025-05-22 |
 | <div>tv-new.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv-new.apk)</small></div> | 12.65 | 3.5.2 | 2025-04-21 |
-| <div>tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv.apk)</small></div> | 18.14 | v3.3.9 | 2025-01-17 |
 | <div>bv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv.apk)</small></div> | 9.99 | v0.2.9 | 2024-12-06 |
 | <div>hiddify-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/hiddify-beta.apk)</small></div> | 48.36 | v2.5.7 | 2024-10-03 |
 | <div>hiddify.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/hiddify.apk)</small></div> | 47.11 | v2.0.5 | 2024-07-31 |
