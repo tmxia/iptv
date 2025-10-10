@@ -101,44 +101,68 @@ jobs:
             subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
             return True
         
-        def git_commit_push(message):
-            """提交并推送更改"""
-            try:
-                # 先添加文件
-                subprocess.run(["git", "add", APK_DIR, VERSION_FILE], check=True)
-                
-                # 检查是否有更改
-                status = subprocess.run(
-                    ["git", "status", "--porcelain"],
-                    capture_output=True, text=True, check=True
-                )
-                if not status.stdout.strip():
-                    logger.info("没有更改需要提交")
+        def git_commit_push_with_retry(message, max_retries=3):
+            """提交并推送更改，带重试机制"""
+            for attempt in range(max_retries):
+                try:
+                    # 清理未跟踪文件
+                    subprocess.run(["git", "clean", "-fd"], check=True)
+                    
+                    # 先添加文件
+                    subprocess.run(["git", "add", APK_DIR, VERSION_FILE], check=True)
+                    
+                    # 检查是否有更改
+                    status = subprocess.run(
+                        ["git", "status", "--porcelain"],
+                        capture_output=True, text=True, check=True
+                    )
+                    if not status.stdout.strip():
+                        logger.info("没有更改需要提交")
+                        return True
+                    
+                    logger.info(f"第 {attempt + 1} 次尝试提交，检查到以下更改:")
+                    logger.info(status.stdout)
+                    
+                    # 提交更改
+                    subprocess.run(["git", "commit", "-m", message], check=True)
+                    logger.info("提交成功")
+                    
+                    # 使用Token推送
+                    token = os.environ['GITHUB_TOKEN']
+                    repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
+                    
+                    # 使用强制推送，但先拉取最新更改
+                    logger.info("拉取最新远程更改...")
+                    subprocess.run(["git", "pull", "--rebase", repo_url, "main"], check=True)
+                    
+                    logger.info("推送更改到远程...")
+                    subprocess.run(["git", "push", repo_url, "HEAD:main"], check=True)
+                    logger.info("推送成功")
                     return True
-                
-                logger.info("检查到以下更改:")
-                logger.info(status.stdout)
-                
-                # 直接提交，不使用stash（简化冲突处理）
-                subprocess.run(["git", "commit", "-m", message], check=True)
-                
-                # 使用Token推送
-                token = os.environ['GITHUB_TOKEN']
-                repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
-                
-                # 使用强制推送覆盖远程更改
-                subprocess.run(["git", "push", "--force", repo_url, "HEAD:main"], check=True)
-                logger.info("推送成功")
-                return True
-                
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Git操作失败，返回码: {e.returncode}")
-                logger.error(f"错误输出: {e.stderr}")
-                logger.error(f"标准输出: {e.stdout}")
-                return False
-            except Exception as e:
-                logger.error(f"Git操作失败: {str(e)}")
-                return False
+                    
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"第 {attempt + 1} 次尝试失败: {e}")
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 10  # 递增等待时间
+                        logger.info(f"{wait_time}秒后重试...")
+                        time.sleep(wait_time)
+                        
+                        # 重置状态
+                        subprocess.run(["git", "reset", "--hard", "HEAD"], check=True)
+                        subprocess.run(["git", "clean", "-fd"], check=True)
+                        subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+                    else:
+                        logger.error("所有重试尝试均失败")
+                        return False
+                except Exception as e:
+                    logger.error(f"Git操作失败: {str(e)}")
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 10
+                        logger.info(f"{wait_time}秒后重试...")
+                        time.sleep(wait_time)
+                    else:
+                        return False
+            return False
         
         def get_versions():
             """获取当前版本信息并验证键值结构"""
@@ -407,8 +431,9 @@ jobs:
                 
                 # 提交更改
                 commit_msg = f"更新APK: {', '.join(updates.keys())}"
-                if not git_commit_push(commit_msg):
-                    raise RuntimeError("提交失败")
+                if not git_commit_push_with_retry(commit_msg):
+                    # 如果推送失败，记录错误但不抛出异常，避免工作流完全失败
+                    logger.error("Git推送失败，但工作流将继续完成")
                 else:
                     logger.info("所有更新已成功提交")
             else:
