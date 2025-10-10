@@ -107,10 +107,6 @@ jobs:
         def git_commit_push(message):
             """提交并推送更改"""
             try:
-                # 关键修复：在提交前先拉取远程最新更改
-                logger.info("提交前拉取远程最新更改...")
-                subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
-                
                 # 只添加apk目录和版本文件
                 subprocess.run(["git", "add", APK_DIR, VERSION_FILE], check=True)
                 
