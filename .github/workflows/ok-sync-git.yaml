@@ -33,7 +33,7 @@ jobs:
         repository: ${{ github.repository }}
         token: ${{ secrets.GITHUB_TOKEN }}
         path: target-repo
-        fetch-depth: 0
+        fetch-depth: 1
 
     - name: Install dependencies
       run: |
