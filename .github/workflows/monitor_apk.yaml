@@ -24,7 +24,13 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 1
+        sparse-checkout: |
+          apk/
+          .github/workflows/
+        sparse-checkout-cone-mode: false
+        lfs: false
+        submodules: false
         token: ${{ secrets.REPO_PAT }}
 
     - name: 获取最新变更
