@@ -14,9 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout current repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 1
+        sparse-checkout: |
+          apk/
+          .github/workflows/
+        sparse-checkout-cone-mode: false
+        lfs: false
+        submodules: false
 
     - name: Install dependencies
       run: |
