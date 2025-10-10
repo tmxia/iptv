@@ -107,39 +107,35 @@ jobs:
                 # 先添加文件
                 subprocess.run(["git", "add", APK_DIR, VERSION_FILE], check=True)
                 
-                # 检查是否有更改（忽略未跟踪文件）
+                # 检查是否有更改
                 status = subprocess.run(
-                    ["git", "status", "--porcelain", "--untracked-files=no"],
+                    ["git", "status", "--porcelain"],
                     capture_output=True, text=True, check=True
                 )
                 if not status.stdout.strip():
                     logger.info("没有更改需要提交")
                     return True
                 
-                # 使用 stash 来处理冲突
-                logger.info("暂存当前更改...")
-                subprocess.run(["git", "stash"], check=True)
+                logger.info("检查到以下更改:")
+                logger.info(status.stdout)
                 
-                logger.info("拉取远程最新更改...")
-                subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
-                
-                logger.info("恢复暂存的更改...")
-                result = subprocess.run(["git", "stash", "pop"], capture_output=True, text=True)
-                if result.returncode != 0:
-                    logger.warning("恢复暂存时出现冲突，尝试解决...")
-                    # 如果有冲突，我们强制使用暂存的版本
-                    subprocess.run(["git", "checkout", "theirs", "--", APK_DIR, VERSION_FILE], check=True)
-                    subprocess.run(["git", "add", APK_DIR, VERSION_FILE], check=True)
-                
-                # 提交更改
+                # 直接提交，不使用stash（简化冲突处理）
                 subprocess.run(["git", "commit", "-m", message], check=True)
                 
                 # 使用Token推送
                 token = os.environ['GITHUB_TOKEN']
                 repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
-                subprocess.run(["git", "push", repo_url, "HEAD:main"], check=True)
+                
+                # 使用强制推送覆盖远程更改
+                subprocess.run(["git", "push", "--force", repo_url, "HEAD:main"], check=True)
                 logger.info("推送成功")
                 return True
+                
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Git操作失败，返回码: {e.returncode}")
+                logger.error(f"错误输出: {e.stderr}")
+                logger.error(f"标准输出: {e.stdout}")
+                return False
             except Exception as e:
                 logger.error(f"Git操作失败: {str(e)}")
                 return False
@@ -217,6 +213,8 @@ jobs:
                 new_ver = new_version_info['version']
                 new_date = new_version_info['date']
                 
+                logger.info(f"版本比较: {current_ver} ({current_date}) vs {new_ver} ({new_date})")
+                
                 # 首先比较版本号
                 if current_ver and new_ver:
                     # 提取纯数字版本进行比较
@@ -232,6 +230,10 @@ jobs:
                             elif int(new_num[i]) < int(current_num[i]):
                                 logger.info(f"版本号较旧: {current_ver} -> {new_ver}")
                                 return False
+                        # 如果前几位相同，长度更长的版本号更新
+                        if len(new_num) > len(current_num):
+                            logger.info(f"版本号更详细: {current_ver} -> {new_ver}")
+                            return True
                 
                 # 版本号相同，比较日期
                 if current_date and new_date:
