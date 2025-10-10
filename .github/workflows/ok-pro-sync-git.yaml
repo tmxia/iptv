@@ -228,9 +228,11 @@ jobs:
             
             # 针对tvboxjk频道优先使用文件名中的版本号
             if channel_name == "tvboxjk":
-                ver_match = re.search(r'([\d.]+)\.apk$', original_filename)
+                # 改进版本号提取，处理多种分隔符
+                ver_match = re.search(r'[-﹣﹣—–\s]*([\d.]+)\.apk$', original_filename)
                 if ver_match:
                     version = f"v{ver_match.group(1)}"
+                    logger.info(f"从文件名提取版本: {version}")
                     return {
                         "path": download_path,
                         "version": version,
@@ -241,11 +243,13 @@ jobs:
             version = extract_apk_version(download_path)
             if not version:
                 # 尝试从原始文件名提取版本号
-                ver_match = re.search(r'[-﹣]([\d.]+)\.apk$', original_filename)
+                ver_match = re.search(r'[-﹣﹣—–\s]([\d.]+)\.apk$', original_filename)
                 if ver_match:
                     version = f"v{ver_match.group(1)}"
+                    logger.info(f"从文件名提取版本: {version}")
                 else:
                     version = f"v{target_filename.split('.')[0]}-{message.date.strftime('%Y%m%d')}"
+                    logger.info(f"使用后备版本: {version}")
             
             return {
                 "path": download_path,
@@ -263,15 +267,36 @@ jobs:
             if channel_name == "tvb_ys" and original_name in APK_FILES:
                 return original_name
             
-            # 第二个频道的文件名映射规则
+            # 第二个频道的文件名映射规则 - 改进匹配逻辑
             if channel_name == "tvboxjk":
-                if "ok影视" not in original_name.lower():
+                # 放宽匹配条件，包含OK影视、OK、影视等关键词
+                ok_keywords = ["ok影视", "ok", "影视"]
+                if not any(keyword in original_name.lower() for keyword in ok_keywords):
                     return None
-                    
-                if "电视版" in original_name or "leanback" in original_name.lower():
+                
+                # 调试日志
+                logger.info(f"检查文件: {original_name}")
+                
+                # 改进电视版匹配
+                tv_keywords = ["电视版", "tv版", "leanback", "电视", "大屏"]
+                if any(keyword in original_name.lower() for keyword in tv_keywords):
+                    logger.info(f"映射到电视版: {original_name} -> leanback-pro.apk")
                     return "leanback-pro.apk"
-                elif "手机版" in original_name or "mobile" in original_name.lower():
+                
+                # 改进手机版匹配  
+                mobile_keywords = ["手机版", "mobile", "手机", "手持"]
+                if any(keyword in original_name.lower() for keyword in mobile_keywords):
+                    logger.info(f"映射到手机版: {original_name} -> mobile-pro.apk")
                     return "mobile-pro.apk"
+                
+                # 如果无法确定版本，根据文件名特征猜测
+                if "pro" in original_name.lower():
+                    if "tv" in original_name.lower() or "电视" in original_name:
+                        logger.info(f"根据Pro+TV映射到电视版: {original_name}")
+                        return "leanback-pro.apk"
+                    else:
+                        logger.info(f"根据Pro映射到手机版: {original_name}")
+                        return "mobile-pro.apk"
             
             return None
         
@@ -289,8 +314,8 @@ jobs:
             processed_targets = set()
             message_candidates = []
             
-            # 扫描消息
-            async for msg in client.iter_messages(entity, limit=15):
+            # 增加消息获取数量以确保覆盖
+            async for msg in client.iter_messages(entity, limit=30):
                 if not (msg.media and hasattr(msg.media, "document")):
                     continue
                     
@@ -299,9 +324,16 @@ jobs:
                         continue
                         
                     original_name = attr.file_name
+                    # 跳过非APK文件
+                    if not original_name.lower().endswith('.apk'):
+                        continue
+                        
                     target_name = map_filename(original_name, channel_name)
                     
-                    if not target_name or target_name in processed_targets:
+                    if not target_name:
+                        continue
+                        
+                    if target_name in processed_targets:
                         continue
                     processed_targets.add(target_name)
                     
@@ -311,13 +343,15 @@ jobs:
                     
                     # 对于tvboxjk频道，优先使用文件名中的版本号进行预检查
                     if channel_name == "tvboxjk":
-                        ver_match = re.search(r'([\d.]+)\.apk$', original_name)
+                        # 改进版本号提取，处理多种分隔符
+                        ver_match = re.search(r'[-﹣﹣—–\s]*([\d.]+)\.apk$', original_name)
                         if ver_match:
                             file_version = f"v{ver_match.group(1)}"
                             if current:
                                 try:
                                     stored_version = current.split(',')[0].strip()
                                     if stored_version == file_version:
+                                        logger.info(f"跳过相同版本: {target_name} ({file_version})")
                                         continue
                                 except Exception:
                                     pass
@@ -325,6 +359,7 @@ jobs:
                     # 目标文件不存在时强制更新
                     target_path = os.path.join(APK_DIR, target_name)
                     if not os.path.exists(target_path):
+                        logger.info(f"目标文件不存在，强制更新: {target_name}")
                         message_candidates.append((msg, target_name, original_name))
                         continue
                     
@@ -339,15 +374,18 @@ jobs:
                             if msg_date < stored_date:
                                 skip = True
                             elif msg_date == stored_date:
+                                # 同一天可能有多个版本，继续处理
                                 pass
                         except (IndexError, ValueError):
                             pass
                     
                     if not skip:
                         message_candidates.append((msg, target_name, original_name))
+                        logger.info(f"添加候选: {target_name} (来源: {original_name})")
             
             # 按时间倒序处理候选消息
             message_candidates.sort(key=lambda x: x[0].date, reverse=True)
+            logger.info(f"频道 {channel_name} 共有 {len(message_candidates)} 个候选APK")
             
             # 处理候选消息
             for msg, target_name, original_name in message_candidates:
@@ -358,6 +396,7 @@ jobs:
                     # 下载后再次验证版本
                     current_value = current_versions.get(target_name, "")
                     if current_value == new_value:
+                        logger.info(f"跳过相同版本: {target_name}")
                         os.remove(apk_data['path'])
                     else:
                         updates[target_name] = new_value
@@ -385,6 +424,7 @@ jobs:
             
             # 获取当前版本
             current_versions = get_versions()
+            logger.info(f"当前版本: {current_versions}")
             
             # 创建Telegram客户端
             client = TelegramClient(
@@ -403,13 +443,17 @@ jobs:
                 for channel in TELEGRAM_CHANNELS:
                     try:
                         updates = await check_channel(client, channel, current_versions)
-                        all_updates.update(updates)
-                        current_versions.update(updates)
+                        if updates:
+                            all_updates.update(updates)
+                            current_versions.update(updates)
+                            logger.info(f"频道 {channel} 发现 {len(updates)} 个更新")
+                        else:
+                            logger.info(f"频道 {channel} 无更新")
                     except Exception as e:
                         logger.error(f"处理频道 {channel} 时出错: {str(e)}")
             
             if all_updates:
-                logger.info(f"发现 {len(all_updates)} 个更新")
+                logger.info(f"总共发现 {len(all_updates)} 个更新")
                 
                 # 复制APK文件到仓库
                 for apk in all_updates.keys():
@@ -420,6 +464,7 @@ jobs:
                     
                     dst = os.path.join(APK_DIR, apk)
                     shutil.copy2(src, dst)
+                    logger.info(f"已复制: {apk}")
                 
                 # 更新版本文件
                 update_versions(all_updates)
