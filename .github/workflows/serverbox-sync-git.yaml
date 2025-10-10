@@ -39,11 +39,16 @@ jobs:
         echo "::error::无法在5分钟内获取锁"
         exit 1
         
-    # =========== 原有步骤保持不变 ===========
     - name: Checkout current repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 1
+        sparse-checkout: |
+          apk/
+          .github/workflows/
+        sparse-checkout-cone-mode: false
+        lfs: false
+        submodules: false
 
     - name: Install dependencies
       run: |
