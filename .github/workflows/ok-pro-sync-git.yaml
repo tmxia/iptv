@@ -122,6 +122,10 @@ jobs:
                 # 提交更改
                 subprocess.run(["git", "commit", "-m", message], check=True)
                 
+                # 关键修复：在推送前再次拉取远程最新更改
+                logger.info("推送前拉取远程最新更改...")
+                subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+                
                 # 使用Token推送
                 token = os.environ['GITHUB_TOKEN']
                 repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
