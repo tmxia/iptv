@@ -131,15 +131,29 @@ jobs:
             return f"{size:.1f}GB"
         
         def git_setup():
-            """配置Git用户信息"""
+            """配置Git用户信息并处理工作区状态"""
             actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
             email = f"{actor}@users.noreply.github.com"
             
             subprocess.run(["git", "config", "user.name", actor], check=True)
             subprocess.run(["git", "config", "user.email", email], check=True)
             
-            # 拉取最新更改
-            subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+            # 检查工作区状态
+            status_result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True, text=True, check=True
+            )
+            
+            if status_result.stdout.strip():
+                logger.info("工作区有未提交的更改，正在清理...")
+                # 重置所有更改
+                subprocess.run(["git", "reset", "--hard", "HEAD"], check=True)
+                # 清理未跟踪的文件
+                subprocess.run(["git", "clean", "-fd"], check=True)
+            
+            # 拉取最新更改 - 使用 merge 而不是 rebase
+            logger.info("拉取远程最新更改...")
+            subprocess.run(["git", "pull", "origin", "main"], check=True)
             return True
         
         def git_commit_push(message):
@@ -400,6 +414,8 @@ jobs:
                 raise ValueError(f"缺少环境变量: {', '.join(missing)}")
             
             start_time = time.time()
+            
+            # 先执行git设置，确保工作区干净
             git_setup()
             
             shutil.rmtree(WORK_DIR, ignore_errors=True)
