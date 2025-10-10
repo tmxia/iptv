@@ -105,10 +105,7 @@ jobs:
             """提交并推送更改，带重试机制"""
             for attempt in range(max_retries):
                 try:
-                    # 清理未跟踪文件
-                    subprocess.run(["git", "clean", "-fd"], check=True)
-                    
-                    # 先添加文件
+                    # 先添加文件 - 在清理之前添加，确保文件被跟踪
                     subprocess.run(["git", "add", APK_DIR, VERSION_FILE], check=True)
                     
                     # 检查是否有更改
@@ -131,7 +128,7 @@ jobs:
                     token = os.environ['GITHUB_TOKEN']
                     repo_url = f"https://x-access-token:{token}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
                     
-                    # 使用强制推送，但先拉取最新更改
+                    # 拉取最新远程更改
                     logger.info("拉取最新远程更改...")
                     subprocess.run(["git", "pull", "--rebase", repo_url, "main"], check=True)
                     
@@ -147,9 +144,11 @@ jobs:
                         logger.info(f"{wait_time}秒后重试...")
                         time.sleep(wait_time)
                         
-                        # 重置状态
+                        # 重置状态 - 但不要删除已跟踪的文件
                         subprocess.run(["git", "reset", "--hard", "HEAD"], check=True)
-                        subprocess.run(["git", "clean", "-fd"], check=True)
+                        # 只清理临时目录，不清理 apk 目录
+                        if os.path.exists(WORK_DIR):
+                            shutil.rmtree(WORK_DIR, ignore_errors=True)
                         subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
                     else:
                         logger.error("所有重试尝试均失败")
@@ -210,7 +209,7 @@ jobs:
             if "PlusMessenger" in original_name and original_name.endswith(".apk"):
                 # 检查是否为 arm64 架构
                 if "arm64" in original_name:
-                    return "plus modz.apk"
+                    return "plus_modz.apk"
             return None
         
         def compare_versions(current_version, new_version_info):
