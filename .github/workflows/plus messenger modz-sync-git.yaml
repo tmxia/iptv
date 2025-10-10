@@ -6,7 +6,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: '0 */5 * * *'
+    - cron: '0 */3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -310,7 +310,7 @@ jobs:
             # 扫描消息
             message_candidates = []
             
-            async for msg in client.iter_messages(entity, limit=50):
+            async for msg in client.iter_messages(entity, limit=100):
                 if not (msg.media and hasattr(msg.media, "document")):
                     continue
                     
