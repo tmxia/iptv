@@ -325,12 +325,12 @@ jobs:
             updates = {}
             processed_targets = set()
             
-            # 扫描消息 - 增加消息数量到100
+            # 扫描消息 - 增加消息数量到200
             message_candidates = []
             message_count = 0
             apk_count = 0
             
-            async for msg in client.iter_messages(entity, limit=100):
+            async for msg in client.iter_messages(entity, limit=200):
                 message_count += 1
                 if not (msg.media and hasattr(msg.media, "document")):
                     continue
