@@ -63,7 +63,7 @@ jobs:
         import pytz
         
         # 配置参数
-        APK_FILES = ["plus modz.apk"]
+        APK_FILES = ["plus_modz.apk"]
         APK_DIR = "apk"
         WORK_DIR = "temp_apks"
         VERSION_FILE = "version.txt"
