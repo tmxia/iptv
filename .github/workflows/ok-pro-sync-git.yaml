@@ -35,9 +35,6 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-
     - name: Install dependencies
       run: |
         sudo apt-get install -y jq
@@ -107,7 +104,7 @@ jobs:
         def git_commit_push(message):
             """提交并推送更改"""
             try:
-                # 只添加apk目录和版本文件
+                # 先添加文件
                 subprocess.run(["git", "add", APK_DIR, VERSION_FILE], check=True)
                 
                 # 检查是否有更改（忽略未跟踪文件）
@@ -118,6 +115,21 @@ jobs:
                 if not status.stdout.strip():
                     logger.info("没有更改需要提交")
                     return True
+                
+                # 使用 stash 来处理冲突
+                logger.info("暂存当前更改...")
+                subprocess.run(["git", "stash"], check=True)
+                
+                logger.info("拉取远程最新更改...")
+                subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+                
+                logger.info("恢复暂存的更改...")
+                result = subprocess.run(["git", "stash", "pop"], capture_output=True, text=True)
+                if result.returncode != 0:
+                    logger.warning("恢复暂存时出现冲突，尝试解决...")
+                    # 如果有冲突，我们强制使用暂存的版本
+                    subprocess.run(["git", "checkout", "theirs", "--", APK_DIR, VERSION_FILE], check=True)
+                    subprocess.run(["git", "add", APK_DIR, VERSION_FILE], check=True)
                 
                 # 提交更改
                 subprocess.run(["git", "commit", "-m", message], check=True)
@@ -161,31 +173,6 @@ jobs:
                 # 仅显示关心的键值版本信息
                 for apk, ver in new_versions.items():
                     logger.info(f"版本更新: {apk} => {ver}")
-        
-        def extract_apk_version(apk_path):
-            """使用aapt2从APK提取版本号"""
-            try:
-                aapt2 = os.path.join(
-                    os.environ['ANDROID_HOME'],
-                    "build-tools/34.0.0/aapt2"
-                )
-                
-                result = subprocess.run(
-                    [aapt2, "dump", "badging", apk_path],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                
-                # 查找versionName
-                match = re.search(r"versionName='([^']*)'", result.stdout)
-                if match:
-                    version = match.group(1)
-                    return f"v{version}" if not version.startswith('v') else version
-                return None
-            except Exception as e:
-                logger.error(f"提取版本号失败: {str(e)}")
-                return None
         
         def extract_version_from_filename(filename):
             """从文件名中提取版本号"""
@@ -233,18 +220,14 @@ jobs:
             if not os.path.exists(download_path):
                 raise FileNotFoundError(f"文件下载失败: {download_path}")
             
-            # 优先使用文件名中的版本号
+            # 从文件名中提取版本号
             version = extract_version_from_filename(original_filename)
             if version:
                 logger.info(f"使用文件名版本号: {version}")
             else:
-                # 使用aapt2提取版本号
-                version = extract_apk_version(download_path)
-                if version:
-                    logger.info(f"使用APK版本号: {version}")
-                else:
-                    version = f"v{target_filename.split('.')[0]}-{message.date.strftime('%Y%m%d')}"
-                    logger.info(f"使用后备版本号: {version}")
+                # 如果无法从文件名提取版本号，使用后备方案
+                version = f"v{target_filename.split('.')[0]}-{message.date.strftime('%Y%m%d')}"
+                logger.info(f"使用后备版本号: {version}")
             
             return {
                 "path": download_path,
@@ -432,67 +415,6 @@ jobs:
         action: unlock
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Notify on failure
-      if: failure()
-      uses: actions/github-script@v6
-      with:
-        script: |
-          try {
-            // 检查是否有有效的 issue number
-            if (context.issue && context.issue.number) {
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: `🚨 Telegram APK同步失败！工作流运行详情: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
-              });
-            } else {
-              // 没有关联的 issue，发送到仓库讨论
-              const repo = context.repo;
-              const discussionTitle = "工作流失败通知";
-              
-              // 检查是否已存在讨论
-              const discussions = await github.rest.discussions.listForRepo({
-                owner: repo.owner,
-                repo: repo.repo,
-                per_page: 1,
-                direction: 'desc'
-              });
-              
-              // 创建或更新讨论
-              if (discussions.data.length > 0) {
-                const discussion = discussions.data[0];
-                await github.rest.discussions.updateComment({
-                  owner: repo.owner,
-                  repo: repo.repo,
-                  discussion_number: discussion.number,
-                  comment_number: discussion.comments[0]?.number || 0,
-                  body: `### 🚨 工作流失败通知\n\n` +
-                        `**工作流**: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n` +
-                        `**失败时间**: ${new Date().toISOString()}\n` +
-                        `**原因**: APK同步失败\n\n` +
-                        `请检查工作流日志以获取详细信息。`
-                });
-              } else {
-                await github.rest.discussions.create({
-                  owner: repo.owner,
-                  repo: repo.repo,
-                  title: discussionTitle,
-                  body: `### 🚨 工作流失败通知\n\n` +
-                        `**工作流**: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n` +
-                        `**失败时间**: ${new Date().toISOString()}\n` +
-                        `**原因**: APK同步失败\n\n` +
-                        `请检查工作流日志以获取详细信息。`,
-                  category: "GENERAL"
-                });
-              }
-            }
-          } catch (error) {
-            console.error('通知失败:', error);
-            // 回退到基本日志输出
-            core.warning('无法发送通知，请手动检查工作流失败情况');
-          }
 
   cleanup_self:
     name: Cleanup Self Workflow History
