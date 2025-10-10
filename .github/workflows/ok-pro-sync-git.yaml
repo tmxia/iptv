@@ -28,49 +28,20 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 1
-
-    - name: Cache pip packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Cache Android SDK
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.android/cache
-          $ANDROID_HOME/build-tools
-        key: ${{ runner.os }}-android-${{ hashFiles('**/version.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-android-
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'pip'
 
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Install system dependencies
+    - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl
-
-    - name: Create requirements file
-      run: |
-        echo "telethon>=1.28.5" > requirements.txt
-        echo "requests>=2.31.0" >> requirements.txt
-        echo "pytz>=2023.3" >> requirements.txt
-
-    - name: Install Python dependencies
-      run: |
-        pip install -r requirements.txt
+        sudo apt-get install -y jq
+        pip install telethon requests pytz
 
     - name: Run APK Sync
       env:
@@ -88,9 +59,7 @@ jobs:
         import time
         import re
         import logging
-        import asyncio
-        import socket
-        from datetime import datetime, timedelta
+        from datetime import datetime
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         from telethon.tl.types import DocumentAttributeFilename
@@ -105,22 +74,13 @@ jobs:
         # 硬编码的Telegram频道
         TELEGRAM_CHANNELS = ["tvb_ys", "tvboxjk"]
         
-        # 设置简化的日志
+        # 设置日志
         logging.basicConfig(
             level=logging.INFO,
             format='[%(asctime)s] %(message)s',
-            datefmt='%H:%M:%S'
+            datefmt='%Y-%m-%d %H:%M:%S'
         )
         logger = logging.getLogger()
-        
-        # DNS优化 - 优先使用IPv4
-        original_getaddrinfo = socket.getaddrinfo
-        def getaddrinfo_prefer_ipv4(host, port, family=0, type=0, proto=0, flags=0):
-            try:
-                return original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-            except socket.gaierror:
-                return original_getaddrinfo(host, port, family, type, proto, flags)
-        socket.getaddrinfo = getaddrinfo_prefer_ipv4
         
         def format_size(size):
             """将字节数转换为易读的格式"""
@@ -131,29 +91,17 @@ jobs:
             return f"{size:.1f}GB"
         
         def git_setup():
-            """配置Git用户信息并处理工作区状态"""
+            """配置Git用户信息"""
             actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
             email = f"{actor}@users.noreply.github.com"
             
             subprocess.run(["git", "config", "user.name", actor], check=True)
             subprocess.run(["git", "config", "user.email", email], check=True)
+            logger.info("Git配置完成")
             
-            # 检查工作区状态
-            status_result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                capture_output=True, text=True, check=True
-            )
-            
-            if status_result.stdout.strip():
-                logger.info("工作区有未提交的更改，正在清理...")
-                # 重置所有更改
-                subprocess.run(["git", "reset", "--hard", "HEAD"], check=True)
-                # 清理未跟踪的文件
-                subprocess.run(["git", "clean", "-fd"], check=True)
-            
-            # 拉取最新更改 - 使用 merge 而不是 rebase
+            # 拉取最新更改
             logger.info("拉取远程最新更改...")
-            subprocess.run(["git", "pull", "origin", "main"], check=True)
+            subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
             return True
         
         def git_commit_push(message):
@@ -162,7 +110,7 @@ jobs:
                 # 只添加apk目录和版本文件
                 subprocess.run(["git", "add", APK_DIR, VERSION_FILE], check=True)
                 
-                # 检查是否有更改
+                # 检查是否有更改（忽略未跟踪文件）
                 status = subprocess.run(
                     ["git", "status", "--porcelain", "--untracked-files=no"],
                     capture_output=True, text=True, check=True
@@ -185,13 +133,14 @@ jobs:
                 return False
         
         def get_versions():
-            """获取当前版本信息"""
+            """获取当前版本信息并验证键值结构"""
             if not os.path.exists(VERSION_FILE):
                 return {}
             
             try:
                 with open(VERSION_FILE, "r") as f:
                     versions = json.load(f)
+                    # 验证是否为字典格式
                     if not isinstance(versions, dict):
                         logger.warning("版本文件格式无效，重置为空字典")
                         return {}
@@ -207,9 +156,11 @@ jobs:
             
             with open(VERSION_FILE, "w") as f:
                 json.dump(versions, f, indent=2)
+                logger.info("版本文件已更新")
                 
-            for apk, ver in new_versions.items():
-                logger.info(f"更新: {apk} => {ver}")
+                # 仅显示关心的键值版本信息
+                for apk, ver in new_versions.items():
+                    logger.info(f"版本更新: {apk} => {ver}")
         
         def extract_apk_version(apk_path):
             """使用aapt2从APK提取版本号"""
@@ -236,44 +187,95 @@ jobs:
                 logger.error(f"提取版本号失败: {str(e)}")
                 return None
         
-        async def download_with_retry(client, message, target_filename, original_filename, channel_name, max_retries=2):
-            """带重试的下载函数"""
-            for attempt in range(1, max_retries + 1):
-                try:
-                    return await download_apk(client, message, target_filename, original_filename, channel_name)
-                except Exception as e:
-                    logger.warning(f"下载尝试 {attempt}/{max_retries} 失败: {str(e)}")
-                    if attempt == max_retries:
-                        raise e
-                    await asyncio.sleep(3 * attempt)
+        def extract_version_from_filename(filename):
+            """从文件名中提取版本号，处理特殊字符"""
+            # 多种版本号匹配模式，按优先级排序
+            patterns = [
+                r'[﹣-]+([\d.]+)\.apk$',           # 匹配 "﹣-3.5.3.apk" 格式
+                r'[﹣-]([\d.]+)\.apk$',            # 匹配 "﹣3.5.3.apk" 格式  
+                r'v?([\d.]+)\.apk$',               # 匹配 "3.5.3.apk" 或 "v3.5.3.apk" 格式
+                r'[^a-zA-Z]([\d.]+)\.apk$'         # 通用匹配
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, filename)
+                if match:
+                    version = match.group(1)
+                    # 确保版本号格式正确
+                    if version and re.match(r'^\d+(\.\d+)*$', version):
+                        return f"v{version}"
+            
+            return None
+        
+        def map_filename(original_name, channel_name):
+            """将原始文件名映射到标准文件名"""
+            # 精确排除模拟器专版
+            if "模拟器" in original_name or "模拟器专版" in original_name:
+                return None
+            
+            # 第一个频道的直接匹配
+            if channel_name == "tvb_ys" and original_name in APK_FILES:
+                return original_name
+            
+            # 第二个频道的文件名映射规则
+            if channel_name == "tvboxjk":
+                # 必须包含"ok影视"或"OK影视"字样（不区分大小写）
+                if not any(keyword in original_name.lower() for keyword in ["ok影视", "okys"]):
+                    return None
+                
+                # 使用正则表达式进行更精准的匹配
+                
+                # 匹配手机版 - 支持多种分隔符和版本格式
+                mobile_patterns = [
+                    r"手机版",                    # 中文标识
+                    r"mobile",                   # 英文标识
+                    r"手机.*?[﹣-].*?[\d.]+\.apk$" # 手机版+版本号模式
+                ]
+                
+                # 匹配电视版 - 支持多种分隔符和版本格式  
+                tv_patterns = [
+                    r"电视版",                    # 中文标识
+                    r"leanback",                 # 英文标识
+                    r"电视.*?[﹣-].*?[\d.]+\.apk$" # 电视版+版本号模式
+                ]
+                
+                # 检查手机版模式
+                if any(re.search(pattern, original_name, re.IGNORECASE) for pattern in mobile_patterns):
+                    return "mobile-pro.apk"
+                
+                # 检查电视版模式
+                if any(re.search(pattern, original_name, re.IGNORECASE) for pattern in tv_patterns):
+                    return "leanback-pro.apk"
+                
+                # 如果上述模式都不匹配，但文件名符合基本格式，使用启发式判断
+                if "手机" in original_name or "mobile" in original_name.lower():
+                    return "mobile-pro.apk"
+                elif "电视" in original_name or "leanback" in original_name.lower() or "tv" in original_name.lower():
+                    return "leanback-pro.apk"
+            
+            return None
         
         async def download_apk(client, message, target_filename, original_filename, channel_name):
             """下载APK文件并提取元数据"""
             download_path = os.path.join(WORK_DIR, target_filename)
             total_size = message.document.size
-            
-            logger.info(f"下载: {original_filename} ({format_size(total_size)})")
+            logger.info(f"开始下载: {original_filename} -> {target_filename} ({format_size(total_size)})")
             
             start_time = time.time()
-            await client.download_media(
-                message, 
-                file=download_path,
-                progress_callback=None
-            )
+            await client.download_media(message, file=download_path)
             
             elapsed = time.time() - start_time
-            download_speed = total_size / elapsed / 1024 / 1024
-            logger.info(f"下载完成: {elapsed:.1f}秒 ({download_speed:.1f}MB/s)")
+            logger.info(f"下载完成: 耗时{elapsed:.1f}秒")
             
+            # 验证文件是否成功下载
             if not os.path.exists(download_path):
                 raise FileNotFoundError(f"文件下载失败: {download_path}")
             
             # 针对tvboxjk频道优先使用文件名中的版本号
             if channel_name == "tvboxjk":
-                # 精确匹配版本号格式
-                ver_match = re.search(r'([\d.]+)\.apk$', original_filename)
-                if ver_match:
-                    version = f"v{ver_match.group(1)}"
+                version = extract_version_from_filename(original_filename)
+                if version:
+                    logger.info(f"使用文件名版本号: {version}")
                     return {
                         "path": download_path,
                         "version": version,
@@ -283,11 +285,13 @@ jobs:
             # 其他情况使用aapt2提取版本号
             version = extract_apk_version(download_path)
             if not version:
-                ver_match = re.search(r'([\d.]+)\.apk$', original_filename)
-                if ver_match:
-                    version = f"v{ver_match.group(1)}"
+                # 最后尝试从原始文件名提取版本号
+                version = extract_version_from_filename(original_filename)
+                if version:
+                    logger.info(f"从文件名提取版本号: {version}")
                 else:
                     version = f"v{target_filename.split('.')[0]}-{message.date.strftime('%Y%m%d')}"
+                    logger.info(f"使用后备版本号: {version}")
             
             return {
                 "path": download_path,
@@ -295,58 +299,17 @@ jobs:
                 "date": message.date.strftime("%Y-%m-%d")
             }
         
-        def map_filename(original_name, channel_name):
-            """将原始文件名映射到标准文件名 - 精确匹配版本"""
-            # 精确排除模拟器专版
-            if "模拟器" in original_name or "模拟器专版" in original_name:
-                return None
-            
-            # 第一个频道的直接匹配
-            if channel_name == "tvb_ys" and original_name in APK_FILES:
-                return original_name
-            
-            # 第二个频道的精确文件名匹配
-            if channel_name == "tvboxjk":
-                # 精确匹配OK影视Pro系列文件名
-                # 匹配格式: OK影视Pro﹣手机版﹣-3.5.3.apk 或 OK影视Pro﹣电视版﹣3.5.3.apk
-                if "OK影视Pro" in original_name:
-                    if "手机版" in original_name:
-                        logger.info(f"精确匹配手机版: {original_name}")
-                        return "mobile-pro.apk"
-                    elif "电视版" in original_name:
-                        logger.info(f"精确匹配电视版: {original_name}")
-                        return "leanback-pro.apk"
-                
-                # 同时支持可能的变体格式
-                # 例如: OK影视Pro-手机版-3.5.3.apk (使用半角减号)
-                if "OK影视Pro" in original_name:
-                    if "手机版" in original_name or "mobile" in original_name.lower():
-                        logger.info(f"变体匹配手机版: {original_name}")
-                        return "mobile-pro.apk"
-                    elif "电视版" in original_name or "tv" in original_name.lower() or "leanback" in original_name.lower():
-                        logger.info(f"变体匹配电视版: {original_name}")
-                        return "leanback-pro.apk"
-            
-            return None
-        
         async def check_channel(client, channel_name, current_versions):
             """检查单个Telegram频道中的新APK"""
-            logger.info(f"检查频道: {channel_name}")
-            
-            try:
-                entity = await client.get_entity(channel_name)
-            except Exception as e:
-                logger.error(f"连接频道失败: {str(e)}")
-                return {}
+            logger.info(f"连接Telegram频道: {channel_name}")
+            entity = await client.get_entity(channel_name)
             
             updates = {}
             processed_targets = set()
             
-            message_count = 0
-            async for msg in client.iter_messages(entity, limit=15):
-                if message_count >= 10:
-                    break
-                    
+            # 第一遍扫描：仅收集消息ID和日期，不下载
+            message_candidates = []
+            async for msg in client.iter_messages(entity, limit=20):
                 if not (msg.media and hasattr(msg.media, "document")):
                     continue
                     
@@ -355,130 +318,172 @@ jobs:
                         continue
                         
                     original_name = attr.file_name
-                    if not original_name.lower().endswith('.apk'):
-                        continue
-                        
                     target_name = map_filename(original_name, channel_name)
-                    if not target_name or target_name in processed_targets:
+                    
+                    if not target_name:
                         continue
                     
+                    # 避免重复处理同一目标文件
+                    if target_name in processed_targets:
+                        continue
                     processed_targets.add(target_name)
-                    message_count += 1
                     
+                    # 检查是否需要下载
                     current = current_versions.get(target_name, "")
                     msg_date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                     
-                    skip_download = False
+                    # 对于tvboxjk频道，优先使用文件名中的版本号进行预检查
+                    if channel_name == "tvboxjk":
+                        # 尝试从文件名提取版本号
+                        file_version = extract_version_from_filename(original_name)
+                        if file_version:
+                            # 如果当前有存储版本，直接比较版本号
+                            if current:
+                                try:
+                                    stored_version = current.split(',')[0].strip()
+                                    if stored_version == file_version:
+                                        logger.info(f"预跳过相同版本: {target_name} (版本 {file_version})")
+                                        continue  # 跳过下载
+                                except Exception:
+                                    pass
+                    
+                    # 目标文件不存在时强制更新
+                    target_path = os.path.join(APK_DIR, target_name)
+                    if not os.path.exists(target_path):
+                        logger.warning(f"目标文件不存在，强制更新: {target_name}")
+                        message_candidates.append((msg, target_name, original_name))
+                        continue
+                    
+                    # 常规版本对比逻辑
+                    skip = False
                     if current:
                         try:
+                            # 正确解析版本文件中的信息
                             stored_version, stored_date = current.split(',')
-                            # 对于tvboxjk频道，使用文件名中的版本号进行精确比较
-                            if channel_name == "tvboxjk":
-                                ver_match = re.search(r'([\d.]+)\.apk$', original_name)
-                                if ver_match:
-                                    file_version = f"v{ver_match.group(1)}"
-                                    if stored_version.strip() == file_version and msg_date <= stored_date.strip():
-                                        logger.info(f"跳过相同版本: {target_name} ({file_version})")
-                                        skip_download = True
-                            else:
-                                if msg_date <= stored_date.strip():
-                                    skip_download = True
-                        except (IndexError, ValueError):
-                            pass
-                    
-                    if not skip_download:
-                        try:
-                            apk_data = await download_with_retry(client, msg, target_name, original_name, channel_name)
-                            new_value = f"{apk_data['version']},{apk_data['date']}"
+                            stored_version = stored_version.strip()
+                            stored_date = stored_date.strip()
                             
-                            if current != new_value:
-                                updates[target_name] = new_value
-                                logger.info(f"发现新版本: {target_name} ({new_value})")
-                            else:
-                                logger.info(f"版本未变化: {target_name}")
-                                os.remove(apk_data['path'])
-                        except Exception as e:
-                            logger.error(f"下载失败: {original_name}, 错误: {str(e)}")
+                            # 调试信息
+                            logger.info(f"版本对比: {target_name} | 存储: {stored_version},{stored_date} | 消息日期: {msg_date}")
+                            
+                            # 严格版本对比
+                            if msg_date < stored_date:
+                                logger.info(f"跳过旧版本: {target_name} ({msg_date} < {stored_date})")
+                                skip = True
+                            elif msg_date == stored_date:
+                                # 同一天版本需要进一步检查
+                                logger.info(f"同一天版本: {target_name} ({msg_date})，等待进一步检查")
+                        except (IndexError, ValueError) as e:
+                            logger.warning(f"版本文件格式错误({current})，继续处理: {str(e)}")
                     
-                    if len(processed_targets) >= 2:
-                        break
+                    if not skip:
+                        message_candidates.append((msg, target_name, original_name))
+                        logger.info(f"添加候选: {target_name} ({original_name})")
+            
+            # 第二遍处理：按时间倒序处理候选消息
+            message_candidates.sort(key=lambda x: x[0].date, reverse=True)
+            logger.info(f"频道 {channel_name} 共有 {len(message_candidates)} 个候选APK")
+            
+            # 处理候选消息
+            for msg, target_name, original_name in message_candidates:
+                try:
+                    apk_data = await download_apk(client, msg, target_name, original_name, channel_name)
+                    new_value = f"{apk_data['version']},{apk_data['date']}"
+                    
+                    # 下载后再次验证版本
+                    current_value = current_versions.get(target_name, "")
+                    if current_value == new_value:
+                        logger.info(f"跳过相同版本: {target_name} (当前: {current_value} == 新: {new_value})")
+                        os.remove(apk_data['path'])  # 删除临时文件
+                    else:
+                        updates[target_name] = new_value
+                        logger.info(f"发现新版本: {target_name} (当前: {current_value} → 新: {new_value})")
+                        # 成功获取更新后不再处理同类型文件
+                        processed_targets.add(target_name)
+                except Exception as e:
+                    logger.error(f"下载失败: {original_name} -> {target_name}, 错误: {str(e)}")
             
             return updates
         
         async def main_async():
             """异步主函数"""
-            logger.info("APK同步开始")
+            logger.info("="*50 + "\nAPK 同步工具启动\n" + "="*50)
             
+            # 验证环境变量
             required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION']
             if missing := [var for var in required if not os.environ.get(var)]:
                 raise ValueError(f"缺少环境变量: {', '.join(missing)}")
             
-            start_time = time.time()
-            
-            # 先执行git设置，确保工作区干净
             git_setup()
-            
+            # 确保清理临时目录
             shutil.rmtree(WORK_DIR, ignore_errors=True)
             os.makedirs(WORK_DIR, exist_ok=True)
             os.makedirs(APK_DIR, exist_ok=True)
             
+            # 获取当前版本
             current_versions = get_versions()
-            logger.info(f"当前版本: {current_versions}")
+            logger.info(f"当前版本信息: {json.dumps(current_versions, indent=2)}")
             
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
                 int(os.environ['TELEGRAM_API_ID']),
-                os.environ['TELEGRAM_API_HASH'],
-                connection_retries=3,
-                retry_delay=2,
-                auto_reconnect=True,
-                timeout=120
+                os.environ['TELEGRAM_API_HASH']
             )
             
             all_updates = {}
             
             async with client:
+                # 检查所有硬编码的频道
                 for channel in TELEGRAM_CHANNELS:
                     try:
+                        logger.info(f"开始检查频道: {channel}")
                         updates = await check_channel(client, channel, current_versions)
-                        if updates:
-                            all_updates.update(updates)
-                            current_versions.update(updates)
-                            logger.info(f"频道 {channel} 发现 {len(updates)} 个更新")
-                        else:
-                            logger.info(f"频道 {channel} 无更新")
+                        all_updates.update(updates)
+                        
+                        # 更新当前版本信息用于后续频道检查
+                        current_versions.update(updates)
+                        logger.info(f"频道 {channel} 检查完成，更新: {len(updates)} 个APK")
                     except Exception as e:
                         logger.error(f"处理频道 {channel} 时出错: {str(e)}")
+                        # 继续处理下一个频道
             
             if all_updates:
-                logger.info(f"总共发现 {len(all_updates)} 个更新")
+                logger.info(f"发现 {len(all_updates)} 个APK需要更新")
                 
+                # 复制APK文件到仓库
                 for apk in all_updates.keys():
                     src = os.path.join(WORK_DIR, apk)
-                    if os.path.exists(src):
-                        dst = os.path.join(APK_DIR, apk)
-                        shutil.copy2(src, dst)
-                        logger.info(f"已复制: {apk}")
+                    if not os.path.exists(src):
+                        logger.error(f"源文件不存在: {src}")
+                        raise FileNotFoundError(f"APK文件未成功下载: {apk}")
+                    
+                    dst = os.path.join(APK_DIR, apk)
+                    shutil.copy2(src, dst)
+                    logger.info(f"已复制: {apk} 到 {dst}")
                 
+                # 更新版本文件
                 update_versions(all_updates)
                 
+                # 提交更改
                 commit_msg = f"更新APK: {', '.join(all_updates.keys())}"
-                if git_commit_push(commit_msg):
-                    logger.info("所有更新已成功提交")
+                if not git_commit_push(commit_msg):
+                    raise RuntimeError("提交失败")
                 else:
-                    logger.error("提交失败")
+                    logger.info("所有更新已成功提交")
             else:
                 logger.info("没有需要更新的APK文件")
             
+            # 清理临时目录
+            logger.info("清理临时目录...")
             shutil.rmtree(WORK_DIR, ignore_errors=True)
             
-            total_time = time.time() - start_time
-            logger.info(f"同步任务完成，总耗时: {total_time:.1f}秒")
+            logger.info("="*50 + "\n同步任务完成\n" + "="*50)
             return 0
         
         if __name__ == "__main__":
             try:
-                asyncio.run(main_async())
+                from asyncio import run
+                run(main_async())
             except Exception as e:
                 logging.error(f"严重错误: {str(e)}")
                 sys.exit(1)
@@ -493,6 +498,67 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          try {
+            // 检查是否有有效的 issue number
+            if (context.issue && context.issue.number) {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `🚨 Telegram APK同步失败！工作流运行详情: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+              });
+            } else {
+              // 没有关联的 issue，发送到仓库讨论
+              const repo = context.repo;
+              const discussionTitle = "工作流失败通知";
+              
+              // 检查是否已存在讨论
+              const discussions = await github.rest.discussions.listForRepo({
+                owner: repo.owner,
+                repo: repo.repo,
+                per_page: 1,
+                direction: 'desc'
+              });
+              
+              // 创建或更新讨论
+              if (discussions.data.length > 0) {
+                const discussion = discussions.data[0];
+                await github.rest.discussions.updateComment({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  discussion_number: discussion.number,
+                  comment_number: discussion.comments[0]?.number || 0,
+                  body: `### 🚨 工作流失败通知\n\n` +
+                        `**工作流**: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n` +
+                        `**失败时间**: ${new Date().toISOString()}\n` +
+                        `**原因**: APK同步失败\n\n` +
+                        `请检查工作流日志以获取详细信息。`
+                });
+              } else {
+                await github.rest.discussions.create({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  title: discussionTitle,
+                  body: `### 🚨 工作流失败通知\n\n` +
+                        `**工作流**: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n` +
+                        `**失败时间**: ${new Date().toISOString()}\n` +
+                        `**原因**: APK同步失败\n\n` +
+                        `请检查工作流日志以获取详细信息。`,
+                  category: "GENERAL"
+                });
+              }
+            }
+          } catch (error) {
+            console.error('通知失败:', error);
+            // 回退到基本日志输出
+            core.warning('无法发送通知，请手动检查工作流失败情况');
+          }
+
   cleanup_self:
     name: Cleanup Self Workflow History
     runs-on: ubuntu-latest
@@ -506,7 +572,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep_minimum_runs: 5
-          retain_days: 3
+          keep_minimum_runs: 0
+          retain_days: 0
           delete_workflow_pattern: "OK PRO APK Sync from TELEGRAM"
           repository: ${{ github.repository }}
