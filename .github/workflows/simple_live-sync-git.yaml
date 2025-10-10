@@ -44,7 +44,13 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # 获取完整历史记录
+        fetch-depth: 1
+        sparse-checkout: |
+          apk/
+          .github/workflows/
+        sparse-checkout-cone-mode: false
+        lfs: false
+        submodules: false
 
     - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install -y jq curl
