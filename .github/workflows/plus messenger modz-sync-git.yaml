@@ -197,20 +197,38 @@ jobs:
         def extract_version_from_filename(filename):
             """从文件名中提取版本号 - 适配 PlusMessenger 格式"""
             # 匹配 PlusMessenger-版本号-其他信息.apk 格式
+            # 示例: PlusMessenger-12.0.1.1-2169x-arm64.apk
             match = re.search(r'PlusMessenger-([\d.]+)-\d+x-[\w]+\.apk$', filename)
             if match:
                 version = match.group(1)
                 if version and re.match(r'^\d+(\.\d+)*$', version):
                     return f"v{version}"
+            
+            # 备用匹配模式，以防上面的正则不匹配
+            if "PlusMessenger" in filename and filename.endswith(".apk"):
+                # 尝试提取版本号
+                parts = filename.split("-")
+                if len(parts) >= 2:
+                    version_candidate = parts[1]
+                    if re.match(r'^\d+(\.\d+)*$', version_candidate):
+                        return f"v{version_candidate}"
+            
             return None
         
         def map_filename(original_name):
             """文件名映射函数 - 适配 alexstranniklite 频道"""
             # 检查是否为 PlusMessenger APK 文件
             if "PlusMessenger" in original_name and original_name.endswith(".apk"):
-                # 检查是否为 arm64 架构
+                # 优先选择 arm64 架构
                 if "arm64" in original_name:
+                    logger.info(f"找到 arm64 版本: {original_name}")
                     return "plus modz.apk"
+                # 如果没有 arm64 版本，也可以考虑其他架构
+                elif any(arch in original_name for arch in ["arm", "x86"]):
+                    logger.info(f"找到其他架构版本: {original_name}")
+                    return "plus modz.apk"
+            
+            logger.debug(f"文件不匹配: {original_name}")
             return None
         
         def compare_versions(current_version, new_version_info):
@@ -307,10 +325,13 @@ jobs:
             updates = {}
             processed_targets = set()
             
-            # 扫描消息
+            # 扫描消息 - 增加消息数量到100
             message_candidates = []
+            message_count = 0
+            apk_count = 0
             
             async for msg in client.iter_messages(entity, limit=100):
+                message_count += 1
                 if not (msg.media and hasattr(msg.media, "document")):
                     continue
                     
@@ -319,6 +340,9 @@ jobs:
                         continue
                         
                     original_name = attr.file_name
+                    apk_count += 1
+                    logger.info(f"扫描到APK文件 [{apk_count}]: {original_name}")
+                    
                     target_name = map_filename(original_name)
                     
                     if not target_name:
@@ -326,6 +350,7 @@ jobs:
                     
                     # 避免重复处理同一目标文件
                     if target_name in processed_targets:
+                        logger.info(f"跳过重复目标文件: {target_name}")
                         continue
                     processed_targets.add(target_name)
                     
@@ -349,6 +374,8 @@ jobs:
                         logger.info(f"需要更新: {target_name} (当前: {current_version}, 新: {file_version},{msg_date})")
                     else:
                         logger.info(f"跳过更新: {target_name} (当前版本已是最新)")
+            
+            logger.info(f"总共扫描了 {message_count} 条消息，其中 {apk_count} 个APK文件")
             
             # 按时间倒序处理候选消息
             message_candidates.sort(key=lambda x: x[0].date, reverse=True)
