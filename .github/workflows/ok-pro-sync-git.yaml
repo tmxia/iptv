@@ -71,8 +71,8 @@ jobs:
         WORK_DIR = "temp_apks"
         VERSION_FILE = "version.txt"
         
-        # 硬编码的Telegram频道
-        TELEGRAM_CHANNELS = ["tvb_ys", "tvboxjk"]
+        # 硬编码的Telegram频道 - 已删除 tvb_ys
+        TELEGRAM_CHANNELS = ["tvboxjk"]
         
         # 设置日志
         logging.basicConfig(
@@ -208,16 +208,12 @@ jobs:
             return None
         
         def map_filename(original_name, channel_name):
-            """将原始文件名映射到标准文件名"""
+            """将原始文件名映射到标准文件名 - 已删除 tvb_ys 相关代码"""
             # 精确排除模拟器专版
             if "模拟器" in original_name or "模拟器专版" in original_name:
                 return None
             
-            # 第一个频道的直接匹配
-            if channel_name == "tvb_ys" and original_name in APK_FILES:
-                return original_name
-            
-            # 第二个频道的文件名映射规则
+            # tvboxjk频道的文件名映射规则
             if channel_name == "tvboxjk":
                 # 必须包含"ok影视"或"OK影视"字样（不区分大小写）
                 if not any(keyword in original_name.lower() for keyword in ["ok影视", "okys"]):
@@ -433,7 +429,7 @@ jobs:
             all_updates = {}
             
             async with client:
-                # 检查所有硬编码的频道
+                # 检查所有硬编码的频道 - 现在只有 tvboxjk
                 for channel in TELEGRAM_CHANNELS:
                     try:
                         logger.info(f"开始检查频道: {channel}")
