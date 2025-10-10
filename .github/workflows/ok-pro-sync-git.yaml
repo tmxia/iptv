@@ -68,8 +68,8 @@ jobs:
         WORK_DIR = "temp_apks"
         VERSION_FILE = "version.txt"
         
-        # 硬编码的Telegram频道
-        TELEGRAM_CHANNELS = ["tvboxjk"]
+        # 单个Telegram频道
+        TELEGRAM_CHANNEL = "tvboxjk"
         
         # 设置日志
         logging.basicConfig(
@@ -184,27 +184,25 @@ jobs:
                     return f"v{version}"
             return None
         
-        def map_filename(original_name, channel_name):
-            """简化的文件名映射函数"""
-            # 首先排除模拟器版本
+        def map_filename(original_name):
+            """简化的文件名映射函数 - 针对单个频道优化"""
+            # 排除模拟器版本
             if "模拟器" in original_name:
                 return None
             
-            # tvboxjk频道的简单匹配规则
-            if channel_name == "tvboxjk":
-                # 检查是否包含基本前缀
-                if "OK影视Pro" not in original_name:
-                    return None
-                
-                # 简单匹配手机版和电视版
-                if "手机版" in original_name:
-                    return "mobile-pro.apk"
-                elif "电视版" in original_name:
-                    return "leanback-pro.apk"
+            # tvboxjk频道的匹配规则
+            if "OK影视Pro" not in original_name:
+                return None
+            
+            # 简单匹配手机版和电视版
+            if "手机版" in original_name:
+                return "mobile-pro.apk"
+            elif "电视版" in original_name:
+                return "leanback-pro.apk"
             
             return None
         
-        async def download_apk(client, message, target_filename, original_filename, channel_name):
+        async def download_apk(client, message, target_filename, original_filename):
             """下载APK文件并提取元数据"""
             download_path = os.path.join(WORK_DIR, target_filename)
             total_size = message.document.size
@@ -235,10 +233,10 @@ jobs:
                 "date": message.date.strftime("%Y-%m-%d")
             }
         
-        async def check_channel(client, channel_name, current_versions):
-            """检查单个Telegram频道中的新APK"""
-            logger.info(f"连接Telegram频道: {channel_name}")
-            entity = await client.get_entity(channel_name)
+        async def check_channel(client, current_versions):
+            """检查Telegram频道中的新APK"""
+            logger.info(f"连接Telegram频道: {TELEGRAM_CHANNEL}")
+            entity = await client.get_entity(TELEGRAM_CHANNEL)
             
             updates = {}
             processed_targets = set()
@@ -255,7 +253,7 @@ jobs:
                         continue
                         
                     original_name = attr.file_name
-                    target_name = map_filename(original_name, channel_name)
+                    target_name = map_filename(original_name)
                     
                     if not target_name:
                         continue
@@ -308,7 +306,7 @@ jobs:
             # 处理候选消息
             for msg, target_name, original_name in message_candidates:
                 try:
-                    apk_data = await download_apk(client, msg, target_name, original_name, channel_name)
+                    apk_data = await download_apk(client, msg, target_name, original_name)
                     new_value = f"{apk_data['version']},{apk_data['date']}"
                     
                     # 下载后再次验证版本
@@ -348,28 +346,16 @@ jobs:
                 os.environ['TELEGRAM_API_HASH']
             )
             
-            all_updates = {}
-            
             async with client:
-                # 检查所有频道
-                for channel in TELEGRAM_CHANNELS:
-                    try:
-                        logger.info(f"开始检查频道: {channel}")
-                        updates = await check_channel(client, channel, current_versions)
-                        all_updates.update(updates)
-                        
-                        # 更新当前版本信息用于后续频道检查
-                        current_versions.update(updates)
-                        logger.info(f"频道 {channel} 检查完成，更新: {len(updates)} 个APK")
-                    except Exception as e:
-                        logger.error(f"处理频道 {channel} 时出错: {str(e)}")
-                        # 继续处理下一个频道
+                logger.info(f"开始检查频道: {TELEGRAM_CHANNEL}")
+                updates = await check_channel(client, current_versions)
+                logger.info(f"频道检查完成，更新: {len(updates)} 个APK")
             
-            if all_updates:
-                logger.info(f"发现 {len(all_updates)} 个APK需要更新")
+            if updates:
+                logger.info(f"发现 {len(updates)} 个APK需要更新")
                 
                 # 复制APK文件到仓库
-                for apk in all_updates.keys():
+                for apk in updates.keys():
                     src = os.path.join(WORK_DIR, apk)
                     if not os.path.exists(src):
                         logger.error(f"源文件不存在: {src}")
@@ -380,10 +366,10 @@ jobs:
                     logger.info(f"已复制: {apk} 到 {dst}")
                 
                 # 更新版本文件
-                update_versions(all_updates)
+                update_versions(updates)
                 
                 # 提交更改
-                commit_msg = f"更新APK: {', '.join(all_updates.keys())}"
+                commit_msg = f"更新APK: {', '.join(updates.keys())}"
                 if not git_commit_push(commit_msg):
                     raise RuntimeError("提交失败")
                 else:
