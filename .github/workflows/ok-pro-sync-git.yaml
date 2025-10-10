@@ -201,7 +201,6 @@ jobs:
             """简化的文件名映射函数"""
             # 首先排除模拟器版本
             if "模拟器" in original_name:
-                logger.info(f"排除模拟器版本: {original_name}")
                 return None
             
             # tvboxjk频道的简单匹配规则
@@ -263,22 +262,16 @@ jobs:
             
             # 扫描消息
             message_candidates = []
-            total_messages = 0
-            document_messages = 0
             
             async for msg in client.iter_messages(entity, limit=50):
-                total_messages += 1
                 if not (msg.media and hasattr(msg.media, "document")):
                     continue
                     
-                document_messages += 1
                 for attr in msg.media.document.attributes:
                     if not isinstance(attr, DocumentAttributeFilename):
                         continue
                         
                     original_name = attr.file_name
-                    logger.info(f"找到文档文件: {original_name}")
-                    
                     target_name = map_filename(original_name, channel_name)
                     
                     if not target_name:
@@ -286,7 +279,6 @@ jobs:
                     
                     # 避免重复处理同一目标文件
                     if target_name in processed_targets:
-                        logger.info(f"跳过重复目标文件: {target_name}")
                         continue
                     processed_targets.add(target_name)
                     
@@ -300,7 +292,6 @@ jobs:
                         try:
                             stored_version = current.split(',')[0].strip()
                             if stored_version == file_version:
-                                logger.info(f"预跳过相同版本: {target_name} (版本 {file_version})")
                                 continue  # 跳过下载
                         except Exception:
                             pass
@@ -308,7 +299,6 @@ jobs:
                     # 目标文件不存在时强制更新
                     target_path = os.path.join(APK_DIR, target_name)
                     if not os.path.exists(target_path):
-                        logger.warning(f"目标文件不存在，强制更新: {target_name}")
                         message_candidates.append((msg, target_name, original_name))
                         continue
                     
@@ -320,24 +310,17 @@ jobs:
                             stored_version = stored_version.strip()
                             stored_date = stored_date.strip()
                             
-                            logger.info(f"版本对比: {target_name} | 存储: {stored_version},{stored_date} | 消息日期: {msg_date}")
-                            
                             # 版本对比
                             if msg_date < stored_date:
-                                logger.info(f"跳过旧版本: {target_name} ({msg_date} < {stored_date})")
                                 skip = True
-                        except (IndexError, ValueError) as e:
-                            logger.warning(f"版本文件格式错误({current})，继续处理: {str(e)}")
+                        except (IndexError, ValueError):
+                            pass
                     
                     if not skip:
                         message_candidates.append((msg, target_name, original_name))
-                        logger.info(f"添加候选: {target_name} ({original_name})")
-            
-            logger.info(f"扫描完成: 总共 {total_messages} 条消息，其中 {document_messages} 条文档消息")
             
             # 按时间倒序处理候选消息
             message_candidates.sort(key=lambda x: x[0].date, reverse=True)
-            logger.info(f"频道 {channel_name} 共有 {len(message_candidates)} 个候选APK")
             
             # 处理候选消息
             for msg, target_name, original_name in message_candidates:
@@ -348,7 +331,6 @@ jobs:
                     # 下载后再次验证版本
                     current_value = current_versions.get(target_name, "")
                     if current_value == new_value:
-                        logger.info(f"跳过相同版本: {target_name} (当前: {current_value} == 新: {new_value})")
                         os.remove(apk_data['path'])  # 删除临时文件
                     else:
                         updates[target_name] = new_value
@@ -376,7 +358,6 @@ jobs:
             
             # 获取当前版本
             current_versions = get_versions()
-            logger.info(f"当前版本信息: {json.dumps(current_versions, indent=2)}")
             
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
