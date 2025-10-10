@@ -30,7 +30,7 @@ jobs:
     - name: Checkout current repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 1
         ref: main
 
     - name: Install dependencies
