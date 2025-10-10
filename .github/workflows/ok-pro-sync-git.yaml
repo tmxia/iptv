@@ -202,6 +202,55 @@ jobs:
             
             return None
         
+        def compare_versions(current_version, new_version_info):
+            """比较版本信息，决定是否需要更新"""
+            if not current_version:
+                logger.info("当前无版本记录，需要更新")
+                return True
+            
+            try:
+                # 解析当前版本信息
+                current_parts = current_version.split(',')
+                current_ver = current_parts[0] if len(current_parts) > 0 else ""
+                current_date = current_parts[1] if len(current_parts) > 1 else ""
+                
+                new_ver = new_version_info['version']
+                new_date = new_version_info['date']
+                
+                # 首先比较版本号
+                if current_ver and new_ver:
+                    # 提取纯数字版本进行比较
+                    current_num = re.findall(r'\d+', current_ver)
+                    new_num = re.findall(r'\d+', new_ver)
+                    
+                    if current_num and new_num:
+                        # 逐级比较版本号
+                        for i in range(min(len(current_num), len(new_num))):
+                            if int(new_num[i]) > int(current_num[i]):
+                                logger.info(f"版本号更新: {current_ver} -> {new_ver}")
+                                return True
+                            elif int(new_num[i]) < int(current_num[i]):
+                                logger.info(f"版本号较旧: {current_ver} -> {new_ver}")
+                                return False
+                
+                # 版本号相同，比较日期
+                if current_date and new_date:
+                    if new_date > current_date:
+                        logger.info(f"相同版本但日期更新: {current_date} -> {new_date}")
+                        return True
+                    elif new_date < current_date:
+                        logger.info(f"相同版本但日期较旧: {current_date} -> {new_date}")
+                        return False
+                
+                # 完全相同的版本
+                logger.info(f"版本相同，无需更新: {current_version}")
+                return False
+                
+            except Exception as e:
+                logger.error(f"版本比较出错: {str(e)}")
+                # 出错时保守策略，不更新
+                return False
+        
         async def download_apk(client, message, target_filename, original_filename):
             """下载APK文件并提取元数据"""
             download_path = os.path.join(WORK_DIR, target_filename)
@@ -264,58 +313,43 @@ jobs:
                     processed_targets.add(target_name)
                     
                     # 检查是否需要下载
-                    current = current_versions.get(target_name, "")
+                    current_version = current_versions.get(target_name, "")
                     msg_date = msg.date.astimezone(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d")
                     
-                    # 使用文件名中的版本号进行预检查
+                    # 构建新版本信息
                     file_version = extract_version_from_filename(original_name)
-                    if file_version and current:
-                        try:
-                            stored_version = current.split(',')[0].strip()
-                            if stored_version == file_version:
-                                continue  # 跳过下载
-                        except Exception:
-                            pass
+                    if not file_version:
+                        file_version = f"v{target_name.split('.')[0]}-{msg_date.replace('-', '')}"
                     
-                    # 目标文件不存在时强制更新
-                    target_path = os.path.join(APK_DIR, target_name)
-                    if not os.path.exists(target_path):
-                        message_candidates.append((msg, target_name, original_name))
-                        continue
+                    new_version_info = {
+                        "version": file_version,
+                        "date": msg_date
+                    }
                     
-                    # 常规版本对比逻辑
-                    skip = False
-                    if current:
-                        try:
-                            stored_version, stored_date = current.split(',')
-                            stored_version = stored_version.strip()
-                            stored_date = stored_date.strip()
-                            
-                            # 版本对比
-                            if msg_date < stored_date:
-                                skip = True
-                        except (IndexError, ValueError):
-                            pass
-                    
-                    if not skip:
-                        message_candidates.append((msg, target_name, original_name))
+                    # 与当前版本对比
+                    if compare_versions(current_version, new_version_info):
+                        message_candidates.append((msg, target_name, original_name, new_version_info))
+                        logger.info(f"需要更新: {target_name} (当前: {current_version}, 新: {file_version},{msg_date})")
+                    else:
+                        logger.info(f"跳过更新: {target_name} (当前版本已是最新)")
             
             # 按时间倒序处理候选消息
             message_candidates.sort(key=lambda x: x[0].date, reverse=True)
             
             # 处理候选消息
-            for msg, target_name, original_name in message_candidates:
+            for msg, target_name, original_name, version_info in message_candidates:
                 try:
                     apk_data = await download_apk(client, msg, target_name, original_name)
-                    new_value = f"{apk_data['version']},{apk_data['date']}"
+                    new_value = f"{version_info['version']},{version_info['date']}"
                     
-                    # 下载后再次验证版本
+                    # 最终验证：确保下载的文件确实比当前文件新
                     current_value = current_versions.get(target_name, "")
                     if current_value == new_value:
+                        logger.warning(f"版本未变化，删除临时文件: {target_name}")
                         os.remove(apk_data['path'])  # 删除临时文件
                     else:
                         updates[target_name] = new_value
-                        logger.info(f"发现新版本: {target_name} (当前: {current_value} → 新: {new_value})")
+                        logger.info(f"确认更新: {target_name} (当前: {current_value} → 新: {new_value})")
                         processed_targets.add(target_name)
                 except Exception as e:
                     logger.error(f"下载失败: {original_name} -> {target_name}, 错误: {str(e)}")
@@ -339,6 +373,7 @@ jobs:
             
             # 获取当前版本
             current_versions = get_versions()
+            logger.info(f"当前版本信息: {current_versions}")
             
             client = TelegramClient(
                 StringSession(os.environ['TELEGRAM_SESSION']),
