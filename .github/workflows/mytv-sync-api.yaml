@@ -48,9 +48,6 @@ jobs:
         sparse-checkout: |
           apk/
           .github/workflows/
-        sparse-checkout-cone-mode: false
-        lfs: false
-        submodules: false
 
     - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install -y jq curl
