@@ -7,7 +7,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: '0 */24 * * *'
+    - cron: '0 */24 * * *'  # 每24小时运行一次
   workflow_dispatch:
 
 permissions:
@@ -23,36 +23,22 @@ jobs:
       with:
         same-branch-only: true
         poll-interval-seconds: 30
-        abort-after-seconds: 1200
+        abort-after-seconds: 1200  # 20分钟超时
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Checkout current repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 1
+        fetch-depth: 0  # 获取完整历史记录
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Configure Git and Sync with Remote
+    - name: Configure Git
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
-        git config pull.rebase true
-        
-        # 添加远程仓库URL
+        git config pull.rebase false  # 使用 merge 而不是 rebase
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-        
-        # 拉取最新更改并重定基
-        echo "拉取远程最新更改..."
-        git pull origin main --rebase --allow-unrelated-histories
-        
-        # 如果有冲突，强制使用远程版本（因为我们主要是自动更新APK文件）
-        if git status | grep -q "conflict"; then
-          echo "检测到冲突，使用远程版本..."
-          git checkout --theirs -- .
-          git add .
-          git rebase --continue
-        fi
 
     - name: Install dependencies
       run: |
@@ -451,27 +437,46 @@ jobs:
         
         echo "同步验证完成"
 
-- name: Commit and Push Changes
-  run: |
-    # 检查是否有文件变更
-    if git diff-index --quiet HEAD --; then
-      echo "没有需要提交的更改"
-      exit 0
-    fi
+    - name: Sync with remote repository
+      run: |
+        echo "同步远程仓库更改..."
+        
+        # 拉取远程更改，使用 merge 策略
+        git pull origin main --no-rebase --allow-unrelated-histories
+        
+        # 如果有冲突，使用远程版本
+        if git status | grep -q "both modified"; then
+          echo "检测到冲突，使用远程版本..."
+          git checkout --theirs -- .
+          git add .
+        fi
+        
+        echo "远程同步完成"
 
-    # 简单方案：直接强制推送（适用于自动化场景）
-    echo "强制更新到远程最新版本..."
-    git fetch origin
-    git reset --hard origin/main
-    
-    # 重新添加我们的更改
-    git add apk/ version.txt
-    git commit -m "同步NagramX更新 [${{ github.run_id }}]"
-    
-    # 强制推送
-    echo "推送更改..."
-    git push origin main
-    echo "推送成功"
+    - name: Commit and Push Changes
+      run: |
+        # 检查是否有文件变更
+        echo "检查文件变更..."
+        git status
+        
+        if git diff-index --quiet HEAD --; then
+          echo "没有需要提交的更改"
+          exit 0
+        fi
+
+        # 添加变更
+        echo "添加变更文件..."
+        git add apk/ version.txt
+        
+        # 提交更改
+        echo "提交更改..."
+        git commit -m "同步NagramX更新 [${{ github.run_id }}]"
+        
+        # 推送更改
+        echo "推送更改..."
+        git push origin main
+        
+        echo "推送成功"
         
     - name: Release Repository Lock 🔓
       if: always()
