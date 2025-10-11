@@ -17,6 +17,9 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 1
+        sparse-checkout: |
+          apk/
+          .github/workflows/
 
     - name: Install dependencies
       run: |
