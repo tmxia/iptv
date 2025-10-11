@@ -32,9 +32,6 @@ jobs:
         sparse-checkout: |
           apk/
           .github/workflows/
-        sparse-checkout-cone-mode: false
-        lfs: false
-        submodules: false
 
     - name: Set up Python
       uses: actions/setup-python@v5
