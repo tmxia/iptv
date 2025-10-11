@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-10-12 07:00:32 (北京时间)
+最后更新: 2025-10-12 07:08:49 (北京时间)
 
 ## 应用
 
@@ -32,7 +32,7 @@
 | <div>simple_live.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live.apk)</small></div> | 17.46 | v1.8.6 | 2025-05-27 |
 | <div>termux-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/termux-beta.apk)</small></div> | 34.08 | v0.119.0 | 2025-05-22 |
 | <div>termux.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/termux.apk)</small></div> | 33.48 | v0.118.3 | 2025-05-22 |
-| <div>tv-new.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv-new.apk)</small></div> | 12.65 | 3.5.2 | 2025-04-21 |
+| <div>tv-new.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv-new.apk)</small></div> | 12.65 | v3.5.2 | 2025-04-21 |
 | <div>bv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv.apk)</small></div> | 9.99 | v0.2.9 | 2024-12-06 |
 | <div>hiddify-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/hiddify-beta.apk)</small></div> | 48.36 | v2.5.7 | 2024-10-03 |
 | <div>hiddify.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/hiddify.apk)</small></div> | 47.11 | v2.0.5 | 2024-07-31 |
