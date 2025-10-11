@@ -82,17 +82,17 @@ jobs:
         PRE_RELEASE_EXISTS=0
         
         if [ -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
-          echo "稳定版目标文件存在: $TARGET_DIR/$STABLE_TARGET_PATH"
+          echo "电视版目标文件存在: $TARGET_DIR/$STABLE_TARGET_PATH"
           STABLE_EXISTS=1
         else
-          echo "稳定版目标文件不存在: $TARGET_DIR/$STABLE_TARGET_PATH"
+          echo "电视版目标文件不存在: $TARGET_DIR/$STABLE_TARGET_PATH"
         fi
         
         if [ -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
-          echo "预发行版目标文件存在: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
+          echo "手机版目标文件存在: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
           PRE_RELEASE_EXISTS=1
         else
-          echo "预发行版目标文件不存在: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
+          echo "手机版目标文件不存在: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
         fi
         
         # 2. 版本文件键值存在性检测
@@ -152,21 +152,21 @@ jobs:
           echo "$COMMIT_DATE_UTC8"
         }
         
-        # 下载稳定版APK
-        echo "下载稳定版APK..."
+        # 下载电视版APK
+        echo "下载电视版APK..."
         STABLE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$STABLE_APK_NAME"
         curl -sL "$STABLE_DOWNLOAD_URL" -o "$WORK_DIR/$STABLE_APK_NAME"
         if [ ! -f "$WORK_DIR/$STABLE_APK_NAME" ]; then
-          echo "错误: 稳定版APK下载失败"
+          echo "错误: 电视版APK下载失败"
           exit 1
         fi
         
-        # 下载预发行版APK
-        echo "下载预发行版APK..."
+        # 下载手机版APK
+        echo "下载手机版APK..."
         PRE_RELEASE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$PRE_RELEASE_APK_NAME"
         curl -sL "$PRE_RELEASE_DOWNLOAD_URL" -o "$WORK_DIR/$PRE_RELEASE_APK_NAME"
         if [ ! -f "$WORK_DIR/$PRE_RELEASE_APK_NAME" ]; then
-          echo "错误: 预发行版APK下载失败"
+          echo "错误: 手机版APK下载失败"
           exit 1
         fi
         
@@ -176,8 +176,8 @@ jobs:
         STABLE_COMMIT_DATE=$(get_file_commit_date "$STABLE_APK_NAME")
         PRE_RELEASE_COMMIT_DATE=$(get_file_commit_date "$PRE_RELEASE_APK_NAME")
         
-        echo "稳定版版本: $STABLE_VERSION, 日期: $STABLE_COMMIT_DATE"
-        echo "预发行版版本: $PRE_RELEASE_VERSION, 日期: $PRE_RELEASE_COMMIT_DATE"
+        echo "电视版版本: $STABLE_VERSION, 日期: $STABLE_COMMIT_DATE"
+        echo "手机版版本: $PRE_RELEASE_VERSION, 日期: $PRE_RELEASE_COMMIT_DATE"
         
         # 4. 对比更新逻辑
         CURRENT_STABLE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$STABLE_TARGET_NAME")
@@ -186,26 +186,26 @@ jobs:
         NEW_STABLE_VALUE="$STABLE_VERSION,$STABLE_COMMIT_DATE"
         NEW_PRE_VALUE="$PRE_RELEASE_VERSION,$PRE_RELEASE_COMMIT_DATE"
         
-        # 稳定版更新检测
+        # 电视版更新检测
         if [ "$STABLE_EXISTS" -eq 0 ]; then
-          echo "稳定版目标文件不存在，需要更新"
+          echo "电视版目标文件不存在，需要更新"
           NEED_UPDATE_STABLE=1
         elif [ "$CURRENT_STABLE" != "$NEW_STABLE_VALUE" ]; then
-          echo "稳定版版本变化：$CURRENT_STABLE -> $NEW_STABLE_VALUE，需要更新"
+          echo "电视版版本变化：$CURRENT_STABLE -> $NEW_STABLE_VALUE，需要更新"
           NEED_UPDATE_STABLE=1
         else
-          echo "稳定版无变化，跳过更新"
+          echo "电视版无变化，跳过更新"
         fi
         
-        # 预发行版更新检测
+        # 手机版更新检测
         if [ "$PRE_RELEASE_EXISTS" -eq 0 ]; then
-          echo "预发行版目标文件不存在，需要更新"
+          echo "手机版目标文件不存在，需要更新"
           NEED_UPDATE_PRE=1
         elif [ "$CURRENT_PRE" != "$NEW_PRE_VALUE" ]; then
-          echo "预发行版版本变化：$CURRENT_PRE -> $NEW_PRE_VALUE，需要更新"
+          echo "手机版版本变化：$CURRENT_PRE -> $NEW_PRE_VALUE，需要更新"
           NEED_UPDATE_PRE=1
         else
-          echo "预发行版无变化，跳过更新"
+          echo "手机版无变化，跳过更新"
         fi
         
         # 检查是否需要更新
@@ -230,22 +230,22 @@ jobs:
         
         if [ "$NEED_UPDATE_STABLE" -eq 1 ]; then
           cp "$WORK_DIR/$STABLE_APK_NAME" "$TARGET_DIR/$STABLE_TARGET_PATH"
-          echo "稳定版APK已复制到目标仓库"
+          echo "电视版APK已复制到目标仓库"
           
           # 验证复制成功
           if [ ! -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
-            echo "错误: 稳定版APK复制失败"
+            echo "错误: 电视版APK复制失败"
             exit 1
           fi
         fi
         
         if [ "$NEED_UPDATE_PRE" -eq 1 ]; then
           cp "$WORK_DIR/$PRE_RELEASE_APK_NAME" "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
-          echo "预发行版APK已复制到目标仓库"
+          echo "手机版APK已复制到目标仓库"
           
           # 验证复制成功
           if [ ! -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
-            echo "错误: 预发行版APK复制失败"
+            echo "错误: 手机版APK复制失败"
             exit 1
           fi
         fi
@@ -266,10 +266,10 @@ jobs:
 
         COMMIT_MESSAGE="更新APK: "
         if [ "$NEED_UPDATE_STABLE" -eq 1 ]; then
-          COMMIT_MESSAGE+="$STABLE_TARGET_NAME ($STABLE_VERSION) "
+          COMMIT_MESSAGE+="电视版 ($STABLE_VERSION) "
         fi
         if [ "$NEED_UPDATE_PRE" -eq 1 ]; then
-          COMMIT_MESSAGE+="$PRE_RELEASE_TARGET_NAME ($PRE_RELEASE_VERSION) "
+          COMMIT_MESSAGE+="手机版 ($PRE_RELEASE_VERSION) "
         fi
         
         git commit -m "$COMMIT_MESSAGE"
@@ -300,16 +300,16 @@ jobs:
 
         # 8. 最终验证
         echo "同步完成，验证结果:"
-        echo "稳定版: $([ -f "$TARGET_DIR/$STABLE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
-        echo "预发行版: $([ -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
+        echo "电视版: $([ -f "$TARGET_DIR/$STABLE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
+        echo "手机版: $([ -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
         
         if [ "$NEED_UPDATE_STABLE" -eq 1 ] && [ ! -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
-          echo "错误: 稳定版APK同步后验证失败"
+          echo "错误: 电视版APK同步后验证失败"
           exit 1
         fi
         
         if [ "$NEED_UPDATE_PRE" -eq 1 ] && [ ! -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
-          echo "错误: 预发行版APK同步后验证失败"
+          echo "错误: 手机版APK同步后验证失败"
           exit 1
         fi
         
