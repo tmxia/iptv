@@ -7,7 +7,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: '0 */24 * * *'  # 每24小时运行一次
+    - cron: '0 */24 * * *'
   workflow_dispatch:
 
 permissions:
@@ -23,7 +23,7 @@ jobs:
       with:
         same-branch-only: true
         poll-interval-seconds: 30
-        abort-after-seconds: 1200  # 20分钟超时
+        abort-after-seconds: 1200
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -451,26 +451,27 @@ jobs:
         
         echo "同步验证完成"
 
-    - name: Commit and Push Changes
-      run: |
-        # 检查是否有文件变更
-        if git diff-index --quiet HEAD --; then
-          echo "没有需要提交的更改"
-          exit 0
-        fi
+- name: Commit and Push Changes
+  run: |
+    # 检查是否有文件变更
+    if git diff-index --quiet HEAD --; then
+      echo "没有需要提交的更改"
+      exit 0
+    fi
 
-        # 再次拉取确保最新
-        echo "确保本地仓库是最新的..."
-        git pull origin main --rebase --allow-unrelated-histories
-
-        # 添加变更并提交
-        git add apk/ version.txt
-        git commit -m "同步NagramX更新 [${{ github.run_id }}]"
-        
-        # 安全推送
-        echo "推送更改..."
-        git push origin HEAD:main
-        echo "推送成功"
+    # 简单方案：直接强制推送（适用于自动化场景）
+    echo "强制更新到远程最新版本..."
+    git fetch origin
+    git reset --hard origin/main
+    
+    # 重新添加我们的更改
+    git add apk/ version.txt
+    git commit -m "同步NagramX更新 [${{ github.run_id }}]"
+    
+    # 强制推送
+    echo "推送更改..."
+    git push origin main
+    echo "推送成功"
         
     - name: Release Repository Lock 🔓
       if: always()
