@@ -27,6 +27,7 @@ jobs:
         fetch-depth: 1
         sparse-checkout: |
           apk/
+          .github/workflows/
         token: ${{ secrets.REPO_PAT }}
 
     - name: 获取最新变更
