@@ -178,12 +178,18 @@ jobs:
             log.info(f"版本文件已更新: {json.dumps(new_versions, indent=2)}")
         
         def extract_version_from_filename(filename):
-            """从文件名提取版本号"""
+            """从文件名提取版本号，确保包含v前缀"""
             if not filename:
                 return None
+            
+            # 匹配版本号模式：v?数字.数字.数字 或 其他格式
             match = re.search(r'v?(\d+\.\d+\.\d+)|v?(\d+\.\d+)|(\d{8})', filename)
             if match:
-                return match.group(1) or match.group(2) or match.group(3)
+                version = match.group(1) or match.group(2) or match.group(3)
+                # 如果版本号是x.x.x格式且不以v开头，添加v前缀
+                if version and '.' in version and not version.startswith('v'):
+                    return f"v{version}"
+                return version
             return None
         
         def should_download_apk(target_name, msg_date, new_version, current_versions):
@@ -215,9 +221,30 @@ jobs:
             
             # 日期相同的情况，比较版本号
             if msg_date_str == current_date and new_version and current_version:
-                if new_version != current_version:
-                    log.info(f"{target_name} 有新版本: {new_version} != {current_version}")
-                    return True
+                # 标准化版本号（移除v前缀进行比较）
+                def normalize_version(ver):
+                    return ver[1:] if ver.startswith('v') else ver
+                
+                # 使用版本号比较（语义化版本）
+                def parse_version(ver):
+                    normalized = normalize_version(ver)
+                    parts = normalized.split('.')
+                    # 确保所有部分都是数字
+                    return tuple(int(part) for part in parts if part.isdigit())
+                
+                try:
+                    current_ver_tuple = parse_version(current_version)
+                    new_ver_tuple = parse_version(new_version)
+                    if new_ver_tuple > current_ver_tuple:
+                        log.info(f"{target_name} 有新版本: {new_version} > {current_version}")
+                        return True
+                except Exception as e:
+                    # 如果版本解析失败，使用字符串比较
+                    normalized_current = normalize_version(current_version)
+                    normalized_new = normalize_version(new_version)
+                    if normalized_new > normalized_current:
+                        log.info(f"{target_name} 有新版本: {new_version} > {current_version}")
+                        return True
             
             log.info(f"{target_name} 无需更新: 版本 {new_version or 'N/A'} <= {current_version}, 日期 {msg_date_str} <= {current_date}")
             return False
@@ -237,7 +264,7 @@ jobs:
                         continue
                     
                     filename = attr.file_name
-                    # 只检查tv-new.apk
+                    # 只检查tv-new.apk - 匹配包含"all-sdk21-original"的文件
                     if "all-sdk21-original" in filename.lower():
                         version = extract_version_from_filename(filename)
                         if not version:
@@ -363,7 +390,7 @@ jobs:
                 update_versions(version_updates)
                 
                 # 提交更改
-                commit_msg = f"更新APK: {', '.join(version_updates.keys())}"
+                commit_msg = f"更新APK: {', '.join(version_updates.keys())} 到版本 {list(version_updates.values())[0].split(',')[0]}"
                 if commit_and_push(commit_msg):
                     log.info(f"同步成功! 更新了 {len(version_updates)} 个文件")
                 else:
