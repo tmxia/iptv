@@ -31,21 +31,33 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 1
-        sparse-checkout: |
-          apk/
-          .github/workflows/
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure Git and Sync with Remote
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git config pull.rebase true
+        
+        # 添加远程仓库URL
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        
+        # 拉取最新更改并重定基
+        echo "拉取远程最新更改..."
+        git pull origin main --rebase --allow-unrelated-histories
+        
+        # 如果有冲突，强制使用远程版本（因为我们主要是自动更新APK文件）
+        if git status | grep -q "conflict"; then
+          echo "检测到冲突，使用远程版本..."
+          git checkout --theirs -- .
+          git add .
+          git rebase --continue
+        fi
 
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y jq curl
-        
-    - name: Configure Git
-      run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "actions@github.com"
-        git config pull.rebase true
-        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         
     - name: Run sync script
       env:
@@ -447,13 +459,17 @@ jobs:
           exit 0
         fi
 
+        # 再次拉取确保最新
+        echo "确保本地仓库是最新的..."
+        git pull origin main --rebase --allow-unrelated-histories
+
         # 添加变更并提交
         git add apk/ version.txt
         git commit -m "同步NagramX更新 [${{ github.run_id }}]"
         
         # 安全推送
         echo "推送更改..."
-        git push --force-with-lease origin HEAD:main
+        git push origin HEAD:main
         echo "推送成功"
         
     - name: Release Repository Lock 🔓
