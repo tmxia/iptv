@@ -47,6 +47,7 @@ jobs:
         fetch-depth: 1
         sparse-checkout: |
           apk/
+          .github/workflows/
 
     - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install -y jq curl
