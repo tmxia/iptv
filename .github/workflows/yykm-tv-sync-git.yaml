@@ -182,14 +182,28 @@ jobs:
             if not filename:
                 return None
             
-            # YYKM APK文件名模式：x.x.x-original-complete-armeabi-v7a.apk
-            # 匹配版本号模式：数字.数字.数字，并添加v前缀
+            # YYKM APK文件名模式增强匹配：
+            # 1. x.x.x-original-complete-armeabi-v7a.apk
+            # 2. x.x.x-1-complete-armeabi-v7a.apk (新增支持)
+            # 3. x.x.x-complete-armeabi-v7a.apk (通用匹配)
+            
+            # 模式1: x.x.x-original-complete-armeabi-v7a.apk
             version_match = re.search(r'(\d+\.\d+\.\d+)-original-complete-armeabi-v7a\.apk', filename)
             if version_match:
                 return f"v{version_match.group(1)}"  # 添加v前缀
             
+            # 模式2: x.x.x-1-complete-armeabi-v7a.apk (新增支持)
+            version_match2 = re.search(r'(\d+\.\d+\.\d+-\d+)-complete-armeabi-v7a\.apk', filename)
+            if version_match2:
+                return f"v{version_match2.group(1)}"  # 添加v前缀
+            
+            # 模式3: x.x.x-complete-armeabi-v7a.apk (通用匹配)
+            version_match3 = re.search(r'(\d+\.\d+\.\d+)-complete-armeabi-v7a\.apk', filename)
+            if version_match3:
+                return f"v{version_match3.group(1)}"  # 添加v前缀
+            
             # 备用匹配：其他可能的版本格式
-            alt_match = re.search(r'v?(\d+\.\d+\.\d+)|v?(\d+\.\d+)|(\d{8})', filename)
+            alt_match = re.search(r'v?(\d+\.\d+\.\d+(?:-\d+)?)|v?(\d+\.\d+)|(\d{8})', filename)
             if alt_match:
                 version = alt_match.group(1) or alt_match.group(2) or alt_match.group(3)
                 # 如果版本号不是以v开头，添加v前缀
@@ -204,9 +218,18 @@ jobs:
             if not filename or not filename.lower().endswith('.apk'):
                 return False
             
-            # 匹配YYKM APK文件模式：版本号-original-complete-armeabi-v7a.apk
-            pattern = r'\d+\.\d+\.\d+-original-complete-armeabi-v7a\.apk$'
-            return re.search(pattern, filename.lower()) is not None
+            # 增强匹配YYKM APK文件模式：
+            patterns = [
+                r'\d+\.\d+\.\d+-original-complete-armeabi-v7a\.apk$',  # 原始模式
+                r'\d+\.\d+\.\d+-\d+-complete-armeabi-v7a\.apk$',       # 新增：带修订版本号
+                r'\d+\.\d+\.\d+-complete-armeabi-v7a\.apk$'            # 通用模式
+            ]
+            
+            for pattern in patterns:
+                if re.search(pattern, filename.lower()):
+                    return True
+            
+            return False
         
         def should_download_apk(target_name, msg_date, new_version, current_versions):
             """判断是否需要下载APK"""
@@ -241,18 +264,31 @@ jobs:
                 def normalize_version(ver):
                     return ver[1:] if ver.startswith('v') else ver
                 
-                # 使用版本号比较（语义化版本）
+                # 使用版本号比较（支持语义化版本和修订版本）
                 def parse_version(ver):
                     normalized = normalize_version(ver)
-                    return tuple(map(int, normalized.split('.')))
+                    # 处理修订版本号（如3.6.4-1）
+                    if '-' in normalized:
+                        main_version, revision = normalized.split('-', 1)
+                        main_parts = tuple(map(int, main_version.split('.')))
+                        try:
+                            revision_num = int(revision)
+                            return main_parts + (revision_num,)
+                        except:
+                            return main_parts + (0,)  # 如果修订号不是数字，默认为0
+                    else:
+                        return tuple(map(int, normalized.split('.')))
                 
                 try:
                     current_ver_tuple = parse_version(current_version)
                     new_ver_tuple = parse_version(new_version)
+                    
+                    # 比较版本元组
                     if new_ver_tuple > current_ver_tuple:
                         log.info(f"{target_name} 有新版本: {new_version} > {current_version}")
                         return True
-                except:
+                except Exception as e:
+                    log.warning(f"版本比较出错: {e}")
                     # 如果版本解析失败，使用字符串比较
                     normalized_current = normalize_version(current_version)
                     normalized_new = normalize_version(new_version)
@@ -278,7 +314,7 @@ jobs:
                         continue
                     
                     filename = attr.file_name
-                    # 智能匹配YYKM APK文件：版本号-original-complete-armeabi-v7a.apk
+                    # 智能匹配YYKM APK文件：支持多种文件名格式
                     if is_yykm_apk_filename(filename):
                         version = extract_version_from_filename(filename)
                         if not version:
