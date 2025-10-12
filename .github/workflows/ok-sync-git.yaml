@@ -6,8 +6,8 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  schedule:
-    - cron: '0 */4 * * *'  # 每4小时运行一次
+  ##schedule:
+    ##- cron: '0 */4 * * *'
   workflow_dispatch:
 
 permissions:
