@@ -250,7 +250,7 @@ jobs:
       contents: read
     steps:
       - name: 删除旧运行记录
-        uses: Mattraks/delete-workflow-runs@v2
+        uses: Mattraks/delete-workflow-runs@v2.0.6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
