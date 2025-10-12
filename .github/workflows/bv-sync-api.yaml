@@ -336,11 +336,11 @@ jobs:
       actions: write
       contents: read
     steps:
-      - name: Delete old runs
+      - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "BV APK Sync from Source Repository"
+          delete_workflow_pattern: "TV APK Sync from TELEGRAM"
           repository: ${{ github.repository }}
