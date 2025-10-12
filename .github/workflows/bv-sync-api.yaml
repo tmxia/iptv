@@ -343,4 +343,4 @@ jobs:
           keep_minimum_runs: 0
           retain_days: 0
           delete_workflow_pattern: "BV APK Sync from Source Repository"
-          仓库: ${{ github.repository }}
+          repository: ${{ github.repository }}
