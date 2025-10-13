@@ -19,7 +19,7 @@ jobs:
     steps:
     # 基于缓存的锁机制
     - name: Acquire Repository Lock 🔒
-      uses: softprops/turnstyle@v1
+      uses: softprops/turnstyle@v3
       with:
         same-branch-only: true
         poll-interval-seconds: 30
