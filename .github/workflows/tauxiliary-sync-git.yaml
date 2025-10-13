@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: 获取仓库锁
-      uses: softprops/turnstyle@v1
+      uses: softprops/turnstyle@v3
       with:
         same-branch-only: true
         abort-after-seconds: 600
