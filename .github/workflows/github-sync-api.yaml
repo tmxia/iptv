@@ -28,8 +28,8 @@ jobs:
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
         XAPK_NAME: "github.xapk"
-        ZIP_NAME: "github.zip"  # ZIP文件名
-        VERSION_KEY: "github.zip"  # 修复：使用ZIP文件名作为键名
+        ZIP_NAME: "github.zip"
+        VERSION_KEY: "github.zip"
         APKPURE_URL: "https://d.apkpure.net/b/XAPK/com.github.android?version=latest"
       run: |
         # 创建临时工作目录
