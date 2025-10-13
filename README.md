@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-10-13 19:12:05 (北京时间)
+最后更新: 2025-10-13 19:21:23 (北京时间)
 
 ## 应用
 
@@ -45,6 +45,6 @@
 
 | 内核名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
-| <div>OpenWrt 6.6</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/kernels/openwrt_flippy6.6_6.6.110-flippy-94+.zip)</small></div> | 76.96 | 6.6.110-flippy-94+ | 2025-10-09 |
-| <div>OpenWrt 6.12</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/kernels/openwrt_flippy6.12_6.12.51-flippy-94+.zip)</small></div> | 91.10 | 6.12.51-flippy-94+ | 2025-10-09 |
+| <div>OpenWrt 6.6</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/kernels/openwrt_flippy6.6_6.6.111-flippy-94+.zip)</small></div> | 76.97 | 6.6.111-flippy-94+ | 2025-10-13 |
+| <div>OpenWrt 6.12</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/kernels/openwrt_flippy6.12_6.12.52-flippy-94+.zip)</small></div> | 91.13 | 6.12.52-flippy-94+ | 2025-10-13 |
 | <div>OpenWrt 6.1</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/kernels/openwrt_flippy6.1_6.1.155-flippy-93+o.zip)</small></div> | 73.34 | 6.1.155-flippy-93+o | 2025-10-03 |
