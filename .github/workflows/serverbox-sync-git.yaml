@@ -62,6 +62,7 @@ jobs:
       env:
         SOURCE_REPO: "lollipopkit/flutter_server_box"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        APK_PATTERN: "arm64.apk"
         ANDROID_TARGET_NAME: "serverbox.apk"
       run: |
         # 目标文件路径
@@ -145,29 +146,18 @@ jobs:
         # 下载新版本文件
         echo "下载新版本文件..."
         
-        # 精准匹配arm64架构的APK文件
-        echo "搜索arm64架构的APK文件..."
-        
-        # 获取所有assets文件信息
-        ASSETS_JSON=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets')
-        
-        # 精准匹配包含"arm64"的APK文件
-        apk_download_url=$(echo "$ASSETS_JSON" | jq -r '.[] | select(.name | contains("arm64") and (.name | endswith(".apk"))) | .browser_download_url' | head -1)
-        
-        if [ -z "$apk_download_url" ] || [ "$apk_download_url" = "null" ]; then
-          echo "错误: 未找到arm64架构的APK文件"
-          echo "可用的文件列表:"
-          echo "$ASSETS_JSON" | jq -r '.[] | .name'
+        # 查找Android APK文件
+        apk_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | contains("'$APK_PATTERN'")) | .browser_download_url' | head -1)
+        if [ -z "$apk_download_url" ]; then
+          echo "错误: 未找到匹配的Android APK文件"
           exit 1
         fi
-        
-        apk_source_name=$(echo "$ASSETS_JSON" | jq -r --arg url "$apk_download_url" '.[] | select(.browser_download_url == $url) | .name')
-        echo "找到匹配的APK: $apk_source_name"
         
         # 确保apk目录存在
         mkdir -p apk
         
         # 下载Android APK
+        apk_source_name=$(basename "$apk_download_url")
         echo "下载Android APK: $apk_source_name"
         curl -sL "$apk_download_url" -o "$WORK_DIR/$apk_source_name"
         if [ ! -f "$WORK_DIR/$apk_source_name" ]; then
@@ -177,7 +167,7 @@ jobs:
         
         # 重命名并移动到目标位置
         mv "$WORK_DIR/$apk_source_name" "$ANDROID_TARGET_PATH"
-        echo "文件已保存到: $ANDROID_TARGET_PATH (原始文件: $apk_source_name)"
+        echo "文件已保存到: $ANDROID_TARGET_PATH"
 
         # 更新版本文件（保留其他键值，添加日期）
         UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
@@ -213,7 +203,6 @@ jobs:
 
         echo "同步完成! 状态: 成功"
         echo "Android文件: $ANDROID_TARGET_PATH ($STABLE_VERSION, $RELEASE_DATE)"
-        echo "原始APK文件名: $apk_source_name"
         exit 0
 
     # =========== 新增锁释放步骤 ===========
