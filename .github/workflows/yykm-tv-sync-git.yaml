@@ -185,22 +185,28 @@ jobs:
             # YYKM APK文件名模式增强匹配：
             # 1. x.x.x-original-complete-armeabi-v7a.apk
             # 2. x.x.x-1-complete-armeabi-v7a.apk (新增支持)
-            # 3. x.x.x-complete-armeabi-v7a.apk (通用匹配)
+            # 3. x.x.x-B-complete-armeabi-v7a.apk (新增支持：带字母版本)
+            # 4. x.x.x-complete-armeabi-v7a.apk (通用匹配)
             
             # 模式1: x.x.x-original-complete-armeabi-v7a.apk
             version_match = re.search(r'(\d+\.\d+\.\d+)-original-complete-armeabi-v7a\.apk', filename)
             if version_match:
                 return f"v{version_match.group(1)}"  # 添加v前缀
             
-            # 模式2: x.x.x-1-complete-armeabi-v7a.apk (新增支持)
+            # 模式2: x.x.x-1-complete-armeabi-v7a.apk
             version_match2 = re.search(r'(\d+\.\d+\.\d+-\d+)-complete-armeabi-v7a\.apk', filename)
             if version_match2:
                 return f"v{version_match2.group(1)}"  # 添加v前缀
             
-            # 模式3: x.x.x-complete-armeabi-v7a.apk (通用匹配)
-            version_match3 = re.search(r'(\d+\.\d+\.\d+)-complete-armeabi-v7a\.apk', filename)
+            # 模式3: x.x.x-B-complete-armeabi-v7a.apk (新增：带字母版本)
+            version_match3 = re.search(r'(\d+\.\d+\.\d+)-([A-Za-z]+)-complete-armeabi-v7a\.apk', filename)
             if version_match3:
-                return f"v{version_match3.group(1)}"  # 添加v前缀
+                return f"v{version_match3.group(1)}-{version_match3.group(2)}"  # 添加v前缀并保留字母
+            
+            # 模式4: x.x.x-complete-armeabi-v7a.apk (通用匹配)
+            version_match4 = re.search(r'(\d+\.\d+\.\d+)-complete-armeabi-v7a\.apk', filename)
+            if version_match4:
+                return f"v{version_match4.group(1)}"  # 添加v前缀
             
             # 备用匹配：其他可能的版本格式
             alt_match = re.search(r'v?(\d+\.\d+\.\d+(?:-\d+)?)|v?(\d+\.\d+)|(\d{8})', filename)
@@ -221,7 +227,8 @@ jobs:
             # 增强匹配YYKM APK文件模式：
             patterns = [
                 r'\d+\.\d+\.\d+-original-complete-armeabi-v7a\.apk$',  # 原始模式
-                r'\d+\.\d+\.\d+-\d+-complete-armeabi-v7a\.apk$',       # 新增：带修订版本号
+                r'\d+\.\d+\.\d+-\d+-complete-armeabi-v7a\.apk$',       # 带修订版本号
+                r'\d+\.\d+\.\d+-[A-Za-z]+-complete-armeabi-v7a\.apk$', # 新增：带字母版本（如3.6.5-B）
                 r'\d+\.\d+\.\d+-complete-armeabi-v7a\.apk$'            # 通用模式
             ]
             
@@ -264,18 +271,26 @@ jobs:
                 def normalize_version(ver):
                     return ver[1:] if ver.startswith('v') else ver
                 
-                # 使用版本号比较（支持语义化版本和修订版本）
+                # 使用版本号比较（支持语义化版本、修订版本和字母版本）
                 def parse_version(ver):
                     normalized = normalize_version(ver)
-                    # 处理修订版本号（如3.6.4-1）
+                    # 处理带字母的版本号（如3.6.5-B）
                     if '-' in normalized:
-                        main_version, revision = normalized.split('-', 1)
-                        main_parts = tuple(map(int, main_version.split('.')))
+                        main_part, extra_part = normalized.split('-', 1)
+                        main_parts = tuple(map(int, main_part.split('.')))
+                        
+                        # 尝试解析额外部分：数字或字母
                         try:
-                            revision_num = int(revision)
-                            return main_parts + (revision_num,)
-                        except:
-                            return main_parts + (0,)  # 如果修订号不是数字，默认为0
+                            # 如果是数字
+                            extra_num = int(extra_part)
+                            return main_parts + (extra_num,)
+                        except ValueError:
+                            # 如果是字母，转换为数字（A=1, B=2, ...）
+                            if extra_part and extra_part.isalpha():
+                                extra_num = ord(extra_part.upper()) - ord('A') + 1
+                                return main_parts + (extra_num,)
+                            else:
+                                return main_parts + (0,)  # 无法解析则默认为0
                     else:
                         return tuple(map(int, normalized.split('.')))
                 
