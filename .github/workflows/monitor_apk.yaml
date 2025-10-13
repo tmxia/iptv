@@ -24,7 +24,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v5
       with:
-        fetch-depth: 2  # 增加深度以确保有父提交
+        fetch-depth: 2
         token: ${{ secrets.REPO_PAT }}
 
     - name: 获取最新变更
