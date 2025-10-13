@@ -40,7 +40,7 @@ jobs:
         exit 1
         
     - name: Checkout current repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 1
 
