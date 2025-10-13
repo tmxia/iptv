@@ -480,7 +480,7 @@ jobs:
         
     - name: Release Repository Lock 🔓
       if: always()
-      uses: softprops/turnstyle@v1
+      uses: softprops/turnstyle@v3
       with:
         continue-on-error: true
         action: unlock
