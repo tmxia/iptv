@@ -24,23 +24,25 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v5
       with:
-        fetch-depth: 0
+        fetch-depth: 2  # 增加深度以确保有父提交
         token: ${{ secrets.REPO_PAT }}
 
     - name: 获取最新变更
-      run: git pull origin ${{ github.ref }}
+      run: |
+        git fetch --all
+        git pull origin ${{ github.ref }}
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
-        python-version: '3.10'
+        python-version: '3.13'
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake libgit2-dev
-        # 修复Telethon兼容性问题
-        pip install --force-reinstall -v "telethon==1.34.0" pygit2 pytz
+        sudo apt-get install -y cmake libgit2-dev pkg-config
+        # 安装兼容的Telethon版本
+        pip install telethon==1.28.5 pygit2 pytz
 
     - name: Run enhanced detection script
       env:
@@ -55,6 +57,7 @@ jobs:
         SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        GITHUB_REF: ${{ github.ref }}
       run: |
         cat << 'EOF' > directory_monitor.py
         import os
@@ -71,10 +74,52 @@ jobs:
         from telethon.sessions import StringSession
         from urllib.parse import quote
         import json
+        import subprocess
         
         # 设置时区
         UTC_TZ = timezone('UTC')
         BEIJING_TZ = timezone('Asia/Shanghai')
+        
+        def run_git_command(cmd):
+            """运行git命令并返回输出"""
+            try:
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+                return result.stdout.strip()
+            except subprocess.CalledProcessError as e:
+                print(f"Git命令失败: {cmd}, 错误: {e}")
+                return None
+        
+        def get_changed_files():
+            """使用git命令获取变更文件列表"""
+            current_sha = os.getenv('GITHUB_SHA')
+            print(f"当前提交SHA: {current_sha}")
+            
+            # 获取前一个提交
+            previous_sha = run_git_command(f"git rev-parse {current_sha}^")
+            if not previous_sha:
+                print("⚠️ 无法获取前一个提交，尝试使用HEAD^")
+                previous_sha = run_git_command("git rev-parse HEAD^")
+            
+            if not previous_sha:
+                print("❌ 无法获取父提交，使用空树比较")
+                previous_sha = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # 空树
+            
+            print(f"前一个提交SHA: {previous_sha}")
+            
+            # 获取变更文件列表
+            changed_files_output = run_git_command(f"git diff --name-only {previous_sha} {current_sha}")
+            if not changed_files_output:
+                print("❌ 无法获取变更文件列表")
+                return []
+            
+            changed_files = []
+            for line in changed_files_output.split('\n'):
+                line = line.strip()
+                if line and (line.startswith('apk/') or line.startswith('kernels/')):
+                    changed_files.append(line)
+            
+            print(f"Git检测到变更文件: {changed_files}")
+            return changed_files
         
         # 获取内核版本信息
         def get_kernel_versions():
@@ -82,7 +127,7 @@ jobs:
             kernel_version_path = "kernel_versions.json"
             if os.path.exists(kernel_version_path):
                 try:
-                    with open(kernel_version_path, "r") as f:
+                    with open(kernel_version_path, "r", encoding='utf-8') as f:
                         return json.load(f)
                 except Exception as e:
                     print(f"❌ 解析kernel_versions.json失败: {str(e)}")
@@ -100,7 +145,7 @@ jobs:
                 kernel_versions = get_kernel_versions()
                 
                 # 从文件名提取组名 (格式: openwrt_flippy6.1_6.1.141-flippy-93+o.zip)
-                match = re.match(r'^([a-zA-Z0-9_]+)_(\d+\..*)\.zip$', filename)
+                match = re.match(r'^([a-zA-Z0-9_]+)_(.*)\.zip$', filename)
                 if match:
                     group = match.group(1)
                     file_version = match.group(2)
@@ -121,26 +166,39 @@ jobs:
                     "date": "未知日期"
                 }
             
-            # 处理APK文件
+            # 处理APK文件 - 从version.txt获取版本信息
             version_path = "version.txt"
             if os.path.exists(version_path):
                 try:
-                    with open(version_path, "r") as f:
-                        version_data = json.load(f)
+                    with open(version_path, "r", encoding='utf-8') as f:
+                        content = f.read().strip()
                     
-                    # 查找匹配的文件名
-                    if filename in version_data:
-                        version_info = version_data[filename]
-                        if isinstance(version_info, str):
-                            if ',' in version_info:
-                                version, date = version_info.split(',', 1)
-                                return {"version": version, "date": date}
-                            return {"version": version_info, "date": "未知日期"}
-                        elif isinstance(version_info, dict):
-                            return {
-                                "version": version_info.get("version", "未知版本"),
-                                "date": version_info.get("date", "未知日期")
-                            }
+                    # 尝试解析为JSON
+                    try:
+                        version_data = json.loads(content)
+                        if filename in version_data:
+                            version_info = version_data[filename]
+                            if isinstance(version_info, str):
+                                if ',' in version_info:
+                                    version, date = version_info.split(',', 1)
+                                    return {"version": version.strip(), "date": date.strip()}
+                                return {"version": version_info, "date": "未知日期"}
+                            elif isinstance(version_info, dict):
+                                return {
+                                    "version": version_info.get("version", "未知版本"),
+                                    "date": version_info.get("date", "未知日期")
+                                }
+                    except json.JSONDecodeError:
+                        # 如果不是JSON，尝试按行解析
+                        for line in content.split('\n'):
+                            line = line.strip()
+                            if ':' in line and filename in line:
+                                parts = line.split(':', 1)
+                                version_info = parts[1].strip()
+                                if ',' in version_info:
+                                    version, date = version_info.split(',', 1)
+                                    return {"version": version.strip(), "date": date.strip()}
+                                return {"version": version_info, "date": "未知日期"}
                 except Exception as e:
                     print(f"❌ 解析version.txt失败: {str(e)}")
             
@@ -149,8 +207,8 @@ jobs:
         def generate_proxy_urls(raw_url):
             """生成代理下载链接"""
             return {
-                "gh-proxy": f"https://gh-proxy.com/{raw_url}",
-                "github-speedup": f"https://github-speedup.com/{raw_url}"
+                "gh-proxy": f"https://ghproxy.com/{raw_url}",
+                "github-speedup": f"https://pd.zwc365.com/seturl/{raw_url}"
             }
         
         def get_file_type(path):
@@ -167,7 +225,7 @@ jobs:
                 return "📱"
             elif path.endswith('.zip'):
                 return "📦"
-            elif path.endswith('.tar.gz'):
+            elif path.endswith('.tar.gz') or path.endswith('.tgz'):
                 return "🗜️"
             return "📄"
         
@@ -211,19 +269,18 @@ jobs:
                     api_hash
                 ) as client:
                     # 构建简洁消息
-                    message = "🚀 **实时文件更新通知**\n\n"
-                    message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\n"
-                    message += f"🆔 提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\n\n"
+                    message = "🚀 **实时文件更新通知**\\n\\n"
+                    message += f"🔖 仓库: `{os.getenv('GITHUB_REPOSITORY')}`\\n"
+                    message += f"🆔 提交: [{os.getenv('GITHUB_SHA')[:7]}](https://github.com/{os.getenv('GITHUB_REPOSITORY')}/commit/{os.getenv('GITHUB_SHA')})\\n\\n"
                     
                     # 添加文件列表
                     for file in files:
                         icon = get_file_icon(file['path'])
                         file_type = get_file_type(file['path'])
-                        message += f"{icon} **{file_type}**: `{file['name']}`\n"
-                        message += f"  - 版本: `{file['version']}`\n"
-                        message += f"  - 大小: `{file['size']}`\n"
-                        message += f"  - 更新时间: `{file['date']}` (北京时间)\n"
-                        message += f"  - \n\n"
+                        message += f"{icon} **{file_type}**: `{file['name']}`\\n"
+                        message += f"  - 版本: `{file['version']}`\\n"
+                        message += f"  - 大小: `{file['size']}`\\n"
+                        message += f"  - 更新时间: `{file['date']}` (北京时间)\\n\\n"
                     
                     await client.send_message(
                         entity=channel,
@@ -315,39 +372,18 @@ jobs:
         
         def main():
             print("🚀 开始实时监控目录变更...")
-            repo = pygit2.Repository('.')
             
-            # 获取当前提交
-            head_commit = repo.head.peel()
-            print(f"当前提交: {head_commit.id}")
-            
-            # 获取父提交
-            parent_commits = head_commit.parents
-            if not parent_commits:
-                print("⚠️ 初始提交 - 无前一版本")
+            # 使用git命令获取变更文件
+            changed_file_paths = get_changed_files()
+            if not changed_file_paths:
+                print("✅ 未检测到文件变更")
                 return
             
-            # 使用第一个父提交进行比较
-            parent_commit = parent_commits[0]
-            print(f"父提交: {parent_commit.id}")
-            
-            # 计算差异
-            diff = repo.diff(parent_commit, head_commit)
             changed_files = []
             changed_hashes = set()
             
-            # 解析差异
-            for delta in diff.deltas:
-                # 只处理新增和修改的文件，忽略删除的文件
-                if delta.status not in (pygit2.GIT_DELTA_ADDED, pygit2.GIT_DELTA_MODIFIED):
-                    continue
-                
-                file_path = delta.new_file.path or delta.old_file.path
-                print(f"检测到变更: {file_path} [状态: {delta.status}]")
-                
-                # 只处理apk和kernels目录下的文件
-                if not (file_path.startswith('apk/') or file_path.startswith('kernels/')):
-                    continue
+            for file_path in changed_file_paths:
+                print(f"处理文件: {file_path}")
                 
                 # 检查文件是否存在
                 if not os.path.exists(file_path):
@@ -368,10 +404,9 @@ jobs:
                 # 获取文件名
                 filename = os.path.basename(file_path)
                 
-                # 获取UTC时间并转换为北京时间
-                utc_time = datetime.utcfromtimestamp(head_commit.commit_time)
-                utc_time = UTC_TZ.localize(utc_time)  # 标记为UTC时区
-                beijing_time = utc_time.astimezone(BEIJING_TZ)
+                # 获取文件修改时间（作为默认时间）
+                file_mtime = os.path.getmtime(file_path)
+                beijing_time = datetime.fromtimestamp(file_mtime).astimezone(BEIJING_TZ)
                 commit_time = beijing_time.strftime('%Y-%m-%d %H:%M')
                 
                 # 构建原始下载URL
@@ -388,7 +423,7 @@ jobs:
                 else:
                     version = "未知版本"
                     version_date = commit_time
-                    version_source = "默认时间"
+                    version_source = "文件修改时间"
                 
                 # 获取文件大小
                 file_size = get_file_size(file_path)
@@ -407,7 +442,7 @@ jobs:
                 changed_hashes.add(file_hash)
             
             if not changed_files:
-                print("✅ 未检测到文件变更")
+                print("✅ 无有效文件变更需要通知")
                 return
             
             print(f"📦 检测到 {len(changed_files)} 个文件变更:")
@@ -415,7 +450,12 @@ jobs:
                 print(f"  - {file['path']} (v{file['version']}, {file['date']} 北京时间) [大小: {file['size']}]")
             
             # 发送到Telegram
-            loop = asyncio.get_event_loop()
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
             telegram_success = loop.run_until_complete(send_telegram_message(changed_files))
             
             # 发送到邮箱
