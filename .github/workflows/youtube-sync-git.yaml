@@ -22,6 +22,7 @@ jobs:
       uses: actions/checkout@v5
       with:
         fetch-depth: 1
+        lfs: true  # 启用LFS支持
 
     - name: Install dependencies
       run: |
@@ -32,15 +33,14 @@ jobs:
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
-        git config pull.rebase true
+        git config pull.rebase false  # 改为merge方式避免冲突
         
-    - name: Setup Git LFS for large files
+    - name: Setup Git LFS
       run: |
         git lfs install
-        # 跟踪大文件
+        # 确保LFS跟踪配置
         git lfs track "apk/youtube.apk"
         git lfs track "apk/youtube-music.apk"
-        git add .gitattributes
         
     - name: Run sync script
       env:
@@ -60,11 +60,13 @@ jobs:
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 确保获取最新代码
-        echo "拉取远程最新更改..."
-        git pull origin ${{ github.ref_name }} || {
-          echo "警告: 拉取远程更改失败，继续执行..."
-        }
+        # 首先确保工作区干净并同步到最新
+        echo "同步到远程最新版本..."
+        git fetch origin
+        git reset --hard origin/${{ github.ref_name }}
+        
+        # 确保apk目录存在
+        mkdir -p apk
 
         # 获取所有发布版
         echo "获取发布版本信息..."
@@ -156,14 +158,11 @@ jobs:
           exit 1
         fi
         
-        # 确保apk目录存在
-        mkdir -p apk
-        
         # 下载YouTube APK
         youtube_source_name=$(basename "$youtube_download_url")
         echo "下载YouTube APK: $youtube_source_name"
-        curl -sL "$youtube_download_url" -o "$WORK_DIR/$youtube_source_name"
-        if [ ! -f "$WORK_DIR/$youtube_source_name" ]; then
+        curl -sL -o "$YOUTUBE_TARGET_PATH" "$youtube_download_url"
+        if [ ! -f "$YOUTUBE_TARGET_PATH" ]; then
           echo "错误: YouTube APK下载失败"
           exit 1
         fi
@@ -171,15 +170,12 @@ jobs:
         # 下载YouTube Music APK
         youtube_music_source_name=$(basename "$youtube_music_download_url")
         echo "下载YouTube Music APK: $youtube_music_source_name"
-        curl -sL "$youtube_music_download_url" -o "$WORK_DIR/$youtube_music_source_name"
-        if [ ! -f "$WORK_DIR/$youtube_music_source_name" ]; then
+        curl -sL -o "$YOUTUBE_MUSIC_TARGET_PATH" "$youtube_music_download_url"
+        if [ ! -f "$YOUTUBE_MUSIC_TARGET_PATH" ]; then
           echo "错误: YouTube Music APK下载失败"
           exit 1
         fi
         
-        # 重命名并移动到目标位置
-        mv "$WORK_DIR/$youtube_source_name" "$YOUTUBE_TARGET_PATH"
-        mv "$WORK_DIR/$youtube_music_source_name" "$YOUTUBE_MUSIC_TARGET_PATH"
         echo "文件已保存到: $YOUTUBE_TARGET_PATH 和 $YOUTUBE_MUSIC_TARGET_PATH"
 
         # 更新版本文件（保留其他键值，添加日期）
@@ -192,7 +188,7 @@ jobs:
           
         echo "$UPDATED_VERSION_JSON" > version.txt
 
-        # 添加所有更改（包括.gitattributes）
+        # 添加所有更改
         git add apk/ version.txt .gitattributes
         
         # 检查是否有更改
@@ -204,28 +200,19 @@ jobs:
         # 提交更改
         git commit -m "更新YouTube ReVanced版本: $SELECTED_VERSION (日期: $RELEASE_DATE)"
         
-        # 再次拉取远程更改（避免推送冲突）
-        echo "再次拉取远程更新..."
-        git pull origin ${{ github.ref_name }} --rebase
-        
         # 推送到远程仓库
         echo "推送到远程仓库..."
         git remote set-url origin https://x-access-token:$TOKEN@github.com/${{ github.repository }}.git
-        git push origin HEAD:${{ github.ref }}
+        
+        # 使用强制推送以避免冲突
+        echo "执行强制推送..."
+        git push -f origin HEAD:${{ github.ref }}
         
         if [ $? -eq 0 ]; then
           echo "推送成功"
         else
           echo "错误: 推送失败"
-          # 尝试强制推送作为备选方案
-          echo "尝试强制推送..."
-          git push -f origin HEAD:${{ github.ref }}
-          if [ $? -eq 0 ]; then
-            echo "强制推送成功"
-          else
-            echo "错误: 强制推送失败"
-            exit 1
-          fi
+          exit 1
         fi
 
         echo "同步完成! 状态: 成功"
