@@ -84,6 +84,12 @@ jobs:
         if [ -f "$VERSION_FILE" ]; then
           echo "版本文件存在: $VERSION_FILE"
           CURRENT_VERSION_DATA=$(cat "$VERSION_FILE")
+          # 验证JSON格式
+          if ! echo "$CURRENT_VERSION_DATA" | jq -e . >/dev/null 2>&1; then
+            echo "版本文件格式无效，重置为空对象"
+            CURRENT_VERSION_DATA="{}"
+            echo "{}" > "$VERSION_FILE"
+          fi
         else
           echo "版本文件不存在，创建空版本文件"
           echo "{}" > "$VERSION_FILE"
@@ -174,8 +180,8 @@ jobs:
         echo "YouTube Music版本: $YOUTUBE_MUSIC_VERSION, 发布日期: $RELEASE_DATE_UTC8"
         
         # 6. 对比更新逻辑
-        CURRENT_YOUTUBE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$YOUTUBE_TARGET_NAME")
-        CURRENT_YOUTUBE_MUSIC=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$YOUTUBE_MUSIC_TARGET_NAME")
+        CURRENT_YOUTUBE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$YOUTUBE_TARGET_NAME // empty")
+        CURRENT_YOUTUBE_MUSIC=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$YOUTUBE_MUSIC_TARGET_NAME // empty")
         
         NEW_YOUTUBE_VALUE="$YOUTUBE_VERSION,$RELEASE_DATE_UTC8"
         NEW_YOUTUBE_MUSIC_VALUE="$YOUTUBE_MUSIC_VERSION,$RELEASE_DATE_UTC8"
@@ -208,15 +214,25 @@ jobs:
           exit 0
         fi
         
-        # 7. 更新版本文件
-        NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
-            --arg youtube_key "$YOUTUBE_TARGET_NAME" \
-            --arg youtube_value "$NEW_YOUTUBE_VALUE" \
-            --arg music_key "$YOUTUBE_MUSIC_TARGET_NAME" \
-            --arg music_value "$NEW_YOUTUBE_MUSIC_VALUE" \
-            '.[$youtube_key] = $youtube_value | .[$music_key] = $music_value')
-            
-        echo "$NEW_VERSION_DATA" | jq -r . > "$VERSION_FILE"
+        # 7. 更新版本文件 - 修复jq命令
+        echo "更新版本文件..."
+        # 使用临时文件来处理JSON更新
+        TEMP_VERSION_FILE="$WORK_DIR/version_temp.json"
+        
+        # 先更新YouTube信息
+        if [ -n "$CURRENT_YOUTUBE" ]; then
+          echo "$CURRENT_VERSION_DATA" | jq --arg key "$YOUTUBE_TARGET_NAME" --arg value "$NEW_YOUTUBE_VALUE" '.[$key] = $value' > "$TEMP_VERSION_FILE"
+        else
+          echo "$CURRENT_VERSION_DATA" | jq --arg key "$YOUTUBE_TARGET_NAME" --arg value "$NEW_YOUTUBE_VALUE" '. + {($key): $value}' > "$TEMP_VERSION_FILE"
+        fi
+        
+        # 再更新YouTube Music信息
+        if [ -n "$CURRENT_YOUTUBE_MUSIC" ]; then
+          cat "$TEMP_VERSION_FILE" | jq --arg key "$YOUTUBE_MUSIC_TARGET_NAME" --arg value "$NEW_YOUTUBE_MUSIC_VALUE" '.[$key] = $value' > "$VERSION_FILE"
+        else
+          cat "$TEMP_VERSION_FILE" | jq --arg key "$YOUTUBE_MUSIC_TARGET_NAME" --arg value "$NEW_YOUTUBE_MUSIC_VALUE" '. + {($key): $value}' > "$VERSION_FILE"
+        fi
+        
         echo "版本文件已更新"
         
         # 8. 复制文件到目标仓库
