@@ -217,46 +217,55 @@ jobs:
           exit 1
         fi
         
-        # 创建下载链接文件
-        DOWNLOAD_LINKS_JSON=$(cat <<EOF
+        # 创建下载链接文件 - 使用更安全的方法
+        cat > "$DOWNLOAD_LINKS_FILE" << 'EOF'
 {
   "youtube": {
-    "name": "$YOUTUBE_APK_NAME",
-    "version": "$YOUTUBE_VERSION",
-    "download_url": "$YOUTUBE_DOWNLOAD_URL",
-    "size": $YOUTUBE_FILE_SIZE,
-    "release_date": "$RELEASE_DATE_UTC8",
-    "release_tag": "$RELEASE_TAG"
+    "name": "PLACEHOLDER_YOUTUBE_NAME",
+    "version": "PLACEHOLDER_YOUTUBE_VERSION",
+    "download_url": "PLACEHOLDER_YOUTUBE_URL",
+    "size": PLACEHOLDER_YOUTUBE_SIZE,
+    "release_date": "PLACEHOLDER_RELEASE_DATE",
+    "release_tag": "PLACEHOLDER_RELEASE_TAG"
   },
   "youtube_music": {
-    "name": "$YOUTUBE_MUSIC_APK_NAME",
-    "version": "$YOUTUBE_MUSIC_VERSION",
-    "download_url": "$YOUTUBE_MUSIC_DOWNLOAD_URL",
-    "size": $YOUTUBE_MUSIC_FILE_SIZE,
-    "release_date": "$RELEASE_DATE_UTC8",
-    "release_tag": "$RELEASE_TAG"
+    "name": "PLACEHOLDER_MUSIC_NAME",
+    "version": "PLACEHOLDER_MUSIC_VERSION",
+    "download_url": "PLACEHOLDER_MUSIC_URL",
+    "size": PLACEHOLDER_MUSIC_SIZE,
+    "release_date": "PLACEHOLDER_RELEASE_DATE",
+    "release_tag": "PLACEHOLDER_RELEASE_TAG"
   }
 }
 EOF
-        )
         
-        echo "$DOWNLOAD_LINKS_JSON" | jq -r . > "$DOWNLOAD_LINKS_FILE"
+        # 使用sed替换占位符
+        sed -i "s/PLACEHOLDER_YOUTUBE_NAME/$YOUTUBE_APK_NAME/g" "$DOWNLOAD_LINKS_FILE"
+        sed -i "s/PLACEHOLDER_YOUTUBE_VERSION/$YOUTUBE_VERSION/g" "$DOWNLOAD_LINKS_FILE"
+        sed -i "s|PLACEHOLDER_YOUTUBE_URL|$YOUTUBE_DOWNLOAD_URL|g" "$DOWNLOAD_LINKS_FILE"
+        sed -i "s/PLACEHOLDER_YOUTUBE_SIZE/$YOUTUBE_FILE_SIZE/g" "$DOWNLOAD_LINKS_FILE"
+        sed -i "s/PLACEHOLDER_MUSIC_NAME/$YOUTUBE_MUSIC_APK_NAME/g" "$DOWNLOAD_LINKS_FILE"
+        sed -i "s/PLACEHOLDER_MUSIC_VERSION/$YOUTUBE_MUSIC_VERSION/g" "$DOWNLOAD_LINKS_FILE"
+        sed -i "s|PLACEHOLDER_MUSIC_URL|$YOUTUBE_MUSIC_DOWNLOAD_URL|g" "$DOWNLOAD_LINKS_FILE"
+        sed -i "s/PLACEHOLDER_MUSIC_SIZE/$YOUTUBE_MUSIC_FILE_SIZE/g" "$DOWNLOAD_LINKS_FILE"
+        sed -i "s/PLACEHOLDER_RELEASE_DATE/$RELEASE_DATE_UTC8/g" "$DOWNLOAD_LINKS_FILE"
+        sed -i "s/PLACEHOLDER_RELEASE_TAG/$RELEASE_TAG/g" "$DOWNLOAD_LINKS_FILE"
         
         echo "版本文件和下载链接已更新"
         
         # 7. 创建README文件（可选）
         README_FILE="$TARGET_DIR/APK_DOWNLOADS.md"
-        cat > "$README_FILE" <<EOF
+        cat > "$README_FILE" << 'EOF'
 # YouTube ReVanced APK 下载信息
 
-> 最后更新: $(date)
+> 最后更新: CURRENT_DATE
 
 ## 当前版本信息
 
 | 应用 | 版本 | 发布日期 | 文件大小 | 下载链接 |
 |------|------|----------|----------|----------|
-| YouTube ReVanced | $YOUTUBE_VERSION | $RELEASE_DATE_UTC8 | $((YOUTUBE_FILE_SIZE/1024/1024))MB | [下载]($YOUTUBE_DOWNLOAD_URL) |
-| YouTube Music ReVanced | $YOUTUBE_MUSIC_VERSION | $RELEASE_DATE_UTC8 | $((YOUTUBE_MUSIC_FILE_SIZE/1024/1024))MB | [下载]($YOUTUBE_MUSIC_DOWNLOAD_URL) |
+| YouTube ReVanced | YOUTUBE_VERSION | RELEASE_DATE | YOUTUBE_SIZE_MB MB | [下载](YOUTUBE_URL) |
+| YouTube Music ReVanced | MUSIC_VERSION | RELEASE_DATE | MUSIC_SIZE_MB MB | [下载](MUSIC_URL) |
 
 ## 使用说明
 
@@ -273,8 +282,21 @@ EOF
 ## 自动化信息
 
 此页面由GitHub Actions自动生成，每4小时检查一次更新。
-
 EOF
+        
+        # 使用sed替换README中的占位符
+        CURRENT_DATE=$(date)
+        YOUTUBE_SIZE_MB=$((YOUTUBE_FILE_SIZE/1024/1024))
+        MUSIC_SIZE_MB=$((YOUTUBE_MUSIC_FILE_SIZE/1024/1024))
+        
+        sed -i "s/CURRENT_DATE/$CURRENT_DATE/g" "$README_FILE"
+        sed -i "s/YOUTUBE_VERSION/$YOUTUBE_VERSION/g" "$README_FILE"
+        sed -i "s/MUSIC_VERSION/$YOUTUBE_MUSIC_VERSION/g" "$README_FILE"
+        sed -i "s/RELEASE_DATE/$RELEASE_DATE_UTC8/g" "$README_FILE"
+        sed -i "s/YOUTUBE_SIZE_MB/$YOUTUBE_SIZE_MB/g" "$README_FILE"
+        sed -i "s/MUSIC_SIZE_MB/$MUSIC_SIZE_MB/g" "$README_FILE"
+        sed -i "s|YOUTUBE_URL|$YOUTUBE_DOWNLOAD_URL|g" "$README_FILE"
+        sed -i "s|MUSIC_URL|$YOUTUBE_MUSIC_DOWNLOAD_URL|g" "$README_FILE"
         
         # 8. 提交和推送
         cd "$TARGET_DIR"
