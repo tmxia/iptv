@@ -44,13 +44,7 @@ jobs:
       env:
         SOURCE_REPO: "NoName-exe/revanced"
         TARGET_REPO: "${{ github.repository }}"
-        YOUTUBE_TARGET_NAME: "youtube.apk"
-        YOUTUBE_MUSIC_TARGET_NAME: "youtube-music.apk"
       run: |
-        # 目标文件路径
-        YOUTUBE_TARGET_PATH="apk/$YOUTUBE_TARGET_NAME"
-        YOUTUBE_MUSIC_TARGET_PATH="apk/$YOUTUBE_MUSIC_TARGET_NAME"
-        
         # 工作目录
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
@@ -59,27 +53,9 @@ jobs:
         # 目标仓库目录
         TARGET_DIR="$GITHUB_WORKSPACE/target-repo"
         VERSION_FILE="$TARGET_DIR/version.txt"
+        DOWNLOAD_LINKS_FILE="$TARGET_DIR/download-links.json"
         
-        # 1. 目标文件存在性检测
-        echo "检查目标文件存在性..."
-        YOUTUBE_EXISTS=0
-        YOUTUBE_MUSIC_EXISTS=0
-        
-        if [ -f "$TARGET_DIR/$YOUTUBE_TARGET_PATH" ]; then
-          echo "YouTube目标文件存在: $TARGET_DIR/$YOUTUBE_TARGET_PATH"
-          YOUTUBE_EXISTS=1
-        else
-          echo "YouTube目标文件不存在: $TARGET_DIR/$YOUTUBE_TARGET_PATH"
-        fi
-        
-        if [ -f "$TARGET_DIR/$YOUTUBE_MUSIC_TARGET_PATH" ]; then
-          echo "YouTube Music目标文件存在: $TARGET_DIR/$YOUTUBE_MUSIC_TARGET_PATH"
-          YOUTUBE_MUSIC_EXISTS=1
-        else
-          echo "YouTube Music目标文件不存在: $TARGET_DIR/$YOUTUBE_MUSIC_TARGET_PATH"
-        fi
-        
-        # 2. 版本文件键值存在性检测
+        # 1. 版本文件键值存在性检测
         echo "检查版本文件存在性..."
         if [ -f "$VERSION_FILE" ]; then
           echo "版本文件存在: $VERSION_FILE"
@@ -96,7 +72,7 @@ jobs:
           CURRENT_VERSION_DATA="{}"
         fi
         
-        # 3. 获取最新发布版本的资源文件
+        # 2. 获取最新发布版本的资源文件
         echo "获取最新发布版本..."
         RELEASE_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases/latest")
         if [ $? -ne 0 ] || [ -z "$RELEASE_JSON" ]; then
@@ -110,11 +86,11 @@ jobs:
         RELEASE_DATE_UTC8=$(TZ=Asia/Shanghai date -d "$RELEASE_DATE" +'%Y-%m-%d')
         echo "最新发布版本: $RELEASE_TAG, 发布日期: $RELEASE_DATE_UTC8"
         
-        # 4. 精准匹配APK文件
+        # 3. 精准匹配APK文件
         echo "搜索匹配的APK文件..."
         
         # 查找YouTube APK文件 - 只匹配APK，排除Magisk模块
-        YOUTUBE_ASSET=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("^youtube-revanced.*\\.apk$")) | select(.name | test("magisk") | not) | {name: .name, url: .browser_download_url}' | jq -s '.[0]')
+        YOUTUBE_ASSET=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("^youtube-revanced.*\\.apk$")) | select(.name | test("magisk") | not) | {name: .name, url: .browser_download_url, size: .size}' | jq -s '.[0]')
         if [ "$YOUTUBE_ASSET" = "null" ] || [ -z "$YOUTUBE_ASSET" ]; then
           echo "错误: 未找到匹配的YouTube APK文件"
           exit 1
@@ -122,10 +98,11 @@ jobs:
         
         YOUTUBE_APK_NAME=$(echo "$YOUTUBE_ASSET" | jq -r '.name')
         YOUTUBE_DOWNLOAD_URL=$(echo "$YOUTUBE_ASSET" | jq -r '.url')
-        echo "找到YouTube APK: $YOUTUBE_APK_NAME"
+        YOUTUBE_FILE_SIZE=$(echo "$YOUTUBE_ASSET" | jq -r '.size')
+        echo "找到YouTube APK: $YOUTUBE_APK_NAME (大小: $((YOUTUBE_FILE_SIZE/1024/1024))MB)"
         
         # 查找YouTube Music APK文件 - 只匹配APK，排除Magisk模块
-        YOUTUBE_MUSIC_ASSET=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("^youtube-music-revanced.*\\.apk$")) | select(.name | test("magisk") | not) | {name: .name, url: .browser_download_url}' | jq -s '.[0]')
+        YOUTUBE_MUSIC_ASSET=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("^youtube-music-revanced.*\\.apk$")) | select(.name | test("magisk") | not) | {name: .name, url: .browser_download_url, size: .size}' | jq -s '.[0]')
         if [ "$YOUTUBE_MUSIC_ASSET" = "null" ] || [ -z "$YOUTUBE_MUSIC_ASSET" ]; then
           echo "错误: 未找到匹配的YouTube Music APK文件"
           exit 1
@@ -133,11 +110,11 @@ jobs:
         
         YOUTUBE_MUSIC_APK_NAME=$(echo "$YOUTUBE_MUSIC_ASSET" | jq -r '.name')
         YOUTUBE_MUSIC_DOWNLOAD_URL=$(echo "$YOUTUBE_MUSIC_ASSET" | jq -r '.url')
-        echo "找到YouTube Music APK: $YOUTUBE_MUSIC_APK_NAME"
+        YOUTUBE_MUSIC_FILE_SIZE=$(echo "$YOUTUBE_MUSIC_ASSET" | jq -r '.size')
+        echo "找到YouTube Music APK: $YOUTUBE_MUSIC_APK_NAME (大小: $((YOUTUBE_MUSIC_FILE_SIZE/1024/1024))MB)"
         
-        # 5. 触发更新下载逻辑
-        NEED_UPDATE_YOUTUBE=0
-        NEED_UPDATE_YOUTUBE_MUSIC=0
+        # 4. 触发更新逻辑
+        NEED_UPDATE=0
         
         # 从文件名提取版本号函数
         extract_version_from_filename() {
@@ -156,22 +133,6 @@ jobs:
           echo "$VERSION"
         }
         
-        # 下载YouTube APK
-        echo "下载YouTube APK..."
-        curl -sL "$YOUTUBE_DOWNLOAD_URL" -o "$WORK_DIR/$YOUTUBE_APK_NAME"
-        if [ ! -f "$WORK_DIR/$YOUTUBE_APK_NAME" ]; then
-          echo "错误: YouTube APK下载失败"
-          exit 1
-        fi
-        
-        # 下载YouTube Music APK
-        echo "下载YouTube Music APK..."
-        curl -sL "$YOUTUBE_MUSIC_DOWNLOAD_URL" -o "$WORK_DIR/$YOUTUBE_MUSIC_APK_NAME"
-        if [ ! -f "$WORK_DIR/$YOUTUBE_MUSIC_APK_NAME" ]; then
-          echo "错误: YouTube Music APK下载失败"
-          exit 1
-        fi
-        
         # 提取版本信息（从文件名）
         YOUTUBE_VERSION=$(extract_version_from_filename "$YOUTUBE_APK_NAME")
         YOUTUBE_MUSIC_VERSION=$(extract_version_from_filename "$YOUTUBE_MUSIC_APK_NAME")
@@ -179,20 +140,18 @@ jobs:
         echo "YouTube版本: $YOUTUBE_VERSION, 发布日期: $RELEASE_DATE_UTC8"
         echo "YouTube Music版本: $YOUTUBE_MUSIC_VERSION, 发布日期: $RELEASE_DATE_UTC8"
         
-        # 6. 对比更新逻辑 - 使用更安全的方法提取当前版本
+        # 5. 对比更新逻辑 - 使用更安全的方法提取当前版本
         echo "提取当前版本信息..."
         
         # 使用更安全的方法从JSON中提取值
-        if echo "$CURRENT_VERSION_DATA" | jq -e ".$YOUTUBE_TARGET_NAME" >/dev/null 2>&1; then
-          CURRENT_YOUTUBE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$YOUTUBE_TARGET_NAME")
+        if echo "$CURRENT_VERSION_DATA" | jq -e ".youtube" >/dev/null 2>&1; then
+          CURRENT_YOUTUBE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".youtube")
         else
           CURRENT_YOUTUBE=""
         fi
         
-        # 使用转义的键名来访问JSON
-        YOUTUBE_MUSIC_KEY_ESCAPED=$(echo "$YOUTUBE_MUSIC_TARGET_NAME" | sed 's/"/\\"/g')
-        if echo "$CURRENT_VERSION_DATA" | jq -e ".\"$YOUTUBE_MUSIC_TARGET_NAME\"" >/dev/null 2>&1; then
-          CURRENT_YOUTUBE_MUSIC=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$YOUTUBE_MUSIC_TARGET_NAME\"")
+        if echo "$CURRENT_VERSION_DATA" | jq -e ".youtube_music" >/dev/null 2>&1; then
+          CURRENT_YOUTUBE_MUSIC=$(echo "$CURRENT_VERSION_DATA" | jq -r ".youtube_music")
         else
           CURRENT_YOUTUBE_MUSIC=""
         fi
@@ -205,45 +164,38 @@ jobs:
         echo "新YouTube版本: $NEW_YOUTUBE_VALUE"
         echo "新YouTube Music版本: $NEW_YOUTUBE_MUSIC_VALUE"
         
-        # YouTube更新检测
-        if [ "$YOUTUBE_EXISTS" -eq 0 ]; then
-          echo "YouTube目标文件不存在，需要更新"
-          NEED_UPDATE_YOUTUBE=1
-        elif [ "$CURRENT_YOUTUBE" != "$NEW_YOUTUBE_VALUE" ]; then
+        # 更新检测
+        if [ "$CURRENT_YOUTUBE" != "$NEW_YOUTUBE_VALUE" ]; then
           echo "YouTube版本变化：$CURRENT_YOUTUBE -> $NEW_YOUTUBE_VALUE，需要更新"
-          NEED_UPDATE_YOUTUBE=1
+          NEED_UPDATE=1
         else
-          echo "YouTube无变化，跳过更新"
+          echo "YouTube无变化"
         fi
         
-        # YouTube Music更新检测
-        if [ "$YOUTUBE_MUSIC_EXISTS" -eq 0 ]; then
-          echo "YouTube Music目标文件不存在，需要更新"
-          NEED_UPDATE_YOUTUBE_MUSIC=1
-        elif [ "$CURRENT_YOUTUBE_MUSIC" != "$NEW_YOUTUBE_MUSIC_VALUE" ]; then
+        if [ "$CURRENT_YOUTUBE_MUSIC" != "$NEW_YOUTUBE_MUSIC_VALUE" ]; then
           echo "YouTube Music版本变化：$CURRENT_YOUTUBE_MUSIC -> $NEW_YOUTUBE_MUSIC_VALUE，需要更新"
-          NEED_UPDATE_YOUTUBE_MUSIC=1
+          NEED_UPDATE=1
         else
-          echo "YouTube Music无变化，跳过更新"
+          echo "YouTube Music无变化"
         fi
         
         # 检查是否需要更新
-        if [ "$NEED_UPDATE_YOUTUBE" -eq 0 ] && [ "$NEED_UPDATE_YOUTUBE_MUSIC" -eq 0 ]; then
-          echo "没有需要更新的APK文件"
+        if [ "$NEED_UPDATE" -eq 0 ]; then
+          echo "没有需要更新的版本"
           exit 0
         fi
         
-        # 7. 更新版本文件 - 使用更简单的jq命令
-        echo "更新版本文件..."
+        # 6. 更新版本文件和下载链接文件
+        echo "更新版本文件和下载链接..."
         
         # 创建临时版本文件
         TEMP_VERSION_FILE="$WORK_DIR/version_temp.json"
         
-        # 使用简单的jq命令逐步更新
+        # 更新版本文件
         if [ -n "$CURRENT_YOUTUBE" ]; then
-          echo "$CURRENT_VERSION_DATA" | jq --arg key "$YOUTUBE_TARGET_NAME" --arg value "$NEW_YOUTUBE_VALUE" '.[$key] = $value' > "$TEMP_VERSION_FILE"
+          echo "$CURRENT_VERSION_DATA" | jq --arg key "youtube" --arg value "$NEW_YOUTUBE_VALUE" '.[$key] = $value' > "$TEMP_VERSION_FILE"
         else
-          echo "$CURRENT_VERSION_DATA" | jq --arg key "$YOUTUBE_TARGET_NAME" --arg value "$NEW_YOUTUBE_VALUE" '. + {($key): $value}' > "$TEMP_VERSION_FILE"
+          echo "$CURRENT_VERSION_DATA" | jq --arg key "youtube" --arg value "$NEW_YOUTUBE_VALUE" '. + {($key): $value}' > "$TEMP_VERSION_FILE"
         fi
         
         # 验证第一步成功
@@ -254,9 +206,9 @@ jobs:
         
         # 第二步更新YouTube Music
         if [ -n "$CURRENT_YOUTUBE_MUSIC" ]; then
-          cat "$TEMP_VERSION_FILE" | jq --arg key "$YOUTUBE_MUSIC_TARGET_NAME" --arg value "$NEW_YOUTUBE_MUSIC_VALUE" '.[$key] = $value' > "$VERSION_FILE"
+          cat "$TEMP_VERSION_FILE" | jq --arg key "youtube_music" --arg value "$NEW_YOUTUBE_MUSIC_VALUE" '.[$key] = $value' > "$VERSION_FILE"
         else
-          cat "$TEMP_VERSION_FILE" | jq --arg key "$YOUTUBE_MUSIC_TARGET_NAME" --arg value "$NEW_YOUTUBE_MUSIC_VALUE" '. + {($key): $value}' > "$VERSION_FILE"
+          cat "$TEMP_VERSION_FILE" | jq --arg key "youtube_music" --arg value "$NEW_YOUTUBE_MUSIC_VALUE" '. + {($key): $value}' > "$VERSION_FILE"
         fi
         
         # 验证第二步成功
@@ -265,34 +217,66 @@ jobs:
           exit 1
         fi
         
-        echo "版本文件已更新"
+        # 创建下载链接文件
+        DOWNLOAD_LINKS_JSON=$(cat <<EOF
+{
+  "youtube": {
+    "name": "$YOUTUBE_APK_NAME",
+    "version": "$YOUTUBE_VERSION",
+    "download_url": "$YOUTUBE_DOWNLOAD_URL",
+    "size": $YOUTUBE_FILE_SIZE,
+    "release_date": "$RELEASE_DATE_UTC8",
+    "release_tag": "$RELEASE_TAG"
+  },
+  "youtube_music": {
+    "name": "$YOUTUBE_MUSIC_APK_NAME",
+    "version": "$YOUTUBE_MUSIC_VERSION",
+    "download_url": "$YOUTUBE_MUSIC_DOWNLOAD_URL",
+    "size": $YOUTUBE_MUSIC_FILE_SIZE,
+    "release_date": "$RELEASE_DATE_UTC8",
+    "release_tag": "$RELEASE_TAG"
+  }
+}
+EOF
+        )
         
-        # 8. 复制文件到目标仓库
-        mkdir -p "$TARGET_DIR/apk"
+        echo "$DOWNLOAD_LINKS_JSON" | jq -r . > "$DOWNLOAD_LINKS_FILE"
         
-        if [ "$NEED_UPDATE_YOUTUBE" -eq 1 ]; then
-          cp "$WORK_DIR/$YOUTUBE_APK_NAME" "$TARGET_DIR/$YOUTUBE_TARGET_PATH"
-          echo "YouTube APK已复制到目标仓库"
-          
-          # 验证复制成功
-          if [ ! -f "$TARGET_DIR/$YOUTUBE_TARGET_PATH" ]; then
-            echo "错误: YouTube APK复制失败"
-            exit 1
-          fi
-        fi
+        echo "版本文件和下载链接已更新"
         
-        if [ "$NEED_UPDATE_YOUTUBE_MUSIC" -eq 1 ]; then
-          cp "$WORK_DIR/$YOUTUBE_MUSIC_APK_NAME" "$TARGET_DIR/$YOUTUBE_MUSIC_TARGET_PATH"
-          echo "YouTube Music APK已复制到目标仓库"
-          
-          # 验证复制成功
-          if [ ! -f "$TARGET_DIR/$YOUTUBE_MUSIC_TARGET_PATH" ]; then
-            echo "错误: YouTube Music APK复制失败"
-            exit 1
-          fi
-        fi
+        # 7. 创建README文件（可选）
+        README_FILE="$TARGET_DIR/APK_DOWNLOADS.md"
+        cat > "$README_FILE" <<EOF
+# YouTube ReVanced APK 下载信息
+
+> 最后更新: $(date)
+
+## 当前版本信息
+
+| 应用 | 版本 | 发布日期 | 文件大小 | 下载链接 |
+|------|------|----------|----------|----------|
+| YouTube ReVanced | $YOUTUBE_VERSION | $RELEASE_DATE_UTC8 | $((YOUTUBE_FILE_SIZE/1024/1024))MB | [下载]($YOUTUBE_DOWNLOAD_URL) |
+| YouTube Music ReVanced | $YOUTUBE_MUSIC_VERSION | $RELEASE_DATE_UTC8 | $((YOUTUBE_MUSIC_FILE_SIZE/1024/1024))MB | [下载]($YOUTUBE_MUSIC_DOWNLOAD_URL) |
+
+## 使用说明
+
+1. 点击上面的下载链接直接下载APK文件
+2. 在Android设备上安装下载的APK文件
+3. 如果提示"禁止安装来自未知来源的应用"，请先在设置中允许安装未知来源的应用
+
+## 注意事项
+
+- 这些APK文件来自 [NoName-exe/revanced](https://github.com/NoName-exe/revanced) 仓库
+- 文件大小超过GitHub的100MB限制，因此不直接存储在仓库中
+- 版本信息会自动同步更新
+
+## 自动化信息
+
+此页面由GitHub Actions自动生成，每4小时检查一次更新。
+
+EOF
         
-        # 9. 提交和推送
+        # 8. 提交和推送
         cd "$TARGET_DIR"
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
@@ -306,14 +290,7 @@ jobs:
           exit 0
         fi
 
-        COMMIT_MESSAGE="更新YouTube APK: "
-        if [ "$NEED_UPDATE_YOUTUBE" -eq 1 ]; then
-          COMMIT_MESSAGE+="YouTube ($YOUTUBE_VERSION) "
-        fi
-        if [ "$NEED_UPDATE_YOUTUBE_MUSIC" -eq 1 ]; then
-          COMMIT_MESSAGE+="YouTube Music ($YOUTUBE_MUSIC_VERSION) "
-        fi
-        COMMIT_MESSAGE+="- $RELEASE_TAG"
+        COMMIT_MESSAGE="更新YouTube APK信息: YouTube ($YOUTUBE_VERSION) YouTube Music ($YOUTUBE_MUSIC_VERSION) - $RELEASE_TAG"
         
         git commit -m "$COMMIT_MESSAGE"
         
@@ -341,22 +318,13 @@ jobs:
           exit 1
         fi
 
-        # 10. 最终验证
+        # 9. 最终验证
         echo "同步完成，验证结果:"
-        echo "YouTube: $([ -f "$TARGET_DIR/$YOUTUBE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
-        echo "YouTube Music: $([ -f "$TARGET_DIR/$YOUTUBE_MUSIC_TARGET_PATH" ] && echo "存在" || echo "缺失")"
+        echo "版本文件: $([ -f "$VERSION_FILE" ] && echo "存在" || echo "缺失")"
+        echo "下载链接文件: $([ -f "$DOWNLOAD_LINKS_FILE" ] && echo "存在" || echo "缺失")"
+        echo "README文件: $([ -f "$README_FILE" ] && echo "存在" || echo "缺失")"
         
-        if [ "$NEED_UPDATE_YOUTUBE" -eq 1 ] && [ ! -f "$TARGET_DIR/$YOUTUBE_TARGET_PATH" ]; then
-          echo "错误: YouTube APK同步后验证失败"
-          exit 1
-        fi
-        
-        if [ "$NEED_UPDATE_YOUTUBE_MUSIC" -eq 1 ] && [ ! -f "$TARGET_DIR/$YOUTUBE_MUSIC_TARGET_PATH" ]; then
-          echo "错误: YouTube Music APK同步后验证失败"
-          exit 1
-        fi
-        
-        echo "所有目标文件已确认同步至仓库"
+        echo "所有文件已确认同步至仓库"
         echo "状态: 成功"
 
     - name: Release Repository Lock 🔓
