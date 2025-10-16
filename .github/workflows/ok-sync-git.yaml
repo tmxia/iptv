@@ -76,249 +76,257 @@ jobs:
         TARGET_DIR="$GITHUB_WORKSPACE/target-repo"
         VERSION_FILE="$TARGET_DIR/version.txt"
         
-        # 1. 检查当前版本文件状态
-        echo "检查当前版本文件状态..."
+        # 1. 目标文件存在性检测
+        echo "检查目标文件存在性..."
+        STABLE_EXISTS=0
+        PRE_RELEASE_EXISTS=0
+        
+        if [ -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
+          echo "电视版目标文件存在: $TARGET_DIR/$STABLE_TARGET_PATH"
+          STABLE_EXISTS=1
+        else
+          echo "电视版目标文件不存在: $TARGET_DIR/$STABLE_TARGET_PATH"
+        fi
+        
+        if [ -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
+          echo "手机版目标文件存在: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
+          PRE_RELEASE_EXISTS=1
+        else
+          echo "手机版目标文件不存在: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
+        fi
+        
+        # 2. 版本文件键值存在性检测
+        echo "检查版本文件存在性..."
         if [ -f "$VERSION_FILE" ]; then
           echo "版本文件存在: $VERSION_FILE"
           CURRENT_VERSION_DATA=$(cat "$VERSION_FILE")
-          echo "当前版本数据: $CURRENT_VERSION_DATA"
         else
           echo "版本文件不存在，创建空版本文件"
           echo "{}" > "$VERSION_FILE"
           CURRENT_VERSION_DATA="{}"
         fi
         
-        # 2. 提取版本信息函数
+        # 3. 触发更新下载逻辑
+        NEED_UPDATE_STABLE=0
+        NEED_UPDATE_PRE=0
+        
+        # 提取版本号函数
         extract_apk_version() {
           local apk_path="$1"
-          local apk_type="$2"
-          echo "从$apk_type APK提取版本号: $apk_path" >&2
+          echo "从APK提取版本号: $apk_path" >&2
           
-          # 首先尝试使用aapt2提取版本
-          VERSION_INFO=$("$GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2" dump badging "$apk_path" 2>/dev/null | grep "versionName" || true)
+          VERSION_INFO=$("$GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2" dump badging "$apk_path" 2>/dev/null | grep "versionName")
           VERSION=$(echo "$VERSION_INFO" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           
           if [ -z "$VERSION" ]; then
-            echo "警告: 无法使用aapt2提取$apk_type版本号, 尝试使用提交信息" >&2
-            # 使用提交信息中的版本号
-            COMMIT_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/commits?path=$APK_DIR/$apk_type&sha=$SOURCE_BRANCH&per_page=1")
+            echo "警告: 无法提取版本号, 使用提交哈希" >&2
+            COMMIT_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/commits?path=$APK_DIR/$STABLE_APK_NAME&sha=$SOURCE_BRANCH&per_page=1")
             VERSION=$(echo "$COMMIT_JSON" | jq -r '.[0].commit.message' | grep -oP 'v\d+\.\d+\.\d+' | head -1)
             if [ -z "$VERSION" ]; then
-              VERSION="unknown-$(date +%Y%m%d)"
+              VERSION="unknown"
             fi
           fi
           
-          # 确保版本号以v开头
-          if [[ ! "$VERSION" =~ ^v ]] && [[ "$VERSION" != "unknown"* ]]; then
+          if [[ ! "$VERSION" =~ ^v ]]; then
             VERSION="v$VERSION"
           fi
           
-          echo "$apk_type版本号: $VERSION" >&2
+          echo "提取的版本号: $VERSION" >&2
           echo "$VERSION"
         }
 
-        # 获取文件提交日期和哈希
-        get_file_commit_info() {
+        # 获取文件提交日期
+        get_file_commit_date() {
           local file_name="$1"
-          local apk_type="$2"
           
-          echo "获取$apk_type提交信息..." >&2
           COMMIT_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/commits?path=$APK_DIR/$file_name&sha=$SOURCE_BRANCH&per_page=1")
-          if [ $? -ne 0 ] || [ -z "$COMMIT_JSON" ] || [ "$COMMIT_JSON" = "[]" ]; then
-            echo "错误: 无法获取$apk_type文件提交历史" >&2
-            return 1
+          if [ $? -ne 0 ] || [ -z "$COMMIT_JSON" ]; then
+            echo "错误: 无法获取文件提交历史" >&2
+            exit 1
           fi
           
           COMMIT_DATE=$(echo "$COMMIT_JSON" | jq -r '.[0].commit.committer.date')
-          COMMIT_SHA=$(echo "$COMMIT_JSON" | jq -r '.[0].sha')
-          COMMIT_DATE_UTC8=$(TZ=Asia/Shanghai date -d "$COMMIT_DATE" +'%Y-%m-%d %H:%M:%S')
+          COMMIT_DATE_UTC8=$(TZ=Asia/Shanghai date -d "$COMMIT_DATE" +'%Y-%m-%d')
           
-          echo "$apk_type提交日期: $COMMIT_DATE_UTC8, 提交哈希: ${COMMIT_SHA:0:8}" >&2
-          echo "$COMMIT_DATE_UTC8|${COMMIT_SHA:0:8}"
+          echo "文件提交日期: $COMMIT_DATE_UTC8" >&2
+          echo "$COMMIT_DATE_UTC8"
         }
         
-        # 3. 下载源APK文件并提取信息
-        echo "开始下载源APK文件..."
-        
-        # 电视版APK
+        # 下载电视版APK
+        echo "下载电视版APK..."
         STABLE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$STABLE_APK_NAME"
-        echo "下载电视版APK: $STABLE_DOWNLOAD_URL"
         curl -sL "$STABLE_DOWNLOAD_URL" -o "$WORK_DIR/$STABLE_APK_NAME"
         if [ ! -f "$WORK_DIR/$STABLE_APK_NAME" ]; then
           echo "错误: 电视版APK下载失败"
           exit 1
         fi
         
-        # 手机版APK
+        # 下载手机版APK
+        echo "下载手机版APK..."
         PRE_RELEASE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$PRE_RELEASE_APK_NAME"
-        echo "下载手机版APK: $PRE_RELEASE_DOWNLOAD_URL"
         curl -sL "$PRE_RELEASE_DOWNLOAD_URL" -o "$WORK_DIR/$PRE_RELEASE_APK_NAME"
         if [ ! -f "$WORK_DIR/$PRE_RELEASE_APK_NAME" ]; then
           echo "错误: 手机版APK下载失败"
           exit 1
         fi
         
-        # 提取版本和提交信息
-        STABLE_VERSION=$(extract_apk_version "$WORK_DIR/$STABLE_APK_NAME" "电视版")
-        PRE_RELEASE_VERSION=$(extract_apk_version "$WORK_DIR/$PRE_RELEASE_APK_NAME" "手机版")
+        # 提取版本信息
+        STABLE_VERSION=$(extract_apk_version "$WORK_DIR/$STABLE_APK_NAME")
+        PRE_RELEASE_VERSION=$(extract_apk_version "$WORK_DIR/$PRE_RELEASE_APK_NAME")
+        STABLE_COMMIT_DATE=$(get_file_commit_date "$STABLE_APK_NAME")
+        PRE_RELEASE_COMMIT_DATE=$(get_file_commit_date "$PRE_RELEASE_APK_NAME")
         
-        STABLE_COMMIT_INFO=$(get_file_commit_info "$STABLE_APK_NAME" "电视版")
-        PRE_RELEASE_COMMIT_INFO=$(get_file_commit_info "$PRE_RELEASE_APK_NAME" "手机版")
+        echo "电视版版本: $STABLE_VERSION, 日期: $STABLE_COMMIT_DATE"
+        echo "手机版版本: $PRE_RELEASE_VERSION, 日期: $PRE_RELEASE_COMMIT_DATE"
         
-        echo "=== 源APK信息 ==="
-        echo "电视版: 版本=$STABLE_VERSION, 提交信息=$STABLE_COMMIT_INFO"
-        echo "手机版: 版本=$PRE_RELEASE_VERSION, 提交信息=$PRE_RELEASE_COMMIT_INFO"
+        # 4. 对比更新逻辑 - 修正版本文件格式
+        CURRENT_STABLE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$STABLE_TARGET_NAME\"" 2>/dev/null || echo "")
+        CURRENT_PRE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$PRE_RELEASE_TARGET_NAME\"" 2>/dev/null || echo "")
         
-        # 4. 构建新的版本数据
-        NEW_STABLE_VALUE="$STABLE_VERSION|$STABLE_COMMIT_INFO"
-        NEW_PRE_VALUE="$PRE_RELEASE_VERSION|$PRE_RELEASE_COMMIT_INFO"
+        NEW_STABLE_VALUE="$STABLE_VERSION,$STABLE_COMMIT_DATE"
+        NEW_PRE_VALUE="$PRE_RELEASE_VERSION,$PRE_RELEASE_COMMIT_DATE"
         
-        # 5. 对比版本数据，决定是否需要更新
-        NEED_UPDATE_STABLE=0
-        NEED_UPDATE_PRE=0
-        
-        CURRENT_STABLE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$STABLE_TARGET_NAME // \"\"")
-        CURRENT_PRE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$PRE_RELEASE_TARGET_NAME // \"\"")
-        
-        echo "=== 当前版本数据 ==="
-        echo "电视版: $CURRENT_STABLE"
-        echo "手机版: $CURRENT_PRE"
+        echo "当前电视版版本: '$CURRENT_STABLE'"
+        echo "新电视版版本: '$NEW_STABLE_VALUE'"
+        echo "当前手机版版本: '$CURRENT_PRE'"
+        echo "新手机版版本: '$NEW_PRE_VALUE'"
         
         # 电视版更新检测
-        if [ -z "$CURRENT_STABLE" ]; then
-          echo "电视版: 无当前版本记录，需要首次同步"
+        if [ "$STABLE_EXISTS" -eq 0 ]; then
+          echo "电视版目标文件不存在，需要更新"
           NEED_UPDATE_STABLE=1
         elif [ "$CURRENT_STABLE" != "$NEW_STABLE_VALUE" ]; then
-          echo "电视版: 版本变化，需要更新"
-          echo "  旧: $CURRENT_STABLE"
-          echo "  新: $NEW_STABLE_VALUE"
+          echo "电视版版本变化：'$CURRENT_STABLE' -> '$NEW_STABLE_VALUE'，需要更新"
           NEED_UPDATE_STABLE=1
         else
-          echo "电视版: 版本无变化，跳过更新"
+          echo "电视版无变化，跳过更新"
         fi
         
         # 手机版更新检测
-        if [ -z "$CURRENT_PRE" ]; then
-          echo "手机版: 无当前版本记录，需要首次同步"
+        if [ "$PRE_RELEASE_EXISTS" -eq 0 ]; then
+          echo "手机版目标文件不存在，需要更新"
           NEED_UPDATE_PRE=1
         elif [ "$CURRENT_PRE" != "$NEW_PRE_VALUE" ]; then
-          echo "手机版: 版本变化，需要更新"
-          echo "  旧: $CURRENT_PRE"
-          echo "  新: $NEW_PRE_VALUE"
+          echo "手机版版本变化：'$CURRENT_PRE' -> '$NEW_PRE_VALUE'，需要更新"
           NEED_UPDATE_PRE=1
         else
-          echo "手机版: 版本无变化，跳过更新"
+          echo "手机版无变化，跳过更新"
         fi
         
         # 检查是否需要更新
         if [ "$NEED_UPDATE_STABLE" -eq 0 ] && [ "$NEED_UPDATE_PRE" -eq 0 ]; then
-          echo "所有APK文件均为最新版本，无需更新"
+          echo "没有需要更新的APK文件"
           exit 0
         fi
         
-        # 6. 更新版本文件
+        # 5. 更新版本文件 - 修正为正确的键值对格式
         echo "更新版本文件..."
-        NEW_VERSION_DATA=$(echo "$CURRENT_VERSION_DATA" | jq \
-            --arg stable_key "$STABLE_TARGET_NAME" \
-            --arg stable_value "$NEW_STABLE_VALUE" \
-            --arg pre_key "$PRE_RELEASE_TARGET_NAME" \
-            --arg pre_value "$NEW_PRE_VALUE" \
-            '.[$stable_key] = $stable_value | .[$pre_key] = $pre_value')
-            
-        echo "$NEW_VERSION_DATA" | jq -r . > "$VERSION_FILE"
-        echo "版本文件已更新: $VERSION_FILE"
+        # 使用临时文件处理JSON更新
+        TEMP_JSON=$(mktemp)
+        echo "$CURRENT_VERSION_DATA" > "$TEMP_JSON"
         
-        # 7. 复制APK文件到目标仓库
+        # 更新JSON中的键值对
+        jq --arg key "$STABLE_TARGET_NAME" --arg value "$NEW_STABLE_VALUE" \
+           '.[$key] = $value' "$TEMP_JSON" > "$TEMP_JSON.tmp" && mv "$TEMP_JSON.tmp" "$TEMP_JSON"
+        
+        jq --arg key "$PRE_RELEASE_TARGET_NAME" --arg value "$NEW_PRE_VALUE" \
+           '.[$key] = $value' "$TEMP_JSON" > "$VERSION_FILE"
+        
+        rm -f "$TEMP_JSON"
+        
+        echo "版本文件已更新为:"
+        cat "$VERSION_FILE"
+        
+        # 6. 复制文件到目标仓库
         mkdir -p "$TARGET_DIR/apk"
         
         if [ "$NEED_UPDATE_STABLE" -eq 1 ]; then
           cp "$WORK_DIR/$STABLE_APK_NAME" "$TARGET_DIR/$STABLE_TARGET_PATH"
-          echo "电视版APK已复制到: $TARGET_DIR/$STABLE_TARGET_PATH"
+          echo "电视版APK已复制到目标仓库"
+          
+          # 验证复制成功
+          if [ ! -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
+            echo "错误: 电视版APK复制失败"
+            exit 1
+          fi
         fi
         
         if [ "$NEED_UPDATE_PRE" -eq 1 ]; then
           cp "$WORK_DIR/$PRE_RELEASE_APK_NAME" "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
-          echo "手机版APK已复制到: $TARGET_DIR/$PRE_RELEASE_TARGET_PATH"
+          echo "手机版APK已复制到目标仓库"
+          
+          # 验证复制成功
+          if [ ! -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
+            echo "错误: 手机版APK复制失败"
+            exit 1
+          fi
         fi
         
-        # 8. 提交和推送更改
+        # 7. 提交和推送
         cd "$TARGET_DIR"
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
 
-        # 添加更改的文件
-        git add "$VERSION_FILE"
-        if [ "$NEED_UPDATE_STABLE" -eq 1 ]; then
-          git add "$STABLE_TARGET_PATH"
-        fi
-        if [ "$NEED_UPDATE_PRE" -eq 1 ]; then
-          git add "$PRE_RELEASE_TARGET_PATH"
-        fi
+        # 添加所有更改
+        git add .
         
-        # 检查是否有更改需要提交
+        # 检查是否有更改
         if git diff-index --quiet HEAD --; then
-          echo "没有检测到文件更改，跳过提交"
+          echo "没有更改需要提交"
           exit 0
         fi
 
-        # 构建提交信息
-        COMMIT_MESSAGE="🔄 APK同步更新"
+        COMMIT_MESSAGE="更新APK: "
         if [ "$NEED_UPDATE_STABLE" -eq 1 ]; then
-          COMMIT_MESSAGE+=" | 电视版:$STABLE_VERSION"
+          COMMIT_MESSAGE+="电视版 ($STABLE_VERSION) "
         fi
         if [ "$NEED_UPDATE_PRE" -eq 1 ]; then
-          COMMIT_MESSAGE+=" | 手机版:$PRE_RELEASE_VERSION"
+          COMMIT_MESSAGE+="手机版 ($PRE_RELEASE_VERSION) "
         fi
-        COMMIT_MESSAGE+=" [自动同步]"
         
-        echo "提交信息: $COMMIT_MESSAGE"
         git commit -m "$COMMIT_MESSAGE"
         
-        # 推送更改（带重试机制）
-        echo "推送更改到仓库..."
+        # 推送重试机制
         for i in {1..3}; do
           echo "尝试 $i/3: 拉取远程最新更改..."
-          if git pull --rebase origin main; then
-            echo "拉取成功，尝试推送..."
-            if git push origin main; then
-              echo "推送成功!"
-              break
-            else
-              echo "推送失败，等待10秒后重试..."
-              sleep 10
-            fi
-          else
+          git pull origin main --rebase || {
             echo "拉取失败，等待10秒后重试..."
+            sleep 10
+            continue
+          }
+          
+          echo "尝试 $i/3: 推送更改..."
+          if git push origin main; then
+            echo "推送成功!"
+            break
+          else
+            echo "推送失败，等待10秒后重试..."
             sleep 10
           fi
         done
         
-        if [ $? -ne 0 ]; then
+        if [ $i -eq 3 ]; then
           echo "错误: 经过3次尝试后仍无法推送更改"
           exit 1
         fi
 
-        # 9. 最终验证
-        echo "=== 同步完成验证 ==="
-        if [ "$NEED_UPDATE_STABLE" -eq 1 ]; then
-          if [ -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
-            echo "✅ 电视版APK同步成功"
-          else
-            echo "❌ 电视版APK同步后验证失败"
-            exit 1
-          fi
+        # 8. 最终验证
+        echo "同步完成，验证结果:"
+        echo "电视版: $([ -f "$TARGET_DIR/$STABLE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
+        echo "手机版: $([ -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ] && echo "存在" || echo "缺失")"
+        
+        if [ "$NEED_UPDATE_STABLE" -eq 1 ] && [ ! -f "$TARGET_DIR/$STABLE_TARGET_PATH" ]; then
+          echo "错误: 电视版APK同步后验证失败"
+          exit 1
         fi
         
-        if [ "$NEED_UPDATE_PRE" -eq 1 ]; then
-          if [ -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
-            echo "✅ 手机版APK同步成功"
-          else
-            echo "❌ 手机版APK同步后验证失败"
-            exit 1
-          fi
+        if [ "$NEED_UPDATE_PRE" -eq 1 ] && [ ! -f "$TARGET_DIR/$PRE_RELEASE_TARGET_PATH" ]; then
+          echo "错误: 手机版APK同步后验证失败"
+          exit 1
         fi
         
-        echo "🎉 APK同步任务完成"
+        echo "所有目标文件已确认同步至仓库"
+        echo "状态: 成功"
 
     - name: Release Repository Lock 🔓
       if: always()
@@ -329,12 +337,14 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    # 修复通知失败问题
     - name: Notify on failure
       if: failure()
       uses: actions/github-script@v6
       with:
         script: |
           try {
+            // 检查是否有有效的 issue number
             if (context.issue && context.issue.number) {
               github.rest.issues.createComment({
                 issue_number: context.issue.number,
@@ -343,6 +353,7 @@ jobs:
                 body: `🚨 APK同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
               });
             } else {
+              // 创建新 issue 通知
               const issueTitle = "APK同步失败通知";
               const issueBody = `### 🚨 APK同步失败\n\n` +
                                `**工作流**: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n` +
@@ -358,6 +369,7 @@ jobs:
             }
           } catch (error) {
             console.error('通知失败:', error);
+            // 回退到基本日志输出
             core.warning('无法发送通知，请手动检查工作流失败情况');
           }
 
