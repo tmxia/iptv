@@ -233,35 +233,35 @@ jobs:
           exit 0
         fi
         
-        # 7. 更新版本文件 - 使用Python处理JSON，避免jq复杂语法问题
+        # 7. 更新版本文件 - 使用更简单的jq命令
         echo "更新版本文件..."
         
-        # 使用Python来处理JSON，更可靠
-        python3 -c "
-import json
-import sys
-
-try:
-    # 读取当前版本数据
-    current_data = json.loads('''$CURRENT_VERSION_DATA''')
-    
-    # 更新数据
-    current_data['$YOUTUBE_TARGET_NAME'] = '$NEW_YOUTUBE_VALUE'
-    current_data['$YOUTUBE_MUSIC_TARGET_NAME'] = '$NEW_YOUTUBE_MUSIC_VALUE'
-    
-    # 写回文件
-    with open('$VERSION_FILE', 'w') as f:
-        json.dump(current_data, f, indent=2)
-    
-    print('版本文件更新成功')
-except Exception as e:
-    print(f'版本文件更新失败: {e}')
-    sys.exit(1)
-"
+        # 创建临时版本文件
+        TEMP_VERSION_FILE="$WORK_DIR/version_temp.json"
         
-        # 验证版本文件更新成功
+        # 使用简单的jq命令逐步更新
+        if [ -n "$CURRENT_YOUTUBE" ]; then
+          echo "$CURRENT_VERSION_DATA" | jq --arg key "$YOUTUBE_TARGET_NAME" --arg value "$NEW_YOUTUBE_VALUE" '.[$key] = $value' > "$TEMP_VERSION_FILE"
+        else
+          echo "$CURRENT_VERSION_DATA" | jq --arg key "$YOUTUBE_TARGET_NAME" --arg value "$NEW_YOUTUBE_VALUE" '. + {($key): $value}' > "$TEMP_VERSION_FILE"
+        fi
+        
+        # 验证第一步成功
         if [ $? -ne 0 ]; then
-          echo "错误: 版本文件更新失败"
+          echo "错误: 第一步版本文件更新失败"
+          exit 1
+        fi
+        
+        # 第二步更新YouTube Music
+        if [ -n "$CURRENT_YOUTUBE_MUSIC" ]; then
+          cat "$TEMP_VERSION_FILE" | jq --arg key "$YOUTUBE_MUSIC_TARGET_NAME" --arg value "$NEW_YOUTUBE_MUSIC_VALUE" '.[$key] = $value' > "$VERSION_FILE"
+        else
+          cat "$TEMP_VERSION_FILE" | jq --arg key "$YOUTUBE_MUSIC_TARGET_NAME" --arg value "$NEW_YOUTUBE_MUSIC_VALUE" '. + {($key): $value}' > "$VERSION_FILE"
+        fi
+        
+        # 验证第二步成功
+        if [ $? -ne 0 ]; then
+          echo "错误: 第二步版本文件更新失败"
           exit 1
         fi
         
