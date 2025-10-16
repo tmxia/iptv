@@ -179,12 +179,31 @@ jobs:
         echo "YouTube版本: $YOUTUBE_VERSION, 发布日期: $RELEASE_DATE_UTC8"
         echo "YouTube Music版本: $YOUTUBE_MUSIC_VERSION, 发布日期: $RELEASE_DATE_UTC8"
         
-        # 6. 对比更新逻辑
-        CURRENT_YOUTUBE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$YOUTUBE_TARGET_NAME // empty")
-        CURRENT_YOUTUBE_MUSIC=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$YOUTUBE_MUSIC_TARGET_NAME // empty")
+        # 6. 对比更新逻辑 - 使用更安全的方法提取当前版本
+        echo "提取当前版本信息..."
+        
+        # 使用更安全的方法从JSON中提取值
+        if echo "$CURRENT_VERSION_DATA" | jq -e ".$YOUTUBE_TARGET_NAME" >/dev/null 2>&1; then
+          CURRENT_YOUTUBE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".$YOUTUBE_TARGET_NAME")
+        else
+          CURRENT_YOUTUBE=""
+        fi
+        
+        # 使用转义的键名来访问JSON
+        YOUTUBE_MUSIC_KEY_ESCAPED=$(echo "$YOUTUBE_MUSIC_TARGET_NAME" | sed 's/"/\\"/g')
+        if echo "$CURRENT_VERSION_DATA" | jq -e ".\"$YOUTUBE_MUSIC_TARGET_NAME\"" >/dev/null 2>&1; then
+          CURRENT_YOUTUBE_MUSIC=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$YOUTUBE_MUSIC_TARGET_NAME\"")
+        else
+          CURRENT_YOUTUBE_MUSIC=""
+        fi
         
         NEW_YOUTUBE_VALUE="$YOUTUBE_VERSION,$RELEASE_DATE_UTC8"
         NEW_YOUTUBE_MUSIC_VALUE="$YOUTUBE_MUSIC_VERSION,$RELEASE_DATE_UTC8"
+        
+        echo "当前YouTube版本: $CURRENT_YOUTUBE"
+        echo "当前YouTube Music版本: $CURRENT_YOUTUBE_MUSIC"
+        echo "新YouTube版本: $NEW_YOUTUBE_VALUE"
+        echo "新YouTube Music版本: $NEW_YOUTUBE_MUSIC_VALUE"
         
         # YouTube更新检测
         if [ "$YOUTUBE_EXISTS" -eq 0 ]; then
@@ -214,23 +233,36 @@ jobs:
           exit 0
         fi
         
-        # 7. 更新版本文件 - 修复jq命令
+        # 7. 更新版本文件 - 使用Python处理JSON，避免jq复杂语法问题
         echo "更新版本文件..."
-        # 使用临时文件来处理JSON更新
-        TEMP_VERSION_FILE="$WORK_DIR/version_temp.json"
         
-        # 先更新YouTube信息
-        if [ -n "$CURRENT_YOUTUBE" ]; then
-          echo "$CURRENT_VERSION_DATA" | jq --arg key "$YOUTUBE_TARGET_NAME" --arg value "$NEW_YOUTUBE_VALUE" '.[$key] = $value' > "$TEMP_VERSION_FILE"
-        else
-          echo "$CURRENT_VERSION_DATA" | jq --arg key "$YOUTUBE_TARGET_NAME" --arg value "$NEW_YOUTUBE_VALUE" '. + {($key): $value}' > "$TEMP_VERSION_FILE"
-        fi
+        # 使用Python来处理JSON，更可靠
+        python3 -c "
+import json
+import sys
+
+try:
+    # 读取当前版本数据
+    current_data = json.loads('''$CURRENT_VERSION_DATA''')
+    
+    # 更新数据
+    current_data['$YOUTUBE_TARGET_NAME'] = '$NEW_YOUTUBE_VALUE'
+    current_data['$YOUTUBE_MUSIC_TARGET_NAME'] = '$NEW_YOUTUBE_MUSIC_VALUE'
+    
+    # 写回文件
+    with open('$VERSION_FILE', 'w') as f:
+        json.dump(current_data, f, indent=2)
+    
+    print('版本文件更新成功')
+except Exception as e:
+    print(f'版本文件更新失败: {e}')
+    sys.exit(1)
+"
         
-        # 再更新YouTube Music信息
-        if [ -n "$CURRENT_YOUTUBE_MUSIC" ]; then
-          cat "$TEMP_VERSION_FILE" | jq --arg key "$YOUTUBE_MUSIC_TARGET_NAME" --arg value "$NEW_YOUTUBE_MUSIC_VALUE" '.[$key] = $value' > "$VERSION_FILE"
-        else
-          cat "$TEMP_VERSION_FILE" | jq --arg key "$YOUTUBE_MUSIC_TARGET_NAME" --arg value "$NEW_YOUTUBE_MUSIC_VALUE" '. + {($key): $value}' > "$VERSION_FILE"
+        # 验证版本文件更新成功
+        if [ $? -ne 0 ]; then
+          echo "错误: 版本文件更新失败"
+          exit 1
         fi
         
         echo "版本文件已更新"
