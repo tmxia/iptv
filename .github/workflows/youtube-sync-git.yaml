@@ -85,11 +85,11 @@ jobs:
           exit 1
         fi
 
-        SELECTED_VERSION=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        SELECTED_TAG=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
         SELECTED_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
         RELEASE_DATE=$(TZ=UTC date -d "$SELECTED_PUBLISHED_AT" +'%Y-%m-%d')
         
-        echo "选择的发布版本: $SELECTED_VERSION (发布于: $RELEASE_DATE)"
+        echo "选择的发布标签: $SELECTED_TAG (发布于: $RELEASE_DATE)"
 
         # 检查本地版本文件
         if [ ! -f "version.txt" ]; then
@@ -121,26 +121,6 @@ jobs:
         echo "当前YouTube版本: ${CURRENT_YOUTUBE_VERSION:-无} (日期: ${CURRENT_YOUTUBE_DATE:-无})"
         echo "当前YouTube Music版本: ${CURRENT_YOUTUBE_MUSIC_VERSION:-无} (日期: ${CURRENT_YOUTUBE_MUSIC_DATE:-无})"
 
-        # 检查是否需要更新
-        need_update=false
-        
-        # 检查YouTube版本和文件
-        if [ "$SELECTED_VERSION" != "$CURRENT_YOUTUBE_VERSION" ] || [ ! -f "$YOUTUBE_TARGET_PATH" ]; then
-          echo "YouTube需要更新: 版本不匹配或文件不存在"
-          need_update=true
-        fi
-        
-        # 检查YouTube Music版本和文件
-        if [ "$SELECTED_VERSION" != "$CURRENT_YOUTUBE_MUSIC_VERSION" ] || [ ! -f "$YOUTUBE_MUSIC_TARGET_PATH" ]; then
-          echo "YouTube Music需要更新: 版本不匹配或文件不存在"
-          need_update=true
-        fi
-        
-        if [ "$need_update" = false ]; then
-          echo "版本相同且文件存在，无需更新"
-          exit 0
-        fi
-
         # 下载新版本文件
         echo "下载新版本文件..."
         
@@ -158,8 +138,49 @@ jobs:
           exit 1
         fi
         
-        # 下载YouTube APK
+        # 从文件名中提取版本号（包含v前缀）
         youtube_source_name=$(basename "$youtube_download_url")
+        youtube_music_source_name=$(basename "$youtube_music_download_url")
+        
+        # 提取YouTube版本号 (从 youtube-revanced-v20.14.43-all.apk 提取 v20.14.43)
+        YOUTUBE_VERSION=$(echo "$youtube_source_name" | sed -n 's/.*youtube-revanced-\(v[0-9.]*\)-all\.apk/\1/p')
+        # 提取YouTube Music版本号 (从 youtube-music-revanced-v8.10.52-arm64-v8a.apk 提取 v8.10.52)
+        YOUTUBE_MUSIC_VERSION=$(echo "$youtube_music_source_name" | sed -n 's/.*youtube-music-revanced-\(v[0-9.]*\)-arm64-v8a\.apk/\1/p')
+        
+        if [ -z "$YOUTUBE_VERSION" ]; then
+          echo "错误: 无法从YouTube文件名提取版本号"
+          exit 1
+        fi
+        
+        if [ -z "$YOUTUBE_MUSIC_VERSION" ]; then
+          echo "错误: 无法从YouTube Music文件名提取版本号"
+          exit 1
+        fi
+        
+        echo "提取的YouTube版本: $YOUTUBE_VERSION"
+        echo "提取的YouTube Music版本: $YOUTUBE_MUSIC_VERSION"
+        
+        # 检查是否需要更新
+        need_update=false
+        
+        # 检查YouTube版本和文件
+        if [ "$YOUTUBE_VERSION" != "$CURRENT_YOUTUBE_VERSION" ] || [ ! -f "$YOUTUBE_TARGET_PATH" ]; then
+          echo "YouTube需要更新: 版本不匹配或文件不存在"
+          need_update=true
+        fi
+        
+        # 检查YouTube Music版本和文件
+        if [ "$YOUTUBE_MUSIC_VERSION" != "$CURRENT_YOUTUBE_MUSIC_VERSION" ] || [ ! -f "$YOUTUBE_MUSIC_TARGET_PATH" ]; then
+          echo "YouTube Music需要更新: 版本不匹配或文件不存在"
+          need_update=true
+        fi
+        
+        if [ "$need_update" = false ]; then
+          echo "版本相同且文件存在，无需更新"
+          exit 0
+        fi
+        
+        # 下载YouTube APK
         echo "下载YouTube APK: $youtube_source_name"
         curl -sL -o "$YOUTUBE_TARGET_PATH" "$youtube_download_url"
         if [ ! -f "$YOUTUBE_TARGET_PATH" ]; then
@@ -168,7 +189,6 @@ jobs:
         fi
         
         # 下载YouTube Music APK
-        youtube_music_source_name=$(basename "$youtube_music_download_url")
         echo "下载YouTube Music APK: $youtube_music_source_name"
         curl -sL -o "$YOUTUBE_MUSIC_TARGET_PATH" "$youtube_music_download_url"
         if [ ! -f "$YOUTUBE_MUSIC_TARGET_PATH" ]; then
@@ -181,9 +201,9 @@ jobs:
         # 更新版本文件（保留其他键值，添加日期）
         UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
           --arg youtube_key "$YOUTUBE_TARGET_NAME" \
-          --arg youtube_value "$SELECTED_VERSION,$RELEASE_DATE" \
+          --arg youtube_value "$YOUTUBE_VERSION,$RELEASE_DATE" \
           --arg youtube_music_key "$YOUTUBE_MUSIC_TARGET_NAME" \
-          --arg youtube_music_value "$SELECTED_VERSION,$RELEASE_DATE" \
+          --arg youtube_music_value "$YOUTUBE_MUSIC_VERSION,$RELEASE_DATE" \
           '.[$youtube_key] = $youtube_value | .[$youtube_music_key] = $youtube_music_value')
           
         echo "$UPDATED_VERSION_JSON" > version.txt
@@ -198,7 +218,7 @@ jobs:
         fi
 
         # 提交更改
-        git commit -m "更新YouTube ReVanced版本: $SELECTED_VERSION (日期: $RELEASE_DATE)"
+        git commit -m "更新YouTube ReVanced: YouTube $YOUTUBE_VERSION, Music $YOUTUBE_MUSIC_VERSION (发布日期: $RELEASE_DATE)"
         
         # 推送到远程仓库
         echo "推送到远程仓库..."
@@ -216,8 +236,8 @@ jobs:
         fi
 
         echo "同步完成! 状态: 成功"
-        echo "YouTube文件: $YOUTUBE_TARGET_PATH ($SELECTED_VERSION, $RELEASE_DATE)"
-        echo "YouTube Music文件: $YOUTUBE_MUSIC_TARGET_PATH ($SELECTED_VERSION, $RELEASE_DATE)"
+        echo "YouTube文件: $YOUTUBE_TARGET_PATH ($YOUTUBE_VERSION, $RELEASE_DATE)"
+        echo "YouTube Music文件: $YOUTUBE_MUSIC_TARGET_PATH ($YOUTUBE_MUSIC_VERSION, $RELEASE_DATE)"
         exit 0
 
   cleanup_self:
