@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-10-16 23:19:02 (北京时间)
+最后更新: 2025-10-16 23:28:00 (北京时间)
 
 ## 应用
 
@@ -34,8 +34,8 @@
 | <div>bv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv.apk)</small></div> | 9.99 | v0.2.9 | 2024-12-06 |
 | <div>hiddify-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/hiddify-beta.apk)</small></div> | 48.36 | v2.5.7 | 2024-10-03 |
 | <div>hiddify.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/hiddify.apk)</small></div> | 47.11 | v2.0.5 | 2024-07-31 |
-| <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 46.48 | v2.9.6|2025-06-25 16:33:51|bf77b86e | v2.9.6|2025-06-25 16:33:51|bf77b86e |
-| <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 48.58 | v2.9.6|2025-06-25 16:33:51|bf77b86e | v2.9.6|2025-06-25 16:33:51|bf77b86e |
+| <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 46.56 | v3.1.6|2025-10-16 21:57:05|068f4dcd | v3.1.6|2025-10-16 21:57:05|068f4dcd |
+| <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 48.64 | v3.1.6|2025-10-16 21:57:05|068f4dcd | v3.1.6|2025-10-16 21:57:05|068f4dcd |
 
 ---
 
