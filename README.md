@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-10-16 23:44:42 (北京时间)
+最后更新: 2025-10-16 23:49:36 (北京时间)
 
 ## 应用
 
@@ -10,6 +10,8 @@
 | <div>leanback-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk)</small></div> | 70.04 | v3.5.7 | 2025-10-16 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 53.14 | v1.2.5.875 | 2025-10-16 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 46.78 | v1.2.5.875 | 2025-10-16 |
+| <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 46.56 | v3.1.6 | 2025-10-16 |
+| <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 48.64 | v3.1.6 | 2025-10-16 |
 | <div>yykm_tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/yykm_tv.apk)</small></div> | 78.50 | v3.6.5-1 | 2025-10-15 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 33.04 | v2.0.0.183 | 2025-10-14 |
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.09 | v3.6.5 | 2025-10-13 |
@@ -18,8 +20,6 @@
 | <div>bv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk)</small></div> | 16.50 | v0.3.0 | 2025-10-08 |
 | <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 48.40 | v12.0.1 | 2025-10-05 |
 | <div>nagramx.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk)</small></div> | 48.40 | v12.0.1.1220 | 2025-10-05 |
-| <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 46.56 | v2.8.6 | 2025-09-27 |
-| <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 48.64 | v2.8.6 | 2025-09-27 |
 | <div>24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/24.10_luci-passwall.zip)</small></div> | .90 | 25.9.23-1 | 2025-09-23 |
 | <div>19.07_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/19.07_luci-passwall.zip)</small></div> | .90 | 25.9.23-1 | 2025-09-23 |
 | <div>plus_modz.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_modz.apk)</small></div> | 42.26 | v12.0.1.1 | 2025-09-21 |
