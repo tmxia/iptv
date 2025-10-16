@@ -55,7 +55,7 @@ jobs:
     - name: Run APK sync script
       env:
         SOURCE_REPO: "lystv/fmapp"
-        SOURCE_BRANCH: "main"
+        SOURCE_BRANCH: "ok"
         APK_DIR: "apk/release"
         TARGET_REPO: "${{ github.repository }}"
         STABLE_APK_NAME: "leanback-armeabi_v7a.apk"
