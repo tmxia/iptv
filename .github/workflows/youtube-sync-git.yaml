@@ -26,13 +26,34 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl unzip
+        sudo apt-get install -y jq curl unzip openjdk-17-jdk
         
     - name: Configure Git
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
         git config pull.rebase false  # 改为merge方式避免冲突
+        
+    - name: Install apktool
+      run: |
+        # 下载并安装apktool
+        wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar -O apktool.jar
+        sudo mv apktool.jar /usr/local/bin/
+        echo '#!/bin/bash' | sudo tee /usr/local/bin/apktool
+        echo 'java -jar /usr/local/bin/apktool.jar "$@"' | sudo tee -a /usr/local/bin/apktool
+        sudo chmod +x /usr/local/bin/apktool
+        
+    - name: Generate signing key
+      run: |
+        # 生成用于签名的密钥
+        keytool -genkey -v -keystore debug.keystore \
+          -alias androiddebugkey \
+          -storepass android \
+          -keypass android \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -dname "CN=Android Debug,O=Android,C=US"
         
     - name: Run sync script
       env:
@@ -190,80 +211,105 @@ jobs:
           exit 1
         fi
         
-        # 处理APK文件：删除armeabi-v7a库以减小体积
-        echo "处理APK文件以减小体积..."
+        # 使用apktool处理APK文件 - 只删除armeabi-v7a
+        echo "使用apktool处理APK文件 - 只删除armeabi-v7a架构..."
         
-        # 处理YouTube APK
-        process_apk() {
+        # 处理APK函数
+        process_apk_with_apktool() {
           local input_apk="$1"
           local output_apk="$2"
           local apk_name="$3"
           
           echo "处理 $apk_name..."
           
-          # 创建临时解包目录
+          # 记录原始大小
+          original_size=$(stat -f%z "$input_apk" 2>/dev/null || stat -c%s "$input_apk")
+          echo "原始大小: $((original_size / 1024 / 1024)) MB"
+          
+          # 创建临时工作目录
           local extract_dir="$WORK_DIR/${apk_name}_extract"
           mkdir -p "$extract_dir"
           
-          # 解包APK
+          # 使用apktool解包
           echo "解包 $apk_name..."
-          unzip -q "$input_apk" -d "$extract_dir"
+          apktool d "$input_apk" -o "$extract_dir" -f
+          if [ $? -ne 0 ]; then
+            echo "错误: apktool解包失败"
+            return 1
+          fi
           
-          # 检查并删除armeabi-v7a目录
+          # 检查并删除armeabi-v7a目录（仅此一项精简）
           local armeabi_v7a_path="$extract_dir/lib/armeabi-v7a"
           if [ -d "$armeabi_v7a_path" ]; then
             echo "删除 armeabi-v7a 架构库..."
             rm -rf "$armeabi_v7a_path"
             echo "armeabi-v7a 目录已删除"
-            
-            # 重新打包APK
-            echo "重新打包 $apk_name..."
-            cd "$extract_dir"
-            zip -qr "../${apk_name}_processed.apk" .
-            cd - > /dev/null
-            
-            # 移动处理后的文件到目标位置
-            mv "$WORK_DIR/${apk_name}_processed.apk" "$output_apk"
-            
-            # 比较文件大小
-            original_size=$(stat -f%z "$input_apk" 2>/dev/null || stat -c%s "$input_apk")
-            processed_size=$(stat -f%z "$output_apk" 2>/dev/null || stat -c%s "$output_apk")
-            reduction=$((original_size - processed_size))
-            
-            echo "APK处理完成:"
-            echo "  原始大小: $((original_size / 1024 / 1024)) MB"
-            echo "  处理后大小: $((processed_size / 1024 / 1024)) MB"
-            echo "  减小了: $((reduction / 1024 / 1024)) MB"
-            
-            # 检查文件大小是否超过100MB
-            if [ $processed_size -gt $((100 * 1024 * 1024)) ]; then
-              echo "警告: 处理后的 $apk_name 仍然超过100MB ($((processed_size / 1024 / 1024)) MB)"
-              # 可以在这里添加额外的精简步骤
-            else
-              echo "✓ $apk_name 文件大小符合要求 (<100MB)"
-            fi
           else
-            echo "未找到 armeabi-v7a 目录，直接使用原始文件"
-            cp "$input_apk" "$output_apk"
-            
-            # 检查原始文件大小
-            original_size=$(stat -f%z "$input_apk" 2>/dev/null || stat -c%s "$input_apk")
-            if [ $original_size -gt $((100 * 1024 * 1024)) ]; then
-              echo "警告: $apk_name 原始文件超过100MB ($((original_size / 1024 / 1024)) MB)"
-              echo "需要进一步精简..."
-              # 可以在这里添加其他精简策略
+            echo "未找到 armeabi-v7a 目录，无需处理"
+          fi
+          
+          # 使用apktool重新打包
+          echo "重新打包 $apk_name..."
+          apktool b "$extract_dir" -o "$WORK_DIR/${apk_name}_unsigned.apk"
+          if [ $? -ne 0 ]; then
+            echo "错误: apktool打包失败"
+            return 1
+          fi
+          
+          # 签名APK
+          echo "签名 $apk_name..."
+          java -jar /usr/local/bin/apktool.jar --sign \
+            --keystore debug.keystore \
+            --storepass android \
+            --keypass android \
+            --alias androiddebugkey \
+            "$WORK_DIR/${apk_name}_unsigned.apk" \
+            "$output_apk"
+          
+          if [ $? -ne 0 ]; then
+            echo "错误: APK签名失败"
+            # 如果签名失败，尝试使用jarsigner
+            echo "尝试使用jarsigner签名..."
+            jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
+              -keystore debug.keystore -storepass android -keypass android \
+              "$WORK_DIR/${apk_name}_unsigned.apk" androiddebugkey
+            if [ $? -eq 0 ]; then
+              mv "$WORK_DIR/${apk_name}_unsigned.apk" "$output_apk"
+              echo "jarsigner签名成功"
+            else
+              return 1
             fi
+          fi
+          
+          # 比较文件大小
+          processed_size=$(stat -f%z "$output_apk" 2>/dev/null || stat -c%s "$output_apk")
+          reduction=$((original_size - processed_size))
+          
+          echo "APK处理完成:"
+          echo "  原始大小: $((original_size / 1024 / 1024)) MB"
+          echo "  处理后大小: $((processed_size / 1024 / 1024)) MB"
+          echo "  减小了: $((reduction / 1024 / 1024)) MB"
+          
+          # 检查文件大小是否超过100MB
+          if [ $processed_size -gt $((100 * 1024 * 1024)) ]; then
+            echo "警告: 处理后的 $apk_name 仍然超过100MB ($((processed_size / 1024 / 1024)) MB)"
+            echo "注意: 按照要求，只删除了armeabi-v7a，未进行其他精简"
+          else
+            echo "✓ $apk_name 文件大小符合要求 (<100MB)"
           fi
           
           # 清理临时目录
           rm -rf "$extract_dir"
+          rm -f "$WORK_DIR/${apk_name}_unsigned.apk" 2>/dev/null || true
+          
+          return 0
         }
         
         # 处理YouTube APK
-        process_apk "$YOUTUBE_TEMP_PATH" "$YOUTUBE_TARGET_PATH" "youtube"
+        process_apk_with_apktool "$YOUTUBE_TEMP_PATH" "$YOUTUBE_TARGET_PATH" "youtube"
         
         # 处理YouTube Music APK
-        process_apk "$YOUTUBE_MUSIC_TEMP_PATH" "$YOUTUBE_MUSIC_TARGET_PATH" "youtube_music"
+        process_apk_with_apktool "$YOUTUBE_MUSIC_TEMP_PATH" "$YOUTUBE_MUSIC_TARGET_PATH" "youtube_music"
         
         echo "文件已保存到: $YOUTUBE_TARGET_PATH 和 $YOUTUBE_MUSIC_TARGET_PATH"
 
@@ -287,7 +333,7 @@ jobs:
         fi
 
         # 提交更改
-        git commit -m "更新YouTube ReVanced: YouTube $YOUTUBE_VERSION, Music $YOUTUBE_MUSIC_VERSION (发布日期: $RELEASE_DATE)"
+        git commit -m "更新YouTube ReVanced: YouTube $YOUTUBE_VERSION, Music $YOUTUBE_MUSIC_VERSION (发布日期: $RELEASE_DATE) [仅删除armeabi-v7a]"
         
         # 推送到远程仓库
         echo "推送到远程仓库..."
