@@ -161,9 +161,9 @@ jobs:
         youtube_source_name=$(basename "$youtube_download_url")
         youtube_music_source_name=$(basename "$youtube_music_download_url")
         
-        # 提取YouTube版本号 (从 youtube-revanced-v20.14.43-all.apk 提取 v20.14.43)
+        # 提取YouTube版本号
         YOUTUBE_VERSION=$(echo "$youtube_source_name" | sed -n 's/.*youtube-revanced-\(v[0-9.]*\)-all\.apk/\1/p')
-        # 提取YouTube Music版本号 (从 youtube-music-revanced-v8.10.52-arm64-v8a.apk 提取 v8.10.52)
+        # 提取YouTube Music版本号
         YOUTUBE_MUSIC_VERSION=$(echo "$youtube_music_source_name" | sed -n 's/.*youtube-music-revanced-\(v[0-9.]*\)-arm64-v8a\.apk/\1/p')
         
         if [ -z "$YOUTUBE_VERSION" ]; then
