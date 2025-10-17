@@ -277,16 +277,18 @@ jobs:
             return 1
           fi
           
-          # uber-apk-signer输出的文件名会带-aligned-debugSigned后缀
-          local signed_apk_path="$WORK_DIR/${apk_name}_unsigned-aligned-debugSigned.apk"
+          # uber-apk-signer输出的文件名（根据实际日志调整）
+          local signed_apk_path="$WORK_DIR/${apk_name}_unsigned-aligned-signed.apk"
           if [ ! -f "$signed_apk_path" ]; then
-            echo "错误: 签名后的APK文件不存在"
+            echo "错误: 签名后的APK文件不存在: $signed_apk_path"
+            echo "检查WORK_DIR中的文件:"
+            ls -la "$WORK_DIR" | grep "$apk_name" || echo "未找到相关文件"
             return 1
           fi
           
           # 移动签名后的文件到目标位置
           mv "$signed_apk_path" "$output_apk"
-          echo "签名完成"
+          echo "签名完成，文件已重命名为: $(basename "$output_apk")"
           
           # 比较文件大小
           processed_size=$(stat -f%z "$output_apk" 2>/dev/null || stat -c%s "$output_apk")
