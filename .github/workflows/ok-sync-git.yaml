@@ -179,38 +179,42 @@ jobs:
         echo "电视版版本: $STABLE_VERSION, 日期: $STABLE_COMMIT_DATE"
         echo "手机版版本: $PRE_RELEASE_VERSION, 日期: $PRE_RELEASE_COMMIT_DATE"
         
-        # 4. 对比更新逻辑 - 修正版本文件格式
+        # 4. 对比更新逻辑 - 只对比版本号，不对比日期
         CURRENT_STABLE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$STABLE_TARGET_NAME\"" 2>/dev/null || echo "")
         CURRENT_PRE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$PRE_RELEASE_TARGET_NAME\"" 2>/dev/null || echo "")
         
         NEW_STABLE_VALUE="$STABLE_VERSION,$STABLE_COMMIT_DATE"
         NEW_PRE_VALUE="$PRE_RELEASE_VERSION,$PRE_RELEASE_COMMIT_DATE"
         
-        echo "当前电视版版本: '$CURRENT_STABLE'"
-        echo "新电视版版本: '$NEW_STABLE_VALUE'"
-        echo "当前手机版版本: '$CURRENT_PRE'"
-        echo "新手机版版本: '$NEW_PRE_VALUE'"
+        # 提取版本号部分用于比较（逗号前的内容）
+        CURRENT_STABLE_VERSION=$(echo "$CURRENT_STABLE" | cut -d, -f1)
+        CURRENT_PRE_VERSION=$(echo "$CURRENT_PRE" | cut -d, -f1)
         
-        # 电视版更新检测
+        echo "当前电视版版本号: '$CURRENT_STABLE_VERSION'"
+        echo "新电视版版本号: '$STABLE_VERSION'"
+        echo "当前手机版版本号: '$CURRENT_PRE_VERSION'"
+        echo "新手机版版本号: '$PRE_RELEASE_VERSION'"
+        
+        # 电视版更新检测 - 只对比版本号
         if [ "$STABLE_EXISTS" -eq 0 ]; then
           echo "电视版目标文件不存在，需要更新"
           NEED_UPDATE_STABLE=1
-        elif [ "$CURRENT_STABLE" != "$NEW_STABLE_VALUE" ]; then
-          echo "电视版版本变化：'$CURRENT_STABLE' -> '$NEW_STABLE_VALUE'，需要更新"
+        elif [ "$CURRENT_STABLE_VERSION" != "$STABLE_VERSION" ]; then
+          echo "电视版版本变化：'$CURRENT_STABLE_VERSION' -> '$STABLE_VERSION'，需要更新"
           NEED_UPDATE_STABLE=1
         else
-          echo "电视版无变化，跳过更新"
+          echo "电视版版本无变化，跳过更新"
         fi
         
-        # 手机版更新检测
+        # 手机版更新检测 - 只对比版本号
         if [ "$PRE_RELEASE_EXISTS" -eq 0 ]; then
           echo "手机版目标文件不存在，需要更新"
           NEED_UPDATE_PRE=1
-        elif [ "$CURRENT_PRE" != "$NEW_PRE_VALUE" ]; then
-          echo "手机版版本变化：'$CURRENT_PRE' -> '$NEW_PRE_VALUE'，需要更新"
+        elif [ "$CURRENT_PRE_VERSION" != "$PRE_RELEASE_VERSION" ]; then
+          echo "手机版版本变化：'$CURRENT_PRE_VERSION' -> '$PRE_RELEASE_VERSION'，需要更新"
           NEED_UPDATE_PRE=1
         else
-          echo "手机版无变化，跳过更新"
+          echo "手机版版本无变化，跳过更新"
         fi
         
         # 检查是否需要更新
@@ -219,7 +223,7 @@ jobs:
           exit 0
         fi
         
-        # 5. 更新版本文件 - 修正为正确的键值对格式
+        # 5. 更新版本文件
         echo "更新版本文件..."
         # 使用临时文件处理JSON更新
         TEMP_JSON=$(mktemp)
