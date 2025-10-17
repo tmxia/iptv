@@ -177,6 +177,13 @@ jobs:
                 json.dump(current_versions, f, indent=2)
             log.info(f"版本文件已更新: {json.dumps(new_versions, indent=2)}")
         
+        def check_apk_exists_in_repo(target_name):
+            """检查目标仓库中APK文件是否存在"""
+            apk_path = os.path.join(GIT_DIR, APK_DIR, target_name)
+            exists = os.path.exists(apk_path)
+            log.info(f"检查APK文件存在性: {target_name} -> {'存在' if exists else '不存在'}")
+            return exists
+        
         def extract_version_from_filename(filename):
             """从文件名智能提取版本号"""
             if not filename:
@@ -239,7 +246,12 @@ jobs:
             return False
         
         def should_download_apk(target_name, msg_date, new_version, current_versions):
-            """判断是否需要下载APK"""
+            """判断是否需要下载APK - 增强版本检测逻辑"""
+            # 首先检查目标仓库中APK文件是否存在
+            if not check_apk_exists_in_repo(target_name):
+                log.info(f"{target_name} 在目标仓库中不存在，需要下载")
+                return True
+            
             # 如果本地没有该APK的记录，需要下载
             if target_name not in current_versions or not current_versions[target_name]:
                 log.info(f"{target_name} 在版本文件中无记录，需要下载")
