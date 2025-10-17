@@ -1,8 +1,8 @@
 name: YouTube APK Sync from Source Repository
 
 on:
-  ##schedule:
-    ##- cron: '0 */6 * * *'  # 每6小时运行一次
+  schedule:
+    - cron: '0 */6 * * *'  # 每6小时运行一次
   workflow_dispatch:
 
 # 添加并发控制
