@@ -1,13 +1,13 @@
 # 应用版本列表
 
-最后更新: 2025-10-24 13:14:44 (北京时间)
+最后更新: 2025-10-24 14:21:08 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
-| <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 53.20 | v1.2.5.879 | 2025-10-23 |
-| <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 44.77 | v1.2.5.879 | 2025-10-23 |
+| <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 53.34 | v1.2.5.880 | 2025-10-24 |
+| <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 44.89 | v1.2.5.880 | 2025-10-24 |
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.09 | v3.7.0 | 2025-10-21 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 33.16 | v2.0.0.185 | 2025-10-21 |
 | <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 39.48 | v1.0.1270 | 2025-10-20 |
