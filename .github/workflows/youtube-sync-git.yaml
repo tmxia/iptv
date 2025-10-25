@@ -178,24 +178,29 @@ jobs:
         
         echo "提取的YouTube版本: $YOUTUBE_VERSION"
         echo "提取的YouTube Music版本: $YOUTUBE_MUSIC_VERSION"
+        echo "源仓库发布日期: $RELEASE_DATE"
         
-        # 检查是否需要更新
+        # 检查是否需要更新 - 同时比较版本号和发布日期
         need_update=false
         
-        # 检查YouTube版本和文件
-        if [ "$YOUTUBE_VERSION" != "$CURRENT_YOUTUBE_VERSION" ] || [ ! -f "$YOUTUBE_TARGET_PATH" ]; then
-          echo "YouTube需要更新: 版本不匹配或文件不存在"
+        # 检查YouTube版本、日期和文件
+        if [ "$YOUTUBE_VERSION" != "$CURRENT_YOUTUBE_VERSION" ] || [ "$RELEASE_DATE" != "$CURRENT_YOUTUBE_DATE" ] || [ ! -f "$YOUTUBE_TARGET_PATH" ]; then
+          echo "YouTube需要更新: 版本不匹配或发布日期不匹配或文件不存在"
           need_update=true
+        else
+          echo "YouTube已是最新: 版本 $YOUTUBE_VERSION, 日期 $RELEASE_DATE"
         fi
         
-        # 检查YouTube Music版本和文件
-        if [ "$YOUTUBE_MUSIC_VERSION" != "$CURRENT_YOUTUBE_MUSIC_VERSION" ] || [ ! -f "$YOUTUBE_MUSIC_TARGET_PATH" ]; then
-          echo "YouTube Music需要更新: 版本不匹配或文件不存在"
+        # 检查YouTube Music版本、日期和文件
+        if [ "$YOUTUBE_MUSIC_VERSION" != "$CURRENT_YOUTUBE_MUSIC_VERSION" ] || [ "$RELEASE_DATE" != "$CURRENT_YOUTUBE_MUSIC_DATE" ] || [ ! -f "$YOUTUBE_MUSIC_TARGET_PATH" ]; then
+          echo "YouTube Music需要更新: 版本不匹配或发布日期不匹配或文件不存在"
           need_update=true
+        else
+          echo "YouTube Music已是最新: 版本 $YOUTUBE_MUSIC_VERSION, 日期 $RELEASE_DATE"
         fi
         
         if [ "$need_update" = false ]; then
-          echo "版本相同且文件存在，无需更新"
+          echo "版本和发布日期均相同且文件存在，无需更新"
           exit 0
         fi
         
