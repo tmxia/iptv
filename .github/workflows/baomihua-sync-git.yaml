@@ -1,8 +1,8 @@
 name: BaoMiHua APK Download and Sync
 
 on:
-  schedule:
-    - cron: '0 */12 * * *'  # 每12小时运行一次
+  #schedule:
+    #- cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:
 
 # 使用原生并发控制
