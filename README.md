@@ -1,12 +1,13 @@
 # 应用版本列表
 
-最后更新: 2025-10-27 10:01:07 (北京时间)
+最后更新: 2025-10-27 10:05:51 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.09 | v3.7.1 | 2025-10-27 |
+| <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 47.01 | v12.1.1 | 2025-10-26 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.11 | v2.0.0.186 | 2025-10-26 |
 | <div>youtube-music.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube-music.apk)</small></div> | 61.18 | v8.10.52 | 2025-10-25 |
 | <div>youtube.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube.apk)</small></div> | 83.10 | v20.14.43 | 2025-10-25 |
@@ -18,7 +19,6 @@
 | <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 49.78 | v3.2.2 | 2025-10-24 |
 | <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 39.48 | v1.0.1270 | 2025-10-20 |
 | <div>plus_mod.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_mod.apk)</small></div> | 64.75 | v12.1.1.0 | 2025-10-18 |
-| <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 47.00 | v12.1.1 | 2025-10-16 |
 | <div>yykm_tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/yykm_tv.apk)</small></div> | 78.50 | v3.6.5-1 | 2025-10-15 |
 | <div>bv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk)</small></div> | 16.50 | v0.3.0 | 2025-10-08 |
 | <div>nagramx.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk)</small></div> | 48.40 | v12.0.1.1220 | 2025-10-05 |
