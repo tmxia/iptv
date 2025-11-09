@@ -179,42 +179,73 @@ jobs:
         echo "电视版版本: $STABLE_VERSION, 日期: $STABLE_COMMIT_DATE"
         echo "手机版版本: $PRE_RELEASE_VERSION, 日期: $PRE_RELEASE_COMMIT_DATE"
         
-        # 4. 对比更新逻辑 - 只对比版本号，不对比日期
+        # 4. 对比更新逻辑 - 智能版本比较
         CURRENT_STABLE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$STABLE_TARGET_NAME\"" 2>/dev/null || echo "")
         CURRENT_PRE=$(echo "$CURRENT_VERSION_DATA" | jq -r ".\"$PRE_RELEASE_TARGET_NAME\"" 2>/dev/null || echo "")
-        
+
         NEW_STABLE_VALUE="$STABLE_VERSION,$STABLE_COMMIT_DATE"
         NEW_PRE_VALUE="$PRE_RELEASE_VERSION,$PRE_RELEASE_COMMIT_DATE"
-        
+
         # 提取版本号部分用于比较（逗号前的内容）
         CURRENT_STABLE_VERSION=$(echo "$CURRENT_STABLE" | cut -d, -f1)
         CURRENT_PRE_VERSION=$(echo "$CURRENT_PRE" | cut -d, -f1)
-        
+
         echo "当前电视版版本号: '$CURRENT_STABLE_VERSION'"
         echo "新电视版版本号: '$STABLE_VERSION'"
         echo "当前手机版版本号: '$CURRENT_PRE_VERSION'"
         echo "新手机版版本号: '$PRE_RELEASE_VERSION'"
-        
-        # 电视版更新检测 - 只对比版本号
+
+        # 版本号比较函数 - 只允许升级，不允许降级
+        compare_versions() {
+            local current="$1"
+            local new="$2"
+            
+            # 如果当前版本为空或unknown，允许更新
+            if [ -z "$current" ] || [ "$current" = "unknown" ]; then
+                return 0  # 需要更新
+            fi
+            
+            # 移除版本号中的 'v' 前缀以便比较
+            current_clean=$(echo "$current" | sed 's/^v//')
+            new_clean=$(echo "$new" | sed 's/^v//')
+            
+            # 使用 sort 进行版本比较
+            higher_version=$(echo -e "$current_clean\n$new_clean" | sort -V -r | head -n1)
+            
+            if [ "$new_clean" = "$higher_version" ] && [ "$new_clean" != "$current_clean" ]; then
+                return 0  # 新版本更高，需要更新
+            else
+                return 1  # 新版本相同或更低，不需要更新
+            fi
+        }
+
+        NEED_UPDATE_STABLE=0
+        NEED_UPDATE_PRE=0
+
+        # 电视版更新检测 - 智能版本比较
         if [ "$STABLE_EXISTS" -eq 0 ]; then
-          echo "电视版目标文件不存在，需要更新"
-          NEED_UPDATE_STABLE=1
-        elif [ "$CURRENT_STABLE_VERSION" != "$STABLE_VERSION" ]; then
-          echo "电视版版本变化：'$CURRENT_STABLE_VERSION' -> '$STABLE_VERSION'，需要更新"
-          NEED_UPDATE_STABLE=1
+            echo "电视版目标文件不存在，需要更新"
+            NEED_UPDATE_STABLE=1
         else
-          echo "电视版版本无变化，跳过更新"
+            if compare_versions "$CURRENT_STABLE_VERSION" "$STABLE_VERSION"; then
+                echo "电视版版本升级：'$CURRENT_STABLE_VERSION' -> '$STABLE_VERSION'，需要更新"
+                NEED_UPDATE_STABLE=1
+            else
+                echo "电视版版本相同或降级：'$CURRENT_STABLE_VERSION' -> '$STABLE_VERSION'，跳过更新"
+            fi
         fi
-        
-        # 手机版更新检测 - 只对比版本号
+
+        # 手机版更新检测 - 智能版本比较
         if [ "$PRE_RELEASE_EXISTS" -eq 0 ]; then
-          echo "手机版目标文件不存在，需要更新"
-          NEED_UPDATE_PRE=1
-        elif [ "$CURRENT_PRE_VERSION" != "$PRE_RELEASE_VERSION" ]; then
-          echo "手机版版本变化：'$CURRENT_PRE_VERSION' -> '$PRE_RELEASE_VERSION'，需要更新"
-          NEED_UPDATE_PRE=1
+            echo "手机版目标文件不存在，需要更新"
+            NEED_UPDATE_PRE=1
         else
-          echo "手机版版本无变化，跳过更新"
+            if compare_versions "$CURRENT_PRE_VERSION" "$PRE_RELEASE_VERSION"; then
+                echo "手机版版本升级：'$CURRENT_PRE_VERSION' -> '$PRE_RELEASE_VERSION'，需要更新"
+                NEED_UPDATE_PRE=1
+            else
+                echo "手机版版本相同或降级：'$CURRENT_PRE_VERSION' -> '$PRE_RELEASE_VERSION'，跳过更新"
+            fi
         fi
         
         # 检查是否需要更新
