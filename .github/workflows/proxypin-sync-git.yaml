@@ -182,15 +182,31 @@ jobs:
         # 提交更改
         git commit -m "更新稳定版本: $STABLE_VERSION (日期: $RELEASE_DATE)"
         
-        # 推送到远程仓库
+        # 推送到远程仓库 - 添加重试机制和拉取最新更改
         echo "推送到远程仓库..."
         git remote set-url origin https://x-access-token:$TOKEN@github.com/${{ github.repository }}.git
-        git push origin HEAD:${{ github.ref }}
         
-        if [ $? -eq 0 ]; then
-          echo "推送成功"
-        else
-          echo "错误: 推送失败"
+        # 推送重试机制
+        for i in {1..3}; do
+          echo "尝试 $i/3: 拉取远程最新更改..."
+          git pull origin ${{ github.ref }} --rebase || {
+            echo "拉取失败，等待10秒后重试..."
+            sleep 10
+            continue
+          }
+          
+          echo "尝试 $i/3: 推送更改..."
+          if git push origin HEAD:${{ github.ref }}; then
+            echo "推送成功!"
+            break
+          else
+            echo "推送失败，等待10秒后重试..."
+            sleep 10
+          fi
+        done
+        
+        if [ $i -eq 3 ]; then
+          echo "错误: 经过3次尝试后仍无法推送更改"
           exit 1
         fi
 
