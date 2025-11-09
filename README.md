@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-11-09 18:53:02 (北京时间)
+最后更新: 2025-11-09 18:58:41 (北京时间)
 
 ## 应用
 
@@ -23,10 +23,10 @@
 | <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 47.02 | v12.1.1 | 2025-10-31 |
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.09 | v3.7.2 | 2025-10-27 |
 | <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 39.48 | v1.0.1270 | 2025-10-20 |
+| <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 13.71 | v1.2.2 | 2025-10-18 |
+| <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 14.05 | v1.2.2 | 2025-10-18 |
 | <div>yykm_tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/yykm_tv.apk)</small></div> | 78.50 | v3.6.5-1 | 2025-10-15 |
 | <div>nagramx.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk)</small></div> | 48.40 | v12.0.1.1220 | 2025-10-05 |
-| <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 13.67 | v1.2.1 | 2025-09-11 |
-| <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 14.00 | v1.2.1 | 2025-09-11 |
 | <div>tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv.apk)</small></div> | 18.03 | v3.3.10 | 2025-09-05 |
 | <div>mytv-tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv.apk)</small></div> | 13.44 | v1.3.0.172 | 2025-08-04 |
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 16.39 | v1.219.1 | 2025-08-01 |
