@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-11-13 00:19:27 (北京时间)
+最后更新: 2025-11-13 00:28:38 (北京时间)
 
 ## 应用
 
@@ -10,10 +10,10 @@
 | <div>leanback-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk)</small></div> | 70.86 | v3.7.5 | 2025-11-12 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 53.29 | v1.2.6.894 | 2025-11-12 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 45.91 | v1.2.6.894 | 2025-11-12 |
+| <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 47.70 | v3.3.5 | 2025-11-12 |
+| <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 49.57 | v3.3.5 | 2025-11-12 |
 | <div>youtube-music.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube-music.apk)</small></div> | 61.22 | v8.10.52 | 2025-11-11 |
 | <div>youtube.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube.apk)</small></div> | 83.07 | v20.14.43 | 2025-11-11 |
-| <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 47.70 | v3.3.3 | 2025-11-11 |
-| <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 49.56 | v3.3.3 | 2025-11-11 |
 | <div>plus_modz.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_modz.apk)</small></div> | 43.22 | v12.1.1.1 | 2025-11-09 |
 | <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 47.03 | v12.1.1 | 2025-11-09 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 35.00 | v2.0.0.190 | 2025-11-06 |
