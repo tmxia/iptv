@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-11-18 20:24:55 (北京时间)
+最后更新: 2025-11-18 20:29:47 (北京时间)
 
 ## 应用
 
@@ -8,6 +8,7 @@
 |----------|------------|--------|----------|
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 53.31 | v1.2.7.1001 | 2025-11-18 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 44.88 | v1.2.7.1001 | 2025-11-18 |
+| <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 0 | v202511181226 | 2025-11-18 |
 | <div>mobile-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk)</small></div> | 83.60 | v3.7.6 | 2025-11-17 |
 | <div>leanback-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk)</small></div> | 70.87 | v3.7.6 | 2025-11-17 |
 | <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 47.72 | v3.3.6 | 2025-11-17 |
@@ -29,7 +30,6 @@
 | <div>yykm_tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/yykm_tv.apk)</small></div> | 78.50 | v3.6.5-1 | 2025-10-15 |
 | <div>tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv.apk)</small></div> | 18.03 | v3.3.10 | 2025-09-05 |
 | <div>mytv-tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv.apk)</small></div> | 13.44 | v1.3.0.172 | 2025-08-04 |
-| <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 16.39 | v1.219.1 | 2025-08-01 |
 | <div>simple_live-tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live-tv.apk)</small></div> | 13.45 | v1.3.5 | 2025-05-27 |
 | <div>simple_live.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/simple_live.apk)</small></div> | 17.46 | v1.8.6 | 2025-05-27 |
 | <div>termux-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/termux-beta.apk)</small></div> | 34.08 | v0.119.0 | 2025-05-22 |
