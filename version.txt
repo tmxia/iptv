@@ -1,6 +1,6 @@
 {
   "mytv-tv.apk": "v1.3.0.172,2025-08-04",
-  "mytv-tv-beta.apk": "v2.0.0.191,2025-11-16",
+  "mytv-tv-beta.apk": "v2.0.0.192,2025-11-21",
   "leanback.apk": "v3.3.7,2025-11-18",
   "mobile.apk": "v3.3.7,2025-11-18",
   "simple_live.apk": "v1.8.6,2025-05-27",
