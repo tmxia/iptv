@@ -144,17 +144,34 @@ jobs:
             # 7. 查找最终的APK下载链接
             echo "正在查找最终的APK下载链接..."
             
-            # 方法1: 查找标准的download.php链接
-            DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -oP 'href="(/wp-content/themes/APKMirror/download\.php\?id=\d+)"' | head -1 | cut -d'"' -f2)
+            # 方法1: 查找包含download.php的链接（新的格式）
+            DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -oP 'href="(/wp-content/themes/APKMirror/download\.php\?id=[^"]*)"' | head -1 | cut -d'"' -f2)
             
-            # 方法2: 如果方法1失败，尝试其他下载链接模式
+            # 方法2: 如果方法1失败，尝试匹配id为download-link的链接
             if [ -z "$DOWNLOAD_REL_PATH" ]; then
-              DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -i 'download' | grep -oP 'href="(https?://[^"]*\.apk(\?[^"]*)?)"' | head -1 | cut -d'"' -f2)
+              DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -oP '<a [^>]*id="download-link"[^>]*href="([^"]*)"' | head -1 | sed -n 's/.*href="\([^"]*\)".*/\1/p')
             fi
             
-            # 方法3: 查找任何可能包含.apk的链接
+            # 方法3: 如果方法2失败，查找包含download.php的任何链接
             if [ -z "$DOWNLOAD_REL_PATH" ]; then
-              DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -oP 'href="(https?://[^"]*\.apk)"' | head -1 | cut -d'"' -f2)
+              DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -oP 'href="[^"]*download\.php[^"]*"' | head -1 | cut -d'"' -f2)
+            fi
+            
+            # 方法4: 查找任何可能包含.apk的链接
+            if [ -z "$DOWNLOAD_REL_PATH" ]; then
+              DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -oP 'href="(https?://[^"]*\.apk(\?[^"]*)?)"' | head -1 | cut -d'"' -f2)
+            fi
+            
+            # 方法5: 查找任何可能包含.apk的链接（不带https前缀的）
+            if [ -z "$DOWNLOAD_REL_PATH" ]; then
+              DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -oP 'href="([^"]*\.apk)"' | head -1 | cut -d'"' -f2)
+            fi
+            
+            # 添加调试信息
+            if [ -z "$DOWNLOAD_REL_PATH" ]; then
+                echo "调试信息 - 页面内容中匹配到的链接："
+                echo "$VARIANT_PAGE_HTML" | grep -o 'href="[^"]*"' | head -20
+                echo "=========="
             fi
             
             if [ -n "$DOWNLOAD_REL_PATH" ]; then
