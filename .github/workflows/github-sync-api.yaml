@@ -32,7 +32,7 @@ jobs:
         VERSION_KEY: "github.zip"
         # 首选渠道
         APKMIRROR_BASE_URL: "https://www.apkmirror.com"
-        APKMIRROR_GITHUB_PAGE: "https://www.apkmirror.com/apk/github/"
+        APKMIRROR_GITHUB_PAGE: "https://www.apkmirror.com/apk/github/github-2/"
         # 备用渠道
         APKPURE_URL: "https://d.apkpure.net/b/XAPK/com.github.android?version=latest"
       run: |
@@ -48,10 +48,9 @@ jobs:
         
         echo "=== 第1步：尝试从首选渠道 (APKMirror) 下载 ==="
         
-        # 1. 获取 APKMirror 上 GitHub 应用的主页面，寻找最新版本的链接
-        # 关键修复：移除 Accept-Encoding 头，避免获取压缩数据
-        echo "正在解析 APKMirror 页面..."
-        APKMIRROR_HTML=$(curl -sL \
+        # 1. 获取 APKMirror 上 GitHub 应用的版本列表页面
+        echo "正在解析 APKMirror 版本列表页面..."
+        LIST_PAGE_HTML=$(curl -sL \
           -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
           -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
           -H "Accept-Language: en-US,en;q=0.9" \
@@ -64,24 +63,21 @@ jobs:
           -H "Cache-Control: max-age=0" \
           "$APKMIRROR_GITHUB_PAGE")
         
-        # 调试：检查获取到的页面内容前500字符
-        echo "页面内容前500字符: ${APKMIRROR_HTML:0:500}"
-        
-        # 查找指向最新版本详情页的链接 - 使用多重匹配策略
-        echo "正在查找版本页面链接..."
-        VERSION_PAGE_REL_PATH=$(echo "$APKMIRROR_HTML" | grep -oP 'href="(/apk/github/[^"]*)"' | grep -i github | head -1 | cut -d'"' -f2)
-        if [ -z "$VERSION_PAGE_REL_PATH" ]; then
-            # 备用匹配模式
-            VERSION_PAGE_REL_PATH=$(echo "$APKMIRROR_HTML" | grep -oP 'href="(.*?github.*?release.*?)"' | head -1 | cut -d'"' -f2)
-        fi
-        
-        echo "找到的版本页面相对路径: $VERSION_PAGE_REL_PATH"
+        # 2. 查找最新的版本详情页链接 (匹配类似 /apk/github/github-2/github-1-238-1-release/)
+        echo "正在查找最新版本详情页链接..."
+        VERSION_PAGE_REL_PATH=$(echo "$LIST_PAGE_HTML" | grep -oP 'href="(/apk/github/github-2/github-\d+-\d+-\d+-[^"/]*/)"' | head -1 | cut -d'"' -f2)
         
         if [ -n "$VERSION_PAGE_REL_PATH" ]; then
           VERSION_PAGE_URL="${APKMIRROR_BASE_URL}${VERSION_PAGE_REL_PATH}"
           echo "发现版本详情页: $VERSION_PAGE_URL"
           
-          # 2. 获取版本详情页内容
+          # 3. 从详情页URL中提取版本号
+          if [[ "$VERSION_PAGE_REL_PATH" =~ github-(\d+)-(\d+)-(\d+) ]]; then
+            VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+            echo "从URL解析的版本号: $VERSION"
+          fi
+          
+          # 4. 获取版本详情页内容
           VERSION_PAGE_HTML=$(curl -sL \
             -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
             -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
@@ -90,62 +86,71 @@ jobs:
             -H "Upgrade-Insecure-Requests: 1" \
             -H "Sec-Fetch-Dest: document" \
             -H "Sec-Fetch-Mode: navigate" \
-            -H "Sec-Fetch-Site: none" \
-            -H "Sec-Fetch-User: ?1" \
+            -H "Sec-Fetch-Site: same-origin" \
             -H "Cache-Control: max-age=0" \
             "$VERSION_PAGE_URL")
           
-          # 调试：检查详情页内容
-          echo "详情页内容前300字符: ${VERSION_PAGE_HTML:0:300}"
+          # 5. 从详情页查找变体(Variant)下载子页面链接 (匹配类似 .../github-1-238-1-android-apk-download/)
+          echo "正在查找变体(Variant)下载子页面链接..."
+          VARIANT_PAGE_REL_PATH=$(echo "$VERSION_PAGE_HTML" | grep -oP 'href="(/apk/github/github-2/github-\d+-\d+-\d+-[^"/]*-android-apk-download/)"' | head -1 | cut -d'"' -f2)
           
-          # 3. 从详情页查找下载链接 - 使用多重匹配策略
-          echo "正在查找下载链接..."
-          DOWNLOAD_REL_PATH=$(echo "$VERSION_PAGE_HTML" | grep -oP 'href="(/wp-content/themes/APKMirror/download\.php\?id=\d+)"' | head -1 | cut -d'"' -f2)
-          if [ -z "$DOWNLOAD_REL_PATH" ]; then
-              DOWNLOAD_REL_PATH=$(echo "$VERSION_PAGE_HTML" | grep -i 'download\.php' | grep -oP 'href="([^"]*)"' | head -1 | cut -d'"' -f2)
-          fi
-          
-          echo "找到的下载链接相对路径: $DOWNLOAD_REL_PATH"
-          
-          if [ -n "$DOWNLOAD_REL_PATH" ]; then
-            DOWNLOAD_URL="${APKMIRROR_BASE_URL}${DOWNLOAD_REL_PATH}"
-            echo "构建的下载链接: $DOWNLOAD_URL"
+          if [ -n "$VARIANT_PAGE_REL_PATH" ]; then
+            VARIANT_PAGE_URL="${APKMIRROR_BASE_URL}${VARIANT_PAGE_REL_PATH}"
+            echo "发现变体下载子页面: $VARIANT_PAGE_URL"
             
-            # 4. 从详情页URL中提取版本号
-            if [[ "$VERSION_PAGE_REL_PATH" =~ github-([0-9]+)-([0-9]+)-([0-9]+) ]]; then
-              VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-              echo "从APKMirror页面解析的版本号: $VERSION"
-            elif [[ "$VERSION_PAGE_REL_PATH" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-              VERSION="${BASH_REMATCH[1]}"
-              echo "从URL提取的版本号: $VERSION"
-            fi
-          fi
-          
-          # 5. 尝试下载文件
-          if [ -n "$DOWNLOAD_URL" ]; then
-            echo "正在从 APKMirror 下载 APK..."
-            if curl -L -o "$WORK_DIR/$APK_NAME" \
+            # 6. 获取变体子页面内容
+            VARIANT_PAGE_HTML=$(curl -sL \
               -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
-              "$DOWNLOAD_URL"; then
-              if [ -s "$WORK_DIR/$APK_NAME" ]; then
-                DOWNLOAD_SUCCESS=true
-                SOURCE="APKMirror"
-                APK_SIZE=$(stat -c%s "$WORK_DIR/$APK_NAME")
-                echo "✓ 成功从 APKMirror 下载 APK 文件 (大小: $((APK_SIZE/1024/1024)) MB)。"
+              -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
+              -H "Accept-Language: en-US,en;q=0.9" \
+              -H "Connection: keep-alive" \
+              -H "Upgrade-Insecure-Requests: 1" \
+              -H "Sec-Fetch-Dest: document" \
+              -H "Sec-Fetch-Mode: navigate" \
+              -H "Sec-Fetch-Site: same-origin" \
+              -H "Cache-Control: max-age=0" \
+              "$VARIANT_PAGE_URL")
+            
+            # 7. 从变体子页面查找最终的APK下载链接 (download.php)
+            echo "正在查找最终的APK下载链接..."
+            DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -oP 'href="(/wp-content/themes/APKMirror/download\.php\?id=\d+)"' | head -1 | cut -d'"' -f2)
+            
+            if [ -z "$DOWNLOAD_REL_PATH" ]; then
+              # 备用匹配：查找包含download字样的任何链接
+              DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -i 'download' | grep -oP 'href="(/[^"]*download\.php[^"]*)"' | head -1 | cut -d'"' -f2)
+            fi
+            
+            if [ -n "$DOWNLOAD_REL_PATH" ]; then
+              DOWNLOAD_URL="${APKMIRROR_BASE_URL}${DOWNLOAD_REL_PATH}"
+              echo "构建的最终下载链接: $DOWNLOAD_URL"
+              
+              # 8. 尝试下载文件
+              echo "正在从 APKMirror 下载 APK..."
+              if curl -L -o "$WORK_DIR/$APK_NAME" \
+                -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
+                "$DOWNLOAD_URL"; then
+                if [ -s "$WORK_DIR/$APK_NAME" ]; then
+                  DOWNLOAD_SUCCESS=true
+                  SOURCE="APKMirror"
+                  APK_SIZE=$(stat -c%s "$WORK_DIR/$APK_NAME")
+                  echo "✓ 成功从 APKMirror 下载 APK 文件 (大小: $((APK_SIZE/1024/1024)) MB)。"
+                else
+                  echo "下载的文件为空，尝试备用渠道。"
+                fi
               else
-                echo "下载的文件为空，尝试备用渠道。"
+                echo "APKMirror 下载失败，尝试备用渠道。"
               fi
             else
-              echo "APKMirror 下载失败，尝试备用渠道。"
+              echo "未在变体页面找到下载链接，尝试备用渠道。"
             fi
           else
-            echo "未找到下载链接，尝试备用渠道。"
+            echo "未找到变体下载子页面链接，尝试备用渠道。"
           fi
         else
           echo "无法解析APKMirror页面上的版本链接，尝试备用渠道。"
         fi
         
-        # 6. 如果 APKMirror 失败，回退到 APKPure
+        # 9. 如果 APKMirror 失败，回退到 APKPure
         if [ "$DOWNLOAD_SUCCESS" = false ]; then
           echo -e "\n=== 第2步：首选渠道失败，启用备用渠道 (APKPure) ==="
           SOURCE="APKPure"
@@ -182,14 +187,14 @@ jobs:
           exit 1
         fi
         
-        # 7. 获取当前日期（北京时间）
+        # 10. 获取当前日期（北京时间）
         CURRENT_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
         echo -e "\n=== 第3步：准备上传 ==="
         echo "来源: $SOURCE"
         echo "版本号: $VERSION"
         echo "日期: $CURRENT_DATE"
         
-        # 8. 将APK压缩为ZIP文件
+        # 11. 将APK压缩为ZIP文件
         echo "将APK文件压缩为ZIP..."
         zip -j "$WORK_DIR/$ZIP_NAME" "$WORK_DIR/$APK_NAME"
         if [ ! -f "$WORK_DIR/$ZIP_NAME" ]; then
@@ -199,7 +204,7 @@ jobs:
         ZIP_SIZE=$(stat -c%s "$WORK_DIR/$ZIP_NAME")
         echo "已创建ZIP文件: $ZIP_NAME (大小: $((ZIP_SIZE/1024/1024)) MB)"
 
-        # 9. 获取目标仓库当前版本
+        # 12. 获取目标仓库当前版本
         echo "检查目标仓库当前版本..."
         TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
@@ -234,7 +239,7 @@ jobs:
         # 创建新版本值（在版本号前添加v）
         NEW_VALUE="v$VERSION,$CURRENT_DATE"
 
-        # 10. 检查是否需要更新
+        # 13. 检查是否需要更新
         NEED_UPDATE=false
         
         # 规则1: 版本不同时需要更新
@@ -261,7 +266,7 @@ jobs:
           exit 0
         fi
 
-        # 11. 更新版本文件
+        # 14. 更新版本文件
         echo "更新版本文件..."
         NEW_VERSION_CONTENT="{}"
         if [ -n "$CURRENT_CONTENT" ]; then
@@ -310,7 +315,7 @@ jobs:
           exit 1
         fi
 
-        # 12. 上传ZIP文件
+        # 15. 上传ZIP文件
         echo "上传ZIP文件..."
         ZIP_JSON=$(curl -s -H "Authorization: token $TOKEN" \
                     "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
