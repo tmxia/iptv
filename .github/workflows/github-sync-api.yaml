@@ -48,9 +48,22 @@ jobs:
         
         echo "=== 第1步：尝试从首选渠道 (APKMirror) 下载 ==="
         
-        # 1. 获取 APKMirror 上 GitHub 应用的主页面，寻找最新版本的链接[citation:9]
+        # 1. 获取 APKMirror 上 GitHub 应用的主页面，寻找最新版本的链接
+        # 关键修复：使用完整的浏览器请求头绕过反爬
         echo "正在解析 APKMirror 页面..."
-        APKMIRROR_HTML=$(curl -sL -H "User-Agent: Mozilla/5.0" "$APKMIRROR_GITHUB_PAGE")
+        APKMIRROR_HTML=$(curl -sL \
+          -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
+          -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
+          -H "Accept-Language: en-US,en;q=0.9" \
+          -H "Accept-Encoding: gzip, deflate, br" \
+          -H "Connection: keep-alive" \
+          -H "Upgrade-Insecure-Requests: 1" \
+          -H "Sec-Fetch-Dest: document" \
+          -H "Sec-Fetch-Mode: navigate" \
+          -H "Sec-Fetch-Site: none" \
+          -H "Sec-Fetch-User: ?1" \
+          -H "Cache-Control: max-age=0" \
+          "$APKMIRROR_GITHUB_PAGE")
         
         # 查找指向最新版本详情页的链接（匹配第一个包含版本号的链接）
         VERSION_PAGE_REL_PATH=$(echo "$APKMIRROR_HTML" | grep -oP 'href="(/apk/github/github/github-[^"]*)"' | head -1 | cut -d'"' -f2)
@@ -60,26 +73,41 @@ jobs:
           echo "发现版本详情页: $VERSION_PAGE_URL"
           
           # 2. 获取版本详情页内容
-          VERSION_PAGE_HTML=$(curl -sL -H "User-Agent: Mozilla/5.0" "$VERSION_PAGE_URL")
+          # 同样使用完整的浏览器请求头
+          VERSION_PAGE_HTML=$(curl -sL \
+            -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
+            -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
+            -H "Accept-Language: en-US,en;q=0.9" \
+            -H "Accept-Encoding: gzip, deflate, br" \
+            -H "Connection: keep-alive" \
+            -H "Upgrade-Insecure-Requests: 1" \
+            -H "Sec-Fetch-Dest: document" \
+            -H "Sec-Fetch-Mode: navigate" \
+            -H "Sec-Fetch-Site: none" \
+            -H "Sec-Fetch-User: ?1" \
+            -H "Cache-Control: max-age=0" \
+            "$VERSION_PAGE_URL")
           
-          # 3. 从详情页查找下载链接（寻找 download.php 链接）[citation:9]
+          # 3. 从详情页查找下载链接（寻找 download.php 链接）
           DOWNLOAD_REL_PATH=$(echo "$VERSION_PAGE_HTML" | grep -oP 'href="(/wp-content/themes/APKMirror/download\.php\?id=\d+)"' | head -1 | cut -d'"' -f2)
           
           if [ -n "$DOWNLOAD_REL_PATH" ]; then
             DOWNLOAD_URL="${APKMIRROR_BASE_URL}${DOWNLOAD_REL_PATH}"
             echo "构建的下载链接: $DOWNLOAD_URL"
             
-            # 4. 从详情页URL中提取版本号[citation:9]
+            # 4. 从详情页URL中提取版本号
             if [[ "$VERSION_PAGE_REL_PATH" =~ github-([0-9]+)-([0-9]+)-([0-9]+) ]]; then
               VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
               echo "从APKMirror页面解析的版本号: $VERSION"
             fi
           fi
           
-          # 5. 尝试下载文件
+          # 5. 尝试下载文件（下载时同样使用浏览器请求头）
           if [ -n "$DOWNLOAD_URL" ]; then
             echo "正在从 APKMirror 下载 APK..."
-            if curl -L -o "$WORK_DIR/$APK_NAME" "$DOWNLOAD_URL"; then
+            if curl -L -o "$WORK_DIR/$APK_NAME" \
+              -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
+              "$DOWNLOAD_URL"; then
               if [ -s "$WORK_DIR/$APK_NAME" ]; then
                 DOWNLOAD_SUCCESS=true
                 SOURCE="APKMirror"
@@ -95,7 +123,7 @@ jobs:
           echo "无法解析APKMirror页面上的版本链接，尝试备用渠道。"
         fi
         
-        # 6. 如果 APKMirror 失败，回退到 APKPure[citation:7]
+        # 6. 如果 APKMirror 失败，回退到 APKPure
         if [ "$DOWNLOAD_SUCCESS" = false ]; then
           echo -e "\n=== 第2步：首选渠道失败，启用备用渠道 (APKPure) ==="
           SOURCE="APKPure"
@@ -104,11 +132,11 @@ jobs:
           curl -L -o "$WORK_DIR/original.xapk" "$APKPURE_URL"
           
           if [ ! -s "$WORK_DIR/original.xapk" ]; then
-            echo "错误: APKPure 下载也失败，请检查网络或链接有效性[citation:7]"
+            echo "错误: APKPure 下载也失败，请检查网络或链接有效性"
             exit 1
           fi
           
-          # 从响应头获取原始文件名并提取版本号[citation:7]
+          # 从响应头获取原始文件名并提取版本号
           ORIG_FILENAME=$(curl -sLI "$APKPURE_URL" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2 || echo "")
           echo "原始文件名: $ORIG_FILENAME"
           
