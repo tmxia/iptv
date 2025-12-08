@@ -63,7 +63,7 @@ jobs:
           -H "Cache-Control: max-age=0" \
           "$APKMIRROR_GITHUB_PAGE")
         
-        # 2. 查找最新的版本详情页链接 (匹配类似 /apk/github/github-2/github-1-238-1-release/)
+        # 2. 查找最新的版本详情页链接
         echo "正在查找最新版本详情页链接..."
         VERSION_PAGE_REL_PATH=$(echo "$LIST_PAGE_HTML" | grep -oP 'href="(/apk/github/github-2/github-\d+-\d+-\d+-[^"/]*/)"' | head -1 | cut -d'"' -f2)
         
@@ -78,6 +78,7 @@ jobs:
           fi
           
           # 4. 获取版本详情页内容
+          echo "获取版本详情页内容..."
           VERSION_PAGE_HTML=$(curl -sL \
             -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
             -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
@@ -90,15 +91,44 @@ jobs:
             -H "Cache-Control: max-age=0" \
             "$VERSION_PAGE_URL")
           
-          # 5. 从详情页查找变体(Variant)下载子页面链接 (匹配类似 .../github-1-238-1-android-apk-download/)
+          # 5. 改进的变体页面链接查找逻辑
           echo "正在查找变体(Variant)下载子页面链接..."
-          VARIANT_PAGE_REL_PATH=$(echo "$VERSION_PAGE_HTML" | grep -oP 'href="(/apk/github/github-2/github-\d+-\d+-\d+-[^"/]*-android-apk-download/)"' | head -1 | cut -d'"' -f2)
+          
+          # 方法1: 尝试从页面底部"All Releases"部分查找（这是最可能的位置）
+          VARIANT_PAGE_REL_PATH=$(echo "$VERSION_PAGE_HTML" | grep -oP 'href="(/apk/github/github-2/github-\d+-\d+-\d+-[^"/]*/download/)"' | head -1 | cut -d'"' -f2)
+          
+          # 方法2: 如果方法1失败，尝试更宽松的匹配
+          if [ -z "$VARIANT_PAGE_REL_PATH" ]; then
+            VARIANT_PAGE_REL_PATH=$(echo "$VERSION_PAGE_HTML" | grep -i 'download' | grep -oP 'href="(/apk/github/github-2/[^"]*download[^"]*/)"' | head -1 | cut -d'"' -f2)
+          fi
+          
+          # 方法3: 如果仍然找不到，尝试从页面中提取变体表格中的链接
+          if [ -z "$VARIANT_PAGE_REL_PATH" ]; then
+            # 查找包含变体信息的表格部分
+            VARIANT_SECTION=$(echo "$VERSION_PAGE_HTML" | grep -oP '<div[^>]*variants-table[^>]*>.*?</div>' | head -1)
+            if [ -n "$VARIANT_SECTION" ]; then
+              VARIANT_PAGE_REL_PATH=$(echo "$VARIANT_SECTION" | grep -oP 'href="([^"]*download[^"]*)"' | head -1 | cut -d'"' -f2)
+            fi
+          fi
           
           if [ -n "$VARIANT_PAGE_REL_PATH" ]; then
-            VARIANT_PAGE_URL="${APKMIRROR_BASE_URL}${VARIANT_PAGE_REL_PATH}"
+            # 确保链接是完整的
+            if [[ ! "$VARIANT_PAGE_REL_PATH" =~ ^https?:// ]]; then
+              if [[ "$VARIANT_PAGE_REL_PATH" =~ ^/ ]]; then
+                VARIANT_PAGE_URL="${APKMIRROR_BASE_URL}${VARIANT_PAGE_REL_PATH}"
+              else
+                # 相对路径，需要基于当前页面构建
+                BASE_PATH=$(dirname "$VERSION_PAGE_URL")
+                VARIANT_PAGE_URL="${BASE_PATH}/${VARIANT_PAGE_REL_PATH}"
+              fi
+            else
+              VARIANT_PAGE_URL="$VARIANT_PAGE_REL_PATH"
+            fi
+            
             echo "发现变体下载子页面: $VARIANT_PAGE_URL"
             
             # 6. 获取变体子页面内容
+            echo "获取变体子页面内容..."
             VARIANT_PAGE_HTML=$(curl -sL \
               -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
               -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
@@ -111,17 +141,29 @@ jobs:
               -H "Cache-Control: max-age=0" \
               "$VARIANT_PAGE_URL")
             
-            # 7. 从变体子页面查找最终的APK下载链接 (download.php)
+            # 7. 查找最终的APK下载链接
             echo "正在查找最终的APK下载链接..."
+            
+            # 方法1: 查找标准的download.php链接
             DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -oP 'href="(/wp-content/themes/APKMirror/download\.php\?id=\d+)"' | head -1 | cut -d'"' -f2)
             
+            # 方法2: 如果方法1失败，尝试其他下载链接模式
             if [ -z "$DOWNLOAD_REL_PATH" ]; then
-              # 备用匹配：查找包含download字样的任何链接
-              DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -i 'download' | grep -oP 'href="(/[^"]*download\.php[^"]*)"' | head -1 | cut -d'"' -f2)
+              DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -i 'download' | grep -oP 'href="(https?://[^"]*\.apk(\?[^"]*)?)"' | head -1 | cut -d'"' -f2)
+            fi
+            
+            # 方法3: 查找任何可能包含.apk的链接
+            if [ -z "$DOWNLOAD_REL_PATH" ]; then
+              DOWNLOAD_REL_PATH=$(echo "$VARIANT_PAGE_HTML" | grep -oP 'href="(https?://[^"]*\.apk)"' | head -1 | cut -d'"' -f2)
             fi
             
             if [ -n "$DOWNLOAD_REL_PATH" ]; then
-              DOWNLOAD_URL="${APKMIRROR_BASE_URL}${DOWNLOAD_REL_PATH}"
+              if [[ ! "$DOWNLOAD_REL_PATH" =~ ^https?:// ]]; then
+                DOWNLOAD_URL="${APKMIRROR_BASE_URL}${DOWNLOAD_REL_PATH}"
+              else
+                DOWNLOAD_URL="$DOWNLOAD_REL_PATH"
+              fi
+              
               echo "构建的最终下载链接: $DOWNLOAD_URL"
               
               # 8. 尝试下载文件
@@ -134,6 +176,15 @@ jobs:
                   SOURCE="APKMirror"
                   APK_SIZE=$(stat -c%s "$WORK_DIR/$APK_NAME")
                   echo "✓ 成功从 APKMirror 下载 APK 文件 (大小: $((APK_SIZE/1024/1024)) MB)。"
+                  
+                  # 验证文件类型
+                  FILE_TYPE=$(file -b --mime-type "$WORK_DIR/$APK_NAME")
+                  echo "文件类型: $FILE_TYPE"
+                  
+                  if [[ "$FILE_TYPE" != "application/vnd.android.package-archive" ]] && [[ "$FILE_TYPE" != "application/zip" ]]; then
+                    echo "警告: 下载的文件可能不是有效的APK文件，尝试备用渠道。"
+                    DOWNLOAD_SUCCESS=false
+                  fi
                 else
                   echo "下载的文件为空，尝试备用渠道。"
                 fi
@@ -141,10 +192,14 @@ jobs:
                 echo "APKMirror 下载失败，尝试备用渠道。"
               fi
             else
-              echo "未在变体页面找到下载链接，尝试备用渠道。"
+              echo "未找到最终的APK下载链接，尝试备用渠道。"
             fi
           else
             echo "未找到变体下载子页面链接，尝试备用渠道。"
+            
+            # 调试：输出页面片段帮助诊断
+            echo "页面内容片段（包含download关键词）:"
+            echo "$VERSION_PAGE_HTML" | grep -i 'download' | head -5
           fi
         else
           echo "无法解析APKMirror页面上的版本链接，尝试备用渠道。"
