@@ -51,9 +51,10 @@ jobs:
         # 1. 获取 APKMirror 上 GitHub 应用的版本列表页面
         echo "正在解析 APKMirror 版本列表页面..."
         LIST_PAGE_HTML=$(curl -sL \
-          -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
+          -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
           -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
           -H "Accept-Language: en-US,en;q=0.9" \
+          -H "Accept-Encoding: gzip, deflate, br" \
           -H "Connection: keep-alive" \
           -H "Upgrade-Insecure-Requests: 1" \
           -H "Sec-Fetch-Dest: document" \
@@ -80,9 +81,10 @@ jobs:
           # 4. 获取版本详情页内容
           echo "获取版本详情页内容..."
           VERSION_PAGE_HTML=$(curl -sL \
-            -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
             -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
             -H "Accept-Language: en-US,en;q=0.9" \
+            -H "Accept-Encoding: gzip, deflate, br" \
             -H "Connection: keep-alive" \
             -H "Upgrade-Insecure-Requests: 1" \
             -H "Sec-Fetch-Dest: document" \
@@ -127,55 +129,76 @@ jobs:
             
             echo "发现变体下载子页面: $VARIANT_PAGE_URL"
             
-            # 6. 获取变体子页面内容
+            # 6. 获取变体子页面内容 - 使用更完整的请求头
             echo "获取变体子页面内容..."
             VARIANT_PAGE_HTML=$(curl -sL \
-              -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
+              -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
               -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
               -H "Accept-Language: en-US,en;q=0.9" \
+              -H "Accept-Encoding: gzip, deflate, br" \
               -H "Connection: keep-alive" \
               -H "Upgrade-Insecure-Requests: 1" \
               -H "Sec-Fetch-Dest: document" \
               -H "Sec-Fetch-Mode: navigate" \
               -H "Sec-Fetch-Site: same-origin" \
               -H "Cache-Control: max-age=0" \
+              -H "Referer: $VERSION_PAGE_URL" \
               "$VARIANT_PAGE_URL")
             
-            # 将页面内容保存到临时文件，避免管道问题
-            VARIANT_PAGE_FILE="$WORK_DIR/variant_page.html"
-            echo "$VARIANT_PAGE_HTML" > "$VARIANT_PAGE_FILE"
+            # 保存页面内容到文件以便分析
+            echo "$VARIANT_PAGE_HTML" > "$WORK_DIR/variant_page.html"
+            echo "页面内容已保存到: $WORK_DIR/variant_page.html"
             
-            # 7. 查找最终的APK下载链接
+            # 7. 尝试多种方法查找下载链接
             echo "正在查找最终的APK下载链接..."
             
-            # 方法1: 查找包含download.php的链接（新的格式）- 修复正则表达式
-            DOWNLOAD_REL_PATH=$(grep -oP 'href="(/wp-content/themes/APKMirror/download\.php\?id=\d+&key=[^"]+)"' "$VARIANT_PAGE_FILE" | head -1 | cut -d'"' -f2)
+            # 方法1: 查找包含download.php的链接（完整格式）
+            DOWNLOAD_REL_PATH=$(grep -oP 'href="(/wp-content/themes/APKMirror/download\.php\?id=\d+&key=[a-f0-9]+)"' "$WORK_DIR/variant_page.html" | head -1 | cut -d'"' -f2)
             
-            # 方法2: 如果方法1失败，尝试匹配id为download-link的链接
+            # 方法2: 如果方法1失败，尝试查找JavaScript中的下载链接
             if [ -z "$DOWNLOAD_REL_PATH" ]; then
-              DOWNLOAD_REL_PATH=$(grep -oP '<a [^>]*id="download-link"[^>]*href="([^"]+)"' "$VARIANT_PAGE_FILE" | head -1 | sed -n 's/.*href="\([^"]*\)".*/\1/p')
+              DOWNLOAD_REL_PATH=$(grep -oP 'download\.php\?id=\d+&key=[a-f0-9]+' "$WORK_DIR/variant_page.html" | head -1)
+              if [ -n "$DOWNLOAD_REL_PATH" ]; then
+                DOWNLOAD_REL_PATH="/wp-content/themes/APKMirror/$DOWNLOAD_REL_PATH"
+              fi
             fi
             
-            # 方法3: 如果方法2失败，查找包含download.php的任何链接
+            # 方法3: 查找id="download-link"的链接
             if [ -z "$DOWNLOAD_REL_PATH" ]; then
-              DOWNLOAD_REL_PATH=$(grep -oP 'href="[^"]*download\.php[^"]*"' "$VARIANT_PAGE_FILE" | head -1 | cut -d'"' -f2)
+              DOWNLOAD_REL_PATH=$(grep -A5 -B5 'id="download-link"' "$WORK_DIR/variant_page.html" | grep -oP 'href="[^"]+"' | head -1 | cut -d'"' -f2)
             fi
             
-            # 方法4: 查找任何可能包含.apk的链接
+            # 方法4: 查找任何包含download.php的链接
             if [ -z "$DOWNLOAD_REL_PATH" ]; then
-              DOWNLOAD_REL_PATH=$(grep -oP 'href="(https?://[^"]*\.apk(\?[^"]*)?)"' "$VARIANT_PAGE_FILE" | head -1 | cut -d'"' -f2)
+              DOWNLOAD_REL_PATH=$(grep -oP 'href="[^"]*download\.php[^"]*"' "$WORK_DIR/variant_page.html" | head -1 | cut -d'"' -f2)
             fi
             
-            # 方法5: 查找任何可能包含.apk的链接（不带https前缀的）
+            # 方法5: 尝试从JavaScript代码中提取id和key
             if [ -z "$DOWNLOAD_REL_PATH" ]; then
-              DOWNLOAD_REL_PATH=$(grep -oP 'href="([^"]*\.apk)"' "$VARIANT_PAGE_FILE" | head -1 | cut -d'"' -f2)
+              # 查找可能的id值
+              PAGE_ID=$(grep -oP 'download\.php\?id=\K\d+' "$WORK_DIR/variant_page.html" | head -1)
+              # 查找可能的key值
+              PAGE_KEY=$(grep -oP 'download\.php\?id=\d+&key=\K[a-f0-9]+' "$WORK_DIR/variant_page.html" | head -1)
+              
+              if [ -n "$PAGE_ID" ] && [ -n "$PAGE_KEY" ]; then
+                DOWNLOAD_REL_PATH="/wp-content/themes/APKMirror/download.php?id=$PAGE_ID&key=$PAGE_KEY"
+                echo "从页面中提取的id: $PAGE_ID, key: $PAGE_KEY"
+              fi
             fi
             
-            # 添加调试信息
+            # 输出调试信息
+            echo "页面内容大小: $(wc -c < "$WORK_DIR/variant_page.html") 字节"
+            echo "找到的下载链接: $DOWNLOAD_REL_PATH"
+            
+            # 如果仍然找不到，输出页面片段进行分析
             if [ -z "$DOWNLOAD_REL_PATH" ]; then
-                echo "调试信息 - 页面内容中匹配到的链接："
-                grep -o 'href="[^"]*"' "$VARIANT_PAGE_FILE" | head -20
-                echo "=========="
+              echo "调试信息 - 页面内容片段（包含download关键词）:"
+              grep -i "download" "$WORK_DIR/variant_page.html" | head -10
+              echo "=========="
+              
+              echo "调试信息 - 页面内容片段（包含.php关键词）:"
+              grep -i "\.php" "$WORK_DIR/variant_page.html" | head -10
+              echo "=========="
             fi
             
             if [ -n "$DOWNLOAD_REL_PATH" ]; then
@@ -187,10 +210,11 @@ jobs:
               
               echo "构建的最终下载链接: $DOWNLOAD_URL"
               
-              # 8. 尝试下载文件
+              # 8. 尝试下载文件 - 添加Referer头
               echo "正在从 APKMirror 下载 APK..."
               if curl -L -o "$WORK_DIR/$APK_NAME" \
-                -H "User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36" \
+                -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+                -H "Referer: $VARIANT_PAGE_URL" \
                 "$DOWNLOAD_URL"; then
                 if [ -s "$WORK_DIR/$APK_NAME" ]; then
                   DOWNLOAD_SUCCESS=true
