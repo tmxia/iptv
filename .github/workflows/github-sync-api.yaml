@@ -1,9 +1,9 @@
-name: GitHub XAPK Download and Sync
+name: GitHub APK Download and Sync
 
 on:
   schedule:
     - cron: '0 */12 * * *'  # 每12小时运行一次
-  workflow_dispatch:
+  workflow_dispatch:        # 允许手动触发
 
 permissions:
   contents: write
@@ -23,13 +23,17 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y jq curl zip unzip
         
-    - name: Download and process GitHub XAPK
+    - name: Download and process GitHub APK
       env:
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        XAPK_NAME: "github.xapk"
+        APK_NAME: "github.apk"
         ZIP_NAME: "github.zip"
         VERSION_KEY: "github.zip"
+        # 首选渠道
+        APKMIRROR_BASE_URL: "https://www.apkmirror.com"
+        APKMIRROR_GITHUB_PAGE: "https://www.apkmirror.com/apk/github/"
+        # 备用渠道
         APKPURE_URL: "https://d.apkpure.net/b/XAPK/com.github.android?version=latest"
       run: |
         # 创建临时工作目录
@@ -37,51 +41,116 @@ jobs:
         echo "创建临时目录: $WORK_DIR"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
-        # 下载XAPK文件
-        echo "正在下载GitHub XAPK文件..."
-        curl -L -o "$WORK_DIR/original.xapk" "$APKPURE_URL"
+        # 初始化变量
+        VERSION=""
+        SOURCE=""
+        DOWNLOAD_SUCCESS=false
         
-        if [ ! -f "$WORK_DIR/original.xapk" ]; then
-          echo "错误: XAPK下载失败"
+        echo "=== 第1步：尝试从首选渠道 (APKMirror) 下载 ==="
+        
+        # 1. 获取 APKMirror 上 GitHub 应用的主页面，寻找最新版本的链接[citation:9]
+        echo "正在解析 APKMirror 页面..."
+        APKMIRROR_HTML=$(curl -sL -H "User-Agent: Mozilla/5.0" "$APKMIRROR_GITHUB_PAGE")
+        
+        # 查找指向最新版本详情页的链接（匹配第一个包含版本号的链接）
+        VERSION_PAGE_REL_PATH=$(echo "$APKMIRROR_HTML" | grep -oP 'href="(/apk/github/github/github-[^"]*)"' | head -1 | cut -d'"' -f2)
+        
+        if [ -n "$VERSION_PAGE_REL_PATH" ]; then
+          VERSION_PAGE_URL="${APKMIRROR_BASE_URL}${VERSION_PAGE_REL_PATH}"
+          echo "发现版本详情页: $VERSION_PAGE_URL"
+          
+          # 2. 获取版本详情页内容
+          VERSION_PAGE_HTML=$(curl -sL -H "User-Agent: Mozilla/5.0" "$VERSION_PAGE_URL")
+          
+          # 3. 从详情页查找下载链接（寻找 download.php 链接）[citation:9]
+          DOWNLOAD_REL_PATH=$(echo "$VERSION_PAGE_HTML" | grep -oP 'href="(/wp-content/themes/APKMirror/download\.php\?id=\d+)"' | head -1 | cut -d'"' -f2)
+          
+          if [ -n "$DOWNLOAD_REL_PATH" ]; then
+            DOWNLOAD_URL="${APKMIRROR_BASE_URL}${DOWNLOAD_REL_PATH}"
+            echo "构建的下载链接: $DOWNLOAD_URL"
+            
+            # 4. 从详情页URL中提取版本号[citation:9]
+            if [[ "$VERSION_PAGE_REL_PATH" =~ github-([0-9]+)-([0-9]+)-([0-9]+) ]]; then
+              VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+              echo "从APKMirror页面解析的版本号: $VERSION"
+            fi
+          fi
+          
+          # 5. 尝试下载文件
+          if [ -n "$DOWNLOAD_URL" ]; then
+            echo "正在从 APKMirror 下载 APK..."
+            if curl -L -o "$WORK_DIR/$APK_NAME" "$DOWNLOAD_URL"; then
+              if [ -s "$WORK_DIR/$APK_NAME" ]; then
+                DOWNLOAD_SUCCESS=true
+                SOURCE="APKMirror"
+                echo "✓ 成功从 APKMirror 下载 APK 文件。"
+              else
+                echo "下载的文件为空，尝试备用渠道。"
+              fi
+            else
+              echo "APKMirror 下载失败，尝试备用渠道。"
+            fi
+          fi
+        else
+          echo "无法解析APKMirror页面上的版本链接，尝试备用渠道。"
+        fi
+        
+        # 6. 如果 APKMirror 失败，回退到 APKPure[citation:7]
+        if [ "$DOWNLOAD_SUCCESS" = false ]; then
+          echo -e "\n=== 第2步：首选渠道失败，启用备用渠道 (APKPure) ==="
+          SOURCE="APKPure"
+          
+          echo "正在从 APKPure 下载..."
+          curl -L -o "$WORK_DIR/original.xapk" "$APKPURE_URL"
+          
+          if [ ! -s "$WORK_DIR/original.xapk" ]; then
+            echo "错误: APKPure 下载也失败，请检查网络或链接有效性[citation:7]"
+            exit 1
+          fi
+          
+          # 从响应头获取原始文件名并提取版本号[citation:7]
+          ORIG_FILENAME=$(curl -sLI "$APKPURE_URL" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2 || echo "")
+          echo "原始文件名: $ORIG_FILENAME"
+          
+          if [[ "$ORIG_FILENAME" =~ _([0-9]+\.[0-9]+\.[0-9]+)_ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          elif [[ "$ORIG_FILENAME" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          else
+            VERSION=$(date +%Y%m%d%H%M)
+            echo "无法从文件名提取版本号，使用时间戳: $VERSION"
+          fi
+          
+          # 重命名文件
+          mv "$WORK_DIR/original.xapk" "$WORK_DIR/$APK_NAME"
+          echo "从 $SOURCE 获取的版本号: $VERSION"
+          DOWNLOAD_SUCCESS=true
+        fi
+        
+        if [ "$DOWNLOAD_SUCCESS" = false ]; then
+          echo "错误: 所有下载渠道均失败"
           exit 1
         fi
-
-        # 获取原始文件名
-        ORIG_FILENAME=$(curl -sLI "$APKPURE_URL" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2)
-        echo "原始文件名: $ORIG_FILENAME"
-
-        # 从文件名提取版本号
-        if [[ "$ORIG_FILENAME" =~ _([0-9]+\.[0-9]+\.[0-9]+)_ ]]; then
-          VERSION="${BASH_REMATCH[1]}"
-          echo "提取的版本号: $VERSION"
-        elif [[ "$ORIG_FILENAME" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-          VERSION="${BASH_REMATCH[1]}"
-          echo "提取的版本号（备用匹配）: $VERSION"
-        else
-          echo "警告: 无法从文件名提取版本号 ($ORIG_FILENAME)"
-          VERSION=$(date +%Y%m%d%H%M)
-          echo "使用时间戳作为版本号: $VERSION"
-        fi
         
-        # 获取当前日期（北京时间）
+        # 7. 获取当前日期（北京时间）
         CURRENT_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
-        echo "当前日期: $CURRENT_DATE"
-
-        # 重命名XAPK文件
-        mv "$WORK_DIR/original.xapk" "$WORK_DIR/$XAPK_NAME"
-        echo "已重命名为: $XAPK_NAME"
+        echo -e "\n=== 第3步：准备上传 ==="
+        echo "来源: $SOURCE"
+        echo "版本号: $VERSION"
+        echo "日期: $CURRENT_DATE"
         
-        # 将XAPK压缩为ZIP文件
-        echo "将XAPK文件压缩为ZIP..."
-        zip -j "$WORK_DIR/$ZIP_NAME" "$WORK_DIR/$XAPK_NAME"
+        # 8. 将APK压缩为ZIP文件
+        echo "将APK文件压缩为ZIP..."
+        zip -j "$WORK_DIR/$ZIP_NAME" "$WORK_DIR/$APK_NAME"
         if [ ! -f "$WORK_DIR/$ZIP_NAME" ]; then
           echo "错误: ZIP文件创建失败"
           exit 1
         fi
-        echo "已创建ZIP文件: $ZIP_NAME"
+        ZIP_SIZE=$(stat -c%s "$WORK_DIR/$ZIP_NAME")
+        echo "已创建ZIP文件: $ZIP_NAME (大小: $((ZIP_SIZE/1024/1024)) MB)"
 
-        # 获取目标仓库当前版本
-        echo "获取目标仓库当前版本..."
+        # 9. 获取目标仓库当前版本
+        echo "检查目标仓库当前版本..."
         TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
@@ -109,22 +178,22 @@ jobs:
         # 移除当前版本号可能存在的"v"前缀（用于比较）
         CURRENT_VERSION_NO_V=${CURRENT_VERSION#v}
         
-        echo "当前版本: $CURRENT_VERSION (日期: $CURRENT_DATE_OLD)"
-        echo "新版本: $VERSION (日期: $CURRENT_DATE)"
+        echo "当前仓库版本: $CURRENT_VERSION (日期: $CURRENT_DATE_OLD)"
+        echo "本次获取版本: $VERSION (日期: $CURRENT_DATE)"
         
         # 创建新版本值（在版本号前添加v）
         NEW_VALUE="v$VERSION,$CURRENT_DATE"
 
-        # 检查是否需要更新
+        # 10. 检查是否需要更新
         NEED_UPDATE=false
         
-        # 1. 版本不同时需要更新
+        # 规则1: 版本不同时需要更新
         if [ "$VERSION" != "$CURRENT_VERSION_NO_V" ]; then
           echo "发现新版本，需要更新"
           NEED_UPDATE=true
         else
-          # 2. 版本相同但文件不存在时需要更新
-          echo "检查ZIP文件是否存在..."
+          # 规则2: 版本相同但文件不存在时需要更新
+          echo "版本相同，检查ZIP文件是否存在..."
           ZIP_EXIST_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
               -H "Authorization: token $TOKEN" \
               "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
@@ -133,16 +202,16 @@ jobs:
             echo "ZIP文件不存在 (HTTP $ZIP_EXIST_RESPONSE)，需要上传"
             NEED_UPDATE=true
           else
-            echo "版本相同且ZIP文件存在，无需更新"
+            echo "版本相同且ZIP文件已存在，无需更新"
           fi
         fi
 
         if [ "$NEED_UPDATE" = false ]; then
-          echo "无需更新，退出"
+          echo "无需更新，退出流程"
           exit 0
         fi
 
-        # 更新版本文件
+        # 11. 更新版本文件
         echo "更新版本文件..."
         NEW_VERSION_CONTENT="{}"
         if [ -n "$CURRENT_CONTENT" ]; then
@@ -170,7 +239,7 @@ jobs:
 
         # 创建JSON请求
         JSON_VERSION=$(jq -n \
-            --arg msg "更新GitHub ZIP: v$VERSION ($CURRENT_DATE)" \
+            --arg msg "更新GitHub APK (来源: $SOURCE): v$VERSION ($CURRENT_DATE)" \
             --arg content "$VERSION_BASE64" \
             --arg sha "$SHA_VERSION" \
             '{message: $msg, content: $content, sha: $sha}')
@@ -191,7 +260,7 @@ jobs:
           exit 1
         fi
 
-        # 上传ZIP文件
+        # 12. 上传ZIP文件
         echo "上传ZIP文件..."
         ZIP_JSON=$(curl -s -H "Authorization: token $TOKEN" \
                     "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
@@ -205,7 +274,7 @@ jobs:
         JSON_FILE="$WORK_DIR/request.json"
         {
           echo '{'
-          echo "  \"message\": \"更新GitHub ZIP: v$VERSION ($CURRENT_DATE)\","
+          echo "  \"message\": \"更新GitHub APK (来源: $SOURCE): v$VERSION ($CURRENT_DATE)\","
           echo -n '  "content": "'
           base64 -w0 "$WORK_DIR/$ZIP_NAME" | tr -d '\n'
           echo '",'
@@ -228,7 +297,7 @@ jobs:
           exit 1
         fi
 
-        echo "同步完成! 新版本: v$VERSION, 日期: $CURRENT_DATE"
+        echo "同步完成! 新版本: v$VERSION, 日期: $CURRENT_DATE, 来源: $SOURCE"
 
   cleanup_self:
     name: Cleanup Self Workflow History
@@ -245,5 +314,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 0
           retain_days: 0
-          delete_workflow_pattern: "GitHub XAPK Download and Sync"
+          delete_workflow_pattern: "GitHub APK Download and Sync"
           repository: ${{ github.repository }}
