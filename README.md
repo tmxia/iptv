@@ -1,18 +1,18 @@
 # 应用版本列表
 
-最后更新: 2025-12-21 02:18:40 (北京时间)
+最后更新: 2025-12-21 02:31:26 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
+| <div>mobile-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk)</small></div> | 83.54 | v3.8.7 | 2025-12-21 |
+| <div>leanback-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk)</small></div> | 73.34 | v3.8.7 | 2025-12-21 |
 | <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 47.78 | v3.5.6 | 2025-12-21 |
 | <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 52.08 | v3.5.6 | 2025-12-21 |
 | <div>plus_mod.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_mod.apk)</small></div> | 65.30 | v12.2.10.1 | 2025-12-20 |
 | <div>youtube-music.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube-music.apk)</small></div> | 61.24 | v8.10.52 | 2025-12-19 |
 | <div>youtube.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube.apk)</small></div> | 83.12 | v20.14.43 | 2025-12-19 |
-| <div>mobile-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk)</small></div> | 83.58 | v3.8.6 | 2025-12-19 |
-| <div>leanback-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk)</small></div> | 73.34 | v3.8.6 | 2025-12-19 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 54.10 | v1.2.10.1300 | 2025-12-19 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 46.07 | v1.2.10.1300 | 2025-12-19 |
 | <div>plus_modz.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_modz.apk)</small></div> | 43.47 | v12.2.10.0 | 2025-12-17 |
