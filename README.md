@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2025-12-26 07:15:19 (北京时间)
+最后更新: 2025-12-26 08:56:03 (北京时间)
 
 ## 应用
 
@@ -18,6 +18,8 @@
 | <div>youtube-music.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube-music.apk)</small></div> | 61.24 | v8.10.52 | 2025-12-19 |
 | <div>youtube.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube.apk)</small></div> | 83.12 | v20.14.43 | 2025-12-19 |
 | <div>plus_modz.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_modz.apk)</small></div> | 43.47 | v12.2.10.0 | 2025-12-17 |
+| <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 13.79 | v1.2.3 | 2025-12-17 |
+| <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 14.17 | v1.2.3 | 2025-12-17 |
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.09 | v3.7.9 | 2025-12-11 |
 | <div>nagramx.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk)</small></div> | 47.43 | v12.2.3.1228 | 2025-12-09 |
 | <div>bv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/bv-beta.apk)</small></div> | 16.61 | v0.3.0 | 2025-12-08 |
@@ -25,8 +27,6 @@
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 16.39 | v1.219.1 | 2025-11-19 |
 | <div>24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/24.10_luci-passwall.zip)</small></div> | .90 | 25.11.1-1 | 2025-11-01 |
 | <div>19.07_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/19.07_luci-passwall.zip)</small></div> | .90 | 25.11.1-1 | 2025-11-01 |
-| <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 13.71 | v1.2.2 | 2025-10-18 |
-| <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 14.05 | v1.2.2 | 2025-10-18 |
 | <div>yykm_tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/yykm_tv.apk)</small></div> | 78.50 | v3.6.5-1 | 2025-10-15 |
 | <div>tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tv.apk)</small></div> | 18.03 | v3.3.10 | 2025-09-05 |
 | <div>mytv-tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv.apk)</small></div> | 13.44 | v1.3.0.172 | 2025-08-04 |
