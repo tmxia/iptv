@@ -126,7 +126,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           # 🔥 核心优化：使用有限深度，而非0（完整克隆）
-          # 深度50通常足够包含推送所需的最新提交历史
+          # 深度10通常足够包含推送所需的最新提交历史
           fetch-depth: 10
           # 设置为单分支克隆，进一步减少数据量
           ref: ${{ github.ref }}
@@ -154,7 +154,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           # 确保有足够的提交历史用于推送
-          git fetch --depth=100 origin ${{ github.ref_name }} || true
+          git fetch --depth=20 origin ${{ github.ref_name }} || true
 
       - name: Commit and Push All to Git Repository
         env:
