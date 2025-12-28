@@ -64,59 +64,80 @@ jobs:
       - name: Build Docker image
         run: |
           cd ysp
-          echo "正在构建 ${{ matrix.platform.target }} 平台镜像..."
+          echo "🚧 正在构建 ${{ matrix.platform.target }} 平台镜像..."
           if [ "${{ matrix.platform.govariant }}" != "" ]; then
             docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} --build-arg TARGETVARIANT=${{ matrix.platform.govariant }} .
           else
             docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} .
           fi
-          echo "构建完成。"
+          echo "✅ 构建完成。"
 
       - name: Save and checksum image
         run: |
           cd ysp
-          # 确保目标目录存在
           mkdir -p images
-          # 移动并重命名文件，保持一致性
           mv ysp-${{ matrix.platform.target }}.tar images/
-          # 计算校验和
           cd images
           sha256sum ysp-${{ matrix.platform.target }}.tar > ysp-${{ matrix.platform.target }}.tar.sha256
-          echo "文件已保存至 ysp/images/"
+          echo "📦 文件已保存至 ysp/images/"
 
-      - name: Prepare for commit and push
+      # 关键修改：每个平台构建完成后，立即上传自己的产物
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ysp-image-${{ matrix.platform.target }}
+          path: |
+            ysp/images/ysp-${{ matrix.platform.target }}.tar
+            ysp/images/ysp-${{ matrix.platform.target }}.tar.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  # 新增：独立、唯一的提交作业
+  commit-all-to-repo:
+    needs: build-and-commit # 等待所有平台构建完成
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository (Full history)
+        uses: actions/checkout@v4
+        with:
+          # 关键优化：完整克隆仅在此处执行一次
+          fetch-depth: 0
+
+      - name: Download all built images
+        uses: actions/download-artifact@v4
+        with:
+          # 下载所有构建作业上传的产物
+          path: downloaded-artifacts
+          pattern: ysp-image-*
+          merge-multiple: true
+
+      - name: Organize files to repository
         run: |
-          echo "正在获取完整的Git历史记录以便推送..."
-          # 此命令将浅克隆的仓库转换为完整克隆
-          git fetch --prune --unshallow origin
-          # 确保本地分支正确跟踪远程分支
-          git branch --set-upstream-to=origin/${{ github.ref_name }} ${{ github.ref_name }}
-          echo "历史记录获取完成。"
+          echo "🗂️ 整理所有平台的镜像文件到仓库目录..."
+          # 创建目标目录
+          mkdir -p ysp/images
+          # 复制所有 .tar 和 .sha256 文件到仓库目录
+          find downloaded-artifacts -type f \( -name "*.tar" -o -name "*.sha256" \) -exec cp {} ysp/images/ \;
+          # 列出最终文件，用于确认
+          echo "整理后的文件列表:"
+          ls -la ysp/images/
 
-      - name: Commit and Push to Git Repository
+      - name: Commit and Push All to Git Repository
         env:
-          # 使用GitHub自动提供的令牌，拥有对当前仓库的写入权限
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 配置Git提交者身份（使用GitHub Actions机器人）
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          echo "检查 ysp/images/ 目录的变动..."
-          # 检查是否有新的镜像文件生成
+          echo "🔍 检查仓库变动..."
           if git status --porcelain ysp/images/ | grep -q .; then
-            echo "检测到新的镜像文件，准备提交..."
-
-            # 添加所有变动的镜像文件
+            echo "📝 检测到文件变动，准备提交所有镜像..."
             git add ysp/images/
-
-            # 创建提交信息，[skip ci] 是防止工作流循环触发的关键
-            git commit -m "chore(ci): 自动更新 ${{ matrix.platform.target }} 平台镜像 [skip ci]"
-
-            echo "正在推送到仓库..."
-            # 推送到触发工作流的同一分支
+            # 一次性提交所有平台的文件
+            git commit -m "chore(ci): 自动更新所有多平台镜像 [skip ci]"
+            echo "📤 正在推送到仓库..."
             git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-            echo "✅ 已成功提交并推送 ${{ matrix.platform.target }} 镜像文件至仓库。"
+            echo "✅ 已成功提交并推送所有镜像文件至仓库。"
           else
-            echo "没有检测到新的文件变动，跳过提交。"
+            echo "ℹ️ 没有检测到新的文件变动，跳过提交。"
           fi
