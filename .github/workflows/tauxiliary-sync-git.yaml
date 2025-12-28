@@ -11,9 +11,9 @@ on:
 
 # 关键修复：授予工作流必要的权限
 permissions:
-  actions: write       # 允许 turnstyle 动作管理工作流运行
-  contents: write      # 允许提交和推送 APK 文件
-  id-token: write      # 用于身份验证
+  actions: write
+  contents: write
+  id-token: write
 
 jobs:
   sync:
