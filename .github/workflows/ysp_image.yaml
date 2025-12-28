@@ -70,39 +70,76 @@ jobs:
       - name: Build Docker image
         run: |
           cd ysp
+          echo "Building for platform: ${{ matrix.platform.name }}"
           if [ "${{ matrix.platform.govariant }}" != "" ]; then
             docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} --build-arg TARGETVARIANT=${{ matrix.platform.govariant }} .
           else
             docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} .
           fi
+          
+          # 检查文件是否生成
+          echo "Checking if file was created:"
+          ls -la ysp-*.tar || echo "No tar files found"
+          pwd
 
-      - name: Create images directory in ysp folder
+      - name: Create images directory and save files
         run: |
-          # 在 ysp 目录下创建 images 目录
+          # 进入ysp目录
           cd ysp
+          
+          # 显示当前目录内容
+          echo "Current directory (ysp/):"
+          ls -la
+          
+          # 创建images目录
           mkdir -p images
-
-      - name: Save image and calculate checksum
-        run: |
-          # 进入 ysp 目录
-          cd ysp
           
-          # 将镜像文件移动到 images 目录
-          mv ysp-${{ matrix.platform.target }}.tar images/ysp-${{ matrix.platform.target }}.tar
-          
-          # 计算校验和
-          cd images
-          sha256sum ysp-${{ matrix.platform.target }}.tar > ysp-${{ matrix.platform.target }}.tar.sha256
-          cd ..
+          # 检查tar文件是否存在
+          if [ -f "ysp-${{ matrix.platform.target }}.tar" ]; then
+            echo "Moving ysp-${{ matrix.platform.target }}.tar to images/"
+            mv ysp-${{ matrix.platform.target }}.tar images/
+            
+            # 进入images目录计算校验和
+            cd images
+            echo "Current directory (ysp/images/):"
+            ls -la
+            
+            sha256sum ysp-${{ matrix.platform.target }}.tar > ysp-${{ matrix.platform.target }}.tar.sha256
+            
+            # 显示生成的文件
+            echo "Generated files:"
+            ls -la ysp-${{ matrix.platform.target }}.tar*
+            echo "SHA256 checksum:"
+            cat ysp-${{ matrix.platform.target }}.tar.sha256
+          else
+            echo "ERROR: ysp-${{ matrix.platform.target }}.tar not found!"
+            # 列出所有文件以帮助调试
+            echo "All files in ysp/:"
+            ls -la
+          fi
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
           name: ysp-${{ matrix.platform.target }}
           path: ysp/images/ysp-${{ matrix.platform.target }}.tar
+          if-no-files-found: error
 
       - name: Upload SHA256 checksum artifact
         uses: actions/upload-artifact@v4
         with:
           name: ysp-${{ matrix.platform.target }}-sha256
           path: ysp/images/ysp-${{ matrix.platform.target }}.tar.sha256
+          if-no-files-found: error
+
+      - name: Verify files are accessible
+        run: |
+          echo "Verifying files in repository:"
+          find . -name "*.tar" -o -name "*.sha256" | head -20
+          
+          echo "Checking ysp/images directory:"
+          if [ -d "ysp/images" ]; then
+            ls -la ysp/images/
+          else
+            echo "ERROR: ysp/images directory does not exist!"
+          fi
