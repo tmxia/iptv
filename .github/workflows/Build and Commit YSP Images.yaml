@@ -14,7 +14,6 @@ jobs:
     steps:
       - name: Checkout repository (Shallow)
         uses: actions/checkout@v4
-        # 关键修改1：使用默认的浅克隆，极大节省初始磁盘空间
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -50,7 +49,6 @@ jobs:
     steps:
       - name: Checkout repository (Shallow)
         uses: actions/checkout@v4
-        # 关键修改2：同样使用浅克隆开始工作
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -86,7 +84,6 @@ jobs:
           sha256sum ysp-${{ matrix.platform.target }}.tar > ysp-${{ matrix.platform.target }}.tar.sha256
           echo "文件已保存至 ysp/images/"
 
-      # 关键修改3：在提交前，按需获取完整的Git历史
       - name: Prepare for commit and push
         run: |
           echo "正在获取完整的Git历史记录以便推送..."
@@ -96,7 +93,6 @@ jobs:
           git branch --set-upstream-to=origin/${{ github.ref_name }} ${{ github.ref_name }}
           echo "历史记录获取完成。"
 
-      # 关键修改4：提交并推送变更
       - name: Commit and Push to Git Repository
         env:
           # 使用GitHub自动提供的令牌，拥有对当前仓库的写入权限
