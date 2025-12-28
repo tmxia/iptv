@@ -1,0 +1,78 @@
+name: Build and test multi-platform images
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+          - linux/arm/v7
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Tidy go.mod and go.sum
+        run: |
+          cd main/ysp
+          go mod tidy
+          # 检查是否有变动，若有则输出提示（不会自动提交）
+          git diff --no-patch --exit-code go.mod go.sum || echo "Note: go.mod or go.sum has been updated by go mod tidy."
+
+      - name: Build static binary
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.platform == 'linux/amd64' && 'amd64' || matrix.platform == 'linux/arm64' && 'arm64' || 'arm' }}
+          GOARM: ${{ matrix.platform == 'linux/arm/v7' && '7' || '' }}
+        run: |
+          cd main/ysp
+          CGO_ENABLED=0 go build -o ysp-${{ matrix.platform }} .
+          ls -lh ysp-*
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./main/ysp
+          platforms: ${{ matrix.platform }}
+          outputs: type=docker,dest=${{ runner.temp }}/image-${{ matrix.platform }}.tar
+          tags: ysp:${{ matrix.platform }}
+          build-args: |
+            TARGETARCH=${{ matrix.platform == 'linux/amd64' && 'amd64' || matrix.platform == 'linux/arm64' && 'arm64' || 'arm' }}
+            TARGETVARIANT=${{ matrix.platform == 'linux/arm/v7' && 'v7' || '' }}
+
+      - name: Test Docker image
+        run: |
+          docker load --input ${{ runner.temp }}/image-${{ matrix.platform }}.tar
+          docker run --rm -d -p 9824:9824 --name ysp-test ysp:${{ matrix.platform }}
+          # 等待服务启动
+          sleep 5
+          # 测试基础端点是否正常响应
+          curl -f http://localhost:9824/ || exit 1
+          # 测试M3U列表是否可访问
+          curl -f http://localhost:9824/ysp.m3u | grep -q "#EXTM3U" || exit 1
+          docker stop ysp-test
+
+      - name: Save image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.platform }}
+          path: ${{ runner.temp }}/image-${{ matrix.platform }}.tar
+
+      - name: Copy image to project path
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/images
+          cp ${{ runner.temp }}/image-${{ matrix.platform }}.tar $GITHUB_WORKSPACE/images/
