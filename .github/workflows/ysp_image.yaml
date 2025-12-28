@@ -76,15 +76,33 @@ jobs:
             docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} .
           fi
 
-      - name: Save image
+      - name: Create images directory in ysp folder
         run: |
+          # 在 ysp 目录下创建 images 目录
           cd ysp
           mkdir -p images
-          cp ysp-${{ matrix.platform.target }}.tar images/
-          sha256sum images/ysp-${{ matrix.platform.target }}.tar > images/ysp-${{ matrix.platform.target }}.tar.sha256
 
-      - name: Upload artifact
+      - name: Save image and calculate checksum
+        run: |
+          # 进入 ysp 目录
+          cd ysp
+          
+          # 将镜像文件移动到 images 目录
+          mv ysp-${{ matrix.platform.target }}.tar images/ysp-${{ matrix.platform.target }}.tar
+          
+          # 计算校验和
+          cd images
+          sha256sum ysp-${{ matrix.platform.target }}.tar > ysp-${{ matrix.platform.target }}.tar.sha256
+          cd ..
+
+      - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
           name: ysp-${{ matrix.platform.target }}
           path: ysp/images/ysp-${{ matrix.platform.target }}.tar
+
+      - name: Upload SHA256 checksum artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ysp-${{ matrix.platform.target }}-sha256
+          path: ysp/images/ysp-${{ matrix.platform.target }}.tar.sha256
