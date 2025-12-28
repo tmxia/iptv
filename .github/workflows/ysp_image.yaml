@@ -9,7 +9,35 @@ on:
         default: 'latest'
 
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+  init-go-module:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Initialize Go module
+        run: |
+          cd ysp
+          if [ ! -f "go.mod" ]; then
+            go mod init ysp
+            go get github.com/gorilla/mux
+            go get golang.org/x/crypto
+          fi
+          go mod tidy
+
   build:
+    needs: init-go-module
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -33,30 +61,6 @@ jobs:
         with:
           go-version: '1.21'
 
-      - name: Initialize Go module
-        run: |
-          cd ysp
-          
-          # 创建go.mod
-          if [ ! -f "go.mod" ]; then
-            echo "module ysp" > go.mod
-            echo "go 1.21" >> go.mod
-            echo "" >> go.mod
-            echo "require (" >> go.mod
-            echo "    github.com/gorilla/mux v1.8.1" >> go.mod
-            echo "    golang.org/x/crypto v0.17.0" >> go.mod
-            echo "    github.com/stretchr/testify v1.8.4" >> go.mod
-            echo ")" >> go.mod
-          fi
-          
-          # 创建go.sum（如果不存在）
-          if [ ! -f "go.sum" ]; then
-            touch go.sum
-          fi
-          
-          # 下载依赖
-          go mod download 2>/dev/null || true
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -66,47 +70,21 @@ jobs:
       - name: Build Docker image
         run: |
           cd ysp
-          
-          # 构建参数
-          BUILD_ARGS=""
           if [ "${{ matrix.platform.govariant }}" != "" ]; then
-            BUILD_ARGS="--build-arg TARGETVARIANT=${{ matrix.platform.govariant }}"
+            docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} --build-arg TARGETVARIANT=${{ matrix.platform.govariant }} .
+          else
+            docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} .
           fi
-          
-          echo "正在构建 ${{ matrix.platform.name }} 镜像..."
-          
-          # 构建镜像（不使用缓存以加速）
-          docker buildx build \
-            --platform ${{ matrix.platform.name }} \
-            --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar \
-            -t ysp:${{ matrix.platform.target }} \
-            --build-arg TARGETARCH=${{ matrix.platform.goarch }} \
-            --no-cache \
-            $BUILD_ARGS \
-            .
-          
-          echo "镜像构建完成"
-          ls -lh ysp-${{ matrix.platform.target }}.tar
 
-      - name: Save images
+      - name: Save image
         run: |
           cd ysp
-          
-          # 创建images目录
           mkdir -p images
-          
-          # 复制镜像文件
           cp ysp-${{ matrix.platform.target }}.tar images/
-          
-          # 创建SHA256校验和
           sha256sum images/ysp-${{ matrix.platform.target }}.tar > images/ysp-${{ matrix.platform.target }}.tar.sha256
-          
-          echo "镜像已保存到 ysp/images/"
-          ls -lh images/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ysp-${{ matrix.platform.target }}
           path: ysp/images/ysp-${{ matrix.platform.target }}.tar
-          retention-days: 30
