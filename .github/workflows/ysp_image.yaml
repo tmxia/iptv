@@ -313,113 +313,109 @@ jobs:
         run: |
           mkdir -p release-package
           
-          # 创建版本信息文件
-          cat > release-package/README.md << "DOC_EOF"
-# YSP Server 多平台Docker镜像
-
-版本: ${{ github.event.inputs.version }}
-构建时间: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-构建ID: ${{ github.run_id }}
-提交: ${{ github.sha }}
-
-## 包含的镜像文件
-
-1. **ysp-x86_64.tar** - Linux amd64/x86_64 平台
-2. **ysp-aarch64.tar** - Linux arm64/aarch64 平台  
-3. **ysp-armv7.tar** - Linux arm/v7 平台
-
-每个镜像文件都包含对应的SHA256校验和文件。
-
-## 下载地址
-
-请访问GitHub Actions的Artifacts部分下载：
-
-1. 前往此工作流的运行页面
-2. 在"Artifacts"部分找到以下文件：
-   - ysp-x86_64-image
-   - ysp-aarch64-image  
-   - ysp-armv7-image
-
-## 使用方法
-
-### 1. 加载镜像
-\`\`\`bash
-# 加载amd64镜像
-docker load -i ysp-x86_64.tar
-\`\`\`
-
-### 2. 运行容器
-\`\`\`bash
-# 运行服务
-docker run -d \
-  -p 9824:9824 \
-  --name ysp-server \
-  ysp:x86_64
-
-# 指定主机IP
-docker run -d \
-  -p 9824:9824 \
-  -e HOST_IP=0.0.0.0 \
-  --name ysp-server \
-  ysp:x86_64
-\`\`\`
-
-### 3. 访问服务
-
-- **播放列表**: http://localhost:9824/ysp.m3u
-- **Web界面**: http://localhost:9824/
-- **单个频道**: http://localhost:9824/ysp?id=cctv1
-
-### 4. 停止服务
-\`\`\`bash
-docker stop ysp-server
-docker rm ysp-server
-\`\`\`
-
-## 频道列表
-
-包含CCTV全套频道和各省卫视，共60+个频道。
-DOC_EOF
+          # 创建README.md文件 - 使用多个echo命令避免HEREDOC问题
+          echo "# YSP Server 多平台Docker镜像" > release-package/README.md
+          echo "" >> release-package/README.md
+          echo "版本: ${{ github.event.inputs.version }}" >> release-package/README.md
+          echo "构建时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> release-package/README.md
+          echo "构建ID: ${{ github.run_id }}" >> release-package/README.md
+          echo "提交: ${{ github.sha }}" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "## 包含的镜像文件" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "1. **ysp-x86_64.tar** - Linux amd64/x86_64 平台" >> release-package/README.md
+          echo "2. **ysp-aarch64.tar** - Linux arm64/aarch64 平台" >> release-package/README.md
+          echo "3. **ysp-armv7.tar** - Linux arm/v7 平台" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "每个镜像文件都包含对应的SHA256校验和文件。" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "## 下载地址" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "请访问GitHub Actions的Artifacts部分下载：" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "1. 前往此工作流的运行页面" >> release-package/README.md
+          echo "2. 在\"Artifacts\"部分找到以下文件：" >> release-package/README.md
+          echo "   - ysp-x86_64-image" >> release-package/README.md
+          echo "   - ysp-aarch64-image" >> release-package/README.md
+          echo "   - ysp-armv7-image" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "## 使用方法" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "### 1. 加载镜像" >> release-package/README.md
+          echo "\`\`\`bash" >> release-package/README.md
+          echo "# 加载amd64镜像" >> release-package/README.md
+          echo "docker load -i ysp-x86_64.tar" >> release-package/README.md
+          echo "\`\`\`" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "### 2. 运行容器" >> release-package/README.md
+          echo "\`\`\`bash" >> release-package/README.md
+          echo "# 运行服务" >> release-package/README.md
+          echo "docker run -d \\" >> release-package/README.md
+          echo "  -p 9824:9824 \\" >> release-package/README.md
+          echo "  --name ysp-server \\" >> release-package/README.md
+          echo "  ysp:x86_64" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "# 指定主机IP" >> release-package/README.md
+          echo "docker run -d \\" >> release-package/README.md
+          echo "  -p 9824:9824 \\" >> release-package/README.md
+          echo "  -e HOST_IP=0.0.0.0 \\" >> release-package/README.md
+          echo "  --name ysp-server \\" >> release-package/README.md
+          echo "  ysp:x86_64" >> release-package/README.md
+          echo "\`\`\`" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "### 3. 访问服务" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "- **播放列表**: http://localhost:9824/ysp.m3u" >> release-package/README.md
+          echo "- **Web界面**: http://localhost:9824/" >> release-package/README.md
+          echo "- **单个频道**: http://localhost:9824/ysp?id=cctv1" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "### 4. 停止服务" >> release-package/README.md
+          echo "\`\`\`bash" >> release-package/README.md
+          echo "docker stop ysp-server" >> release-package/README.md
+          echo "docker rm ysp-server" >> release-package/README.md
+          echo "\`\`\`" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "## 频道列表" >> release-package/README.md
+          echo "" >> release-package/README.md
+          echo "包含CCTV全套频道和各省卫视，共60+个频道。" >> release-package/README.md
           
           # 创建加载脚本
-          cat > release-package/load-all.sh << "SCRIPT_EOF"
-#!/bin/bash
-# YSP Server Docker镜像批量加载脚本
-
-set -e
-
-echo "=== YSP Server 镜像加载工具 ==="
-echo ""
-
-# 检查Docker是否运行
-if ! docker info > /dev/null 2>&1; then
-  echo "错误: Docker守护进程未运行"
-  exit 1
-fi
-
-echo "开始加载镜像..."
-echo ""
-
-# 加载所有找到的tar文件
-for img in *.tar; do
-  if [ -f "$img" ]; then
-    echo "加载 $img..."
-    docker load -i "$img"
-    echo "✓ $img 加载完成"
-    echo ""
-  fi
-done
-
-echo "=== 加载完成 ==="
-echo ""
-echo "可用镜像:"
-docker images | grep "ysp" | sort
-
-echo ""
-echo "运行示例:"
-echo "  docker run -d -p 9824:9824 --name ysp-server ysp:x86_64"
-echo ""
-SCRIPT_EOF
+          echo "#!/bin/bash" > release-package/load-all.sh
+          echo "# YSP Server Docker镜像批量加载脚本" >> release-package/load-all.sh
+          echo "" >> release-package/load-all.sh
+          echo "set -e" >> release-package/load-all.sh
+          echo "" >> release-package/load-all.sh
+          echo 'echo "=== YSP Server 镜像加载工具 ==="' >> release-package/load-all.sh
+          echo 'echo ""' >> release-package/load-all.sh
+          echo "" >> release-package/load-all.sh
+          echo "# 检查Docker是否运行" >> release-package/load-all.sh
+          echo 'if ! docker info > /dev/null 2>&1; then' >> release-package/load-all.sh
+          echo '  echo "错误: Docker守护进程未运行"' >> release-package/load-all.sh
+          echo '  exit 1' >> release-package/load-all.sh
+          echo 'fi' >> release-package/load-all.sh
+          echo "" >> release-package/load-all.sh
+          echo 'echo "开始加载镜像..."' >> release-package/load-all.sh
+          echo 'echo ""' >> release-package/load-all.sh
+          echo "" >> release-package/load-all.sh
+          echo "# 加载所有找到的tar文件" >> release-package/load-all.sh
+          echo 'for img in *.tar; do' >> release-package/load-all.sh
+          echo '  if [ -f "$img" ]; then' >> release-package/load-all.sh
+          echo '    echo "加载 $img..."' >> release-package/load-all.sh
+          echo '    docker load -i "$img"' >> release-package/load-all.sh
+          echo '    echo "✓ $img 加载完成"' >> release-package/load-all.sh
+          echo '    echo ""' >> release-package/load-all.sh
+          echo '  fi' >> release-package/load-all.sh
+          echo 'done' >> release-package/load-all.sh
+          echo "" >> release-package/load-all.sh
+          echo 'echo "=== 加载完成 ==="' >> release-package/load-all.sh
+          echo 'echo ""' >> release-package/load-all.sh
+          echo 'echo "可用镜像:"' >> release-package/load-all.sh
+          echo 'docker images | grep "ysp" | sort' >> release-package/load-all.sh
+          echo "" >> release-package/load-all.sh
+          echo 'echo ""' >> release-package/load-all.sh
+          echo 'echo "运行示例:"' >> release-package/load-all.sh
+          echo 'echo "  docker run -d -p 9824:9824 --name ysp-server ysp:x86_64"' >> release-package/load-all.sh
+          echo 'echo ""' >> release-package/load-all.sh
           
           chmod +x release-package/load-all.sh
           
