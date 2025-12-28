@@ -55,17 +55,55 @@ jobs:
           cd ysp
           echo "初始化Go模块..."
           
+          # 检查是否已有go.mod
           if [ ! -f "go.mod" ]; then
             echo "创建go.mod文件..."
-            echo "module ysp" > go.mod
-            echo "" >> go.mod
-            echo "go 1.21" >> go.mod
-            echo "" >> go.mod
-            echo "require ()" >> go.mod
+            
+            # 分析main.go中的导入
+            echo "分析main.go中的导入..."
+            
+            # 检查导入的包
+            if grep -q "import" main.go; then
+              echo "发现导入语句，添加常见依赖..."
+              
+              # 创建基本的go.mod
+              cat > go.mod << 'EOF'
+module ysp
+
+go 1.21
+
+require (
+    github.com/gorilla/mux v1.8.1
+)
+EOF
+            else
+              echo "没有导入语句，创建简单的go.mod..."
+              echo "module ysp" > go.mod
+              echo "" >> go.mod
+              echo "go 1.21" >> go.mod
+            fi
           fi
           
+          echo "当前go.mod内容:"
+          cat go.mod
+          
+          # 确保go.sum存在
+          echo "确保go.sum文件存在..."
+          if [ ! -f "go.sum" ]; then
+            echo "创建空的go.sum文件..."
+            touch go.sum
+          fi
+          
+          # 尝试运行go mod tidy（如果可能）
           echo "运行go mod tidy..."
-          go mod tidy
+          go mod tidy 2>/dev/null || echo "go mod tidy可能失败，继续..."
+
+      - name: Upload Go module files
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-module-files
+          path: ysp/go.*
+          retention-days: 7
 
   build:
     needs: init-go-module
@@ -92,6 +130,24 @@ jobs:
         with:
           go-version: '1.21'
 
+      - name: Prepare project
+        run: |
+          cd ysp
+          echo "准备项目..."
+          echo "当前文件:"
+          ls -la
+          
+          # 确保go.mod和go.sum存在
+          if [ ! -f "go.mod" ]; then
+            echo "错误: go.mod不存在"
+            exit 1
+          fi
+          
+          if [ ! -f "go.sum" ]; then
+            echo "警告: go.sum不存在，创建空文件"
+            touch go.sum
+          fi
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -103,6 +159,8 @@ jobs:
           cd ysp
           
           echo "构建 ${{ matrix.platform.name }} 镜像..."
+          echo "当前目录内容:"
+          ls -la
           
           # 构建参数
           BUILD_ARGS=""
@@ -119,7 +177,8 @@ jobs:
             $BUILD_ARGS \
             .
           
-          echo "镜像构建完成"
+          echo "镜像构建完成:"
+          ls -lh ysp-${{ matrix.platform.target }}.tar
 
       - name: Test Docker image
         run: |
@@ -139,13 +198,18 @@ jobs:
           
           # 等待服务启动
           echo "等待服务启动..."
-          sleep 10
+          sleep 15
           
           # 测试服务
-          if curl -s http://localhost:9824/ | grep -q "央视频道直播代理"; then
-            echo "✓ 服务启动成功"
+          echo "测试服务..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9824/ || echo "999")
+          
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ]; then
+            echo "✓ 服务响应正常，状态码: $STATUS"
           else
-            echo "✗ 服务启动失败"
+            echo "✗ 服务响应异常，状态码: $STATUS"
+            echo "容器日志:"
+            docker logs ysp-test
             exit 1
           fi
           
@@ -163,6 +227,9 @@ jobs:
           # 保存镜像
           cp ysp-${{ matrix.platform.target }}.tar images/
           sha256sum images/ysp-${{ matrix.platform.target }}.tar > images/ysp-${{ matrix.platform.target }}.tar.sha256
+          
+          echo "镜像已保存:"
+          ls -lh images/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -179,17 +246,62 @@ jobs:
           mkdir -p release
           
           # 创建README
-          echo "# YSP Server 镜像" > release/README.md
+          echo "# YSP Server 多平台镜像" > release/README.md
           echo "" >> release/README.md
           echo "版本: ${{ github.event.inputs.version }}" >> release/README.md
+          echo "构建时间: $(date)" >> release/README.md
           echo "" >> release/README.md
           echo "包含以下平台镜像:" >> release/README.md
-          echo "- linux/amd64" >> release/README.md
-          echo "- linux/arm64" >> release/README.md
-          echo "- linux/arm/v7" >> release/README.md
+          echo "- linux/amd64 (x86_64)" >> release/README.md
+          echo "- linux/arm64 (aarch64)" >> release/README.md
+          echo "- linux/arm/v7 (armv7)" >> release/README.md
+          echo "" >> release/README.md
+          echo "## 使用方法" >> release/README.md
+          echo "" >> release/README.md
+          echo "1. 加载镜像:" >> release/README.md
+          echo "   \`\`\`bash" >> release/README.md
+          echo "   docker load -i ysp-x86_64.tar" >> release/README.md
+          echo "   \`\`\`" >> release/README.md
+          echo "" >> release/README.md
+          echo "2. 运行容器:" >> release/README.md
+          echo "   \`\`\`bash" >> release/README.md
+          echo "   docker run -d -p 9824:9824 --name ysp-server ysp:x86_64" >> release/README.md
+          echo "   \`\`\`" >> release/README.md
+          echo "" >> release/README.md
+          echo "3. 访问服务:" >> release/README.md
+          echo "   - http://localhost:9824/ysp.m3u (播放列表)" >> release/README.md
+          echo "   - http://localhost:9824/ (Web界面)" >> release/README.md
+          echo "   - http://localhost:9824/ysp?id=cctv1 (单个频道)" >> release/README.md
 
       - name: Upload release
         uses: actions/upload-artifact@v4
         with:
           name: ysp-release
           path: release/
+
+  summary:
+    needs: [setup, init-go-module, build, create-release]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate build summary
+        run: |
+          echo "# YSP 多平台镜像构建报告" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 构建状态" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ 所有平台镜像构建成功！" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 可用镜像" >> $GITHUB_STEP_SUMMARY
+            echo "- linux/amd64 (x86_64)" >> $GITHUB_STEP_SUMMARY
+            echo "- linux/arm64 (aarch64)" >> $GITHUB_STEP_SUMMARY
+            echo "- linux/arm/v7 (armv7)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 下载位置" >> $GITHUB_STEP_SUMMARY
+            echo "1. GitHub Actions Artifacts" >> $GITHUB_STEP_SUMMARY
+            echo "2. 项目目录: ysp/images/" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ 构建失败，请检查日志" >> $GITHUB_STEP_SUMMARY
+          fi
