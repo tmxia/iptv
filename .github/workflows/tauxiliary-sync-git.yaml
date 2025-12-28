@@ -9,7 +9,6 @@ on:
     - cron: '0 */1 * * *'  # 每1小时运行一次
   workflow_dispatch:
 
-# 关键修复：授予工作流必要的权限
 permissions:
   actions: write
   contents: write
