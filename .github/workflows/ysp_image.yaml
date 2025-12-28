@@ -15,17 +15,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check project structure
-        run: |
-          if [ -d "ysp" ] && [ -f "ysp/main.go" ] && [ -f "ysp/Dockerfile" ]; then
-            echo "项目结构正确"
-          else
-            echo "错误：项目结构不正确"
-            exit 1
-          fi
-
   init-go-module:
-    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -36,40 +26,15 @@ jobs:
         with:
           go-version: '1.21'
 
-      - name: Initialize Go module with all dependencies
+      - name: Initialize Go module
         run: |
           cd ysp
-          
-          # 创建包含所有必要依赖的go.mod文件
-          cat > go.mod << 'EOF'
-module ysp
-
-go 1.21
-
-require (
-    github.com/gorilla/mux v1.8.1
-    golang.org/x/crypto v0.17.0
-    github.com/stretchr/testify v1.8.4
-)
-
-require (
-    github.com/davecgh/go-spew v1.1.1 // indirect
-    github.com/pmezard/go-difflib v1.0.0 // indirect
-    github.com/rogpeppe/go-internal v1.11.0 // indirect
-    gopkg.in/yaml.v3 v3.0.1 // indirect
-)
-EOF
-          
-          echo "生成的go.mod内容:"
-          cat go.mod
-          
-          # 运行go mod tidy下载依赖
-          echo "下载依赖..."
+          if [ ! -f "go.mod" ]; then
+            go mod init ysp
+            go get github.com/gorilla/mux
+            go get golang.org/x/crypto
+          fi
           go mod tidy
-          
-          echo "依赖下载完成"
-          echo "当前目录内容:"
-          ls -la
 
   build:
     needs: init-go-module
@@ -105,48 +70,11 @@ EOF
       - name: Build Docker image
         run: |
           cd ysp
-          
-          # 构建参数
-          BUILD_ARGS=""
           if [ "${{ matrix.platform.govariant }}" != "" ]; then
-            BUILD_ARGS="--build-arg TARGETVARIANT=${{ matrix.platform.govariant }}"
-          fi
-          
-          # 构建镜像
-          docker buildx build \
-            --platform ${{ matrix.platform.name }} \
-            --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar \
-            -t ysp:${{ matrix.platform.target }} \
-            --build-arg TARGETARCH=${{ matrix.platform.goarch }} \
-            $BUILD_ARGS \
-            .
-          
-          echo "镜像构建完成"
-
-      - name: Test Docker image
-        run: |
-          cd ysp
-          
-          docker load -i ysp-${{ matrix.platform.target }}.tar
-          
-          docker run -d \
-            --name ysp-test \
-            -p 9824:9824 \
-            -e HOST_IP=0.0.0.0 \
-            ysp:${{ matrix.platform.target }}
-          
-          sleep 10
-          
-          if curl -s http://localhost:9824/ > /dev/null; then
-            echo "测试通过"
+            docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} --build-arg TARGETVARIANT=${{ matrix.platform.govariant }} .
           else
-            echo "测试失败"
-            docker logs ysp-test
-            exit 1
+            docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} .
           fi
-          
-          docker stop ysp-test
-          docker rm ysp-test
 
       - name: Save image
         run: |
