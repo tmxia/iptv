@@ -1,5 +1,5 @@
 # 单阶段构建，更简单
-FROM golang:1.21-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 ARG TARGETARCH
 ARG TARGETVARIANT
