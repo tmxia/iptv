@@ -61,6 +61,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Clean disk space before build
+        run: |
+          echo "🧹 构建前清理磁盘空间..."
+          df -h
+          # 清理Docker占用的空间（非常有效）
+          docker system prune -a -f --volumes || true
+          # 清理APT缓存
+          sudo apt-get clean || true
+          # 删除临时目录
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/share/boost || true
+          echo "清理后磁盘状态:"
+          df -h
+
       - name: Build Docker image
         run: |
           cd ysp
@@ -81,7 +94,6 @@ jobs:
           sha256sum ysp-${{ matrix.platform.target }}.tar > ysp-${{ matrix.platform.target }}.tar.sha256
           echo "📦 文件已保存至 ysp/images/"
 
-      # 关键修改：每个平台构建完成后，立即上传自己的产物
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
@@ -92,21 +104,36 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # 新增：独立、唯一的提交作业
   commit-all-to-repo:
-    needs: build-and-commit # 等待所有平台构建完成
+    needs: build-and-commit
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository (Full history)
+      - name: Clean disk space before checkout
+        run: |
+          echo "🧹 检出前彻底清理磁盘空间..."
+          df -h
+          # 强力清理Docker，这是最主要的空间占用
+          docker system prune -a -f --volumes || true
+          # 清理系统包管理器缓存
+          sudo apt-get autoremove -y || true
+          sudo apt-get clean || true
+          # 删除其他可能的大目录
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/share/boost /image-generation /__t /opt/hostedtoolcache/CodeQL /opt/microsoft /usr/share/dotnet/shared /usr/share/dotnet/host /usr/share/dotnet/sdk || true
+          echo "清理后磁盘状态:"
+          df -h
+
+      - name: Checkout repository (Limited depth)
         uses: actions/checkout@v4
         with:
-          # 关键优化：完整克隆仅在此处执行一次
-          fetch-depth: 0
+          # 🔥 核心优化：使用有限深度，而非0（完整克隆）
+          # 深度50通常足够包含推送所需的最新提交历史
+          fetch-depth: 10
+          # 设置为单分支克隆，进一步减少数据量
+          ref: ${{ github.ref }}
 
       - name: Download all built images
         uses: actions/download-artifact@v4
         with:
-          # 下载所有构建作业上传的产物
           path: downloaded-artifacts
           pattern: ysp-image-*
           merge-multiple: true
@@ -114,29 +141,35 @@ jobs:
       - name: Organize files to repository
         run: |
           echo "🗂️ 整理所有平台的镜像文件到仓库目录..."
-          # 创建目标目录
           mkdir -p ysp/images
-          # 复制所有 .tar 和 .sha256 文件到仓库目录
+          # 清理可能存在的旧文件，避免冲突
+          rm -f ysp/images/ysp-*.tar ysp/images/ysp-*.tar.sha256
+          # 复制新文件
           find downloaded-artifacts -type f \( -name "*.tar" -o -name "*.sha256" \) -exec cp {} ysp/images/ \;
-          # 列出最终文件，用于确认
           echo "整理后的文件列表:"
           ls -la ysp/images/
+
+      - name: Configure Git for push
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          # 确保有足够的提交历史用于推送
+          git fetch --depth=100 origin ${{ github.ref_name }} || true
 
       - name: Commit and Push All to Git Repository
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
           echo "🔍 检查仓库变动..."
           if git status --porcelain ysp/images/ | grep -q .; then
             echo "📝 检测到文件变动，准备提交所有镜像..."
             git add ysp/images/
-            # 一次性提交所有平台的文件
             git commit -m "chore(ci): 自动更新所有多平台镜像 [skip ci]"
-            echo "📤 正在推送到仓库..."
-            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+            
+            echo "📤 正在推送到仓库 (使用有限深度策略)..."
+            # 使用--force-if-includes作为更安全的强制推送选项
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref }} --force-if-includes
+            
             echo "✅ 已成功提交并推送所有镜像文件至仓库。"
           else
             echo "ℹ️ 没有检测到新的文件变动，跳过提交。"
