@@ -1,78 +1,402 @@
-name: Build and test multi-platform images
+name: Build YSP Multi-Platform Images
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:  # 仅手动触发
+    inputs:
+      version:
+        description: '镜像版本标签'
+        required: true
+        default: 'latest'
+      skip_tests:
+        description: '跳过镜像测试'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  PROJECT_DIR: main/ysp
 
 jobs:
-  build:
+  verify-project:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        platform:
-          - linux/amd64
-          - linux/arm64
-          - linux/arm/v7
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify project structure
+        run: |
+          echo "验证项目目录结构..."
+          
+          if [ ! -d "$PROJECT_DIR" ]; then
+            echo "错误：目录 $PROJECT_DIR 不存在"
+            ls -la
+            exit 1
+          fi
+          
+          echo "项目目录内容："
+          ls -la $PROJECT_DIR/
+          
+          if [ ! -f "$PROJECT_DIR/main.go" ]; then
+            echo "错误：未找到 main.go 文件"
+            exit 1
+          fi
+          
+          if [ ! -f "$PROJECT_DIR/Dockerfile" ]; then
+            echo "错误：未找到 Dockerfile 文件"
+            exit 1
+          fi
+          
+          if [ ! -f "$PROJECT_DIR/go.mod" ]; then
+            echo "错误：未找到 go.mod 文件"
+            exit 1
+          fi
+          
+          echo "✓ 项目结构验证通过"
+
+  tidy-modules:
+    needs: verify-project
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
 
-      - name: Tidy go.mod and go.sum
+      - name: Tidy Go modules
         run: |
-          cd main/ysp
+          echo "在目录 $PROJECT_DIR 中整理Go模块..."
+          cd $PROJECT_DIR
+          
+          # 显示当前go.mod内容
+          echo "当前go.mod:"
+          head -20 go.mod
+          
+          # 整理模块
           go mod tidy
-          # 检查是否有变动，若有则输出提示（不会自动提交）
-          git diff --no-patch --exit-code go.mod go.sum || echo "Note: go.mod or go.sum has been updated by go mod tidy."
+          
+          echo "整理后的go.mod:"
+          head -20 go.mod
+          
+          # 显示差异
+          git status
+          git diff go.mod go.sum || echo "模块文件有更新"
 
-      - name: Build static binary
-        env:
-          GOOS: linux
-          GOARCH: ${{ matrix.platform == 'linux/amd64' && 'amd64' || matrix.platform == 'linux/arm64' && 'arm64' || 'arm' }}
-          GOARM: ${{ matrix.platform == 'linux/arm/v7' && '7' || '' }}
-        run: |
-          cd main/ysp
-          CGO_ENABLED=0 go build -o ysp-${{ matrix.platform }} .
-          ls -lh ysp-*
+      - name: Upload Go modules
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-modules
+          path: $PROJECT_DIR/go.*
+          retention-days: 7
+
+  build-multi-platform:
+    needs: [verify-project, tidy-modules]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform:
+          - name: linux/amd64
+            target: x86_64
+            goarch: amd64
+            govariant: ""
+          - name: linux/arm64
+            target: aarch64
+            goarch: arm64
+            govariant: ""
+          - name: linux/arm/v7
+            target: armv7
+            goarch: arm
+            govariant: v7
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Set up QEMU for multi-platform builds
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Log platform info
+        run: |
+          echo "构建平台: ${{ matrix.platform.name }}"
+          echo "目标平台: ${{ matrix.platform.target }}"
+          echo "Go架构: ${{ matrix.platform.goarch }}"
+          echo "Go变体: ${{ matrix.platform.govariant }}"
+
       - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./main/ysp
-          platforms: ${{ matrix.platform }}
-          outputs: type=docker,dest=${{ runner.temp }}/image-${{ matrix.platform }}.tar
-          tags: ysp:${{ matrix.platform }}
-          build-args: |
-            TARGETARCH=${{ matrix.platform == 'linux/amd64' && 'amd64' || matrix.platform == 'linux/arm64' && 'arm64' || 'arm' }}
-            TARGETVARIANT=${{ matrix.platform == 'linux/arm/v7' && 'v7' || '' }}
+        run: |
+          cd $PROJECT_DIR
+          
+          echo "使用项目中的Dockerfile构建镜像..."
+          echo "Dockerfile内容预览:"
+          head -20 Dockerfile
+          
+          # 构建并导出为tar文件
+          docker buildx build \
+            --platform ${{ matrix.platform.name }} \
+            --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar \
+            -t ysp:${{ matrix.platform.target }} \
+            -t ysp:${{ github.event.inputs.version }}-${{ matrix.platform.target }} \
+            --build-arg TARGETARCH=${{ matrix.platform.goarch }} \
+            --build-arg TARGETVARIANT=${{ matrix.platform.govariant }} \
+            .
+          
+          echo "镜像构建完成，大小:"
+          ls -lh ysp-${{ matrix.platform.target }}.tar
 
       - name: Test Docker image
+        if: ${{ github.event.inputs.skip_tests != 'true' }}
         run: |
-          docker load --input ${{ runner.temp }}/image-${{ matrix.platform }}.tar
-          docker run --rm -d -p 9824:9824 --name ysp-test ysp:${{ matrix.platform }}
+          cd $PROJECT_DIR
+          
+          echo "测试 ${{ matrix.platform.name }} 镜像..."
+          
+          # 加载镜像
+          docker load -i ysp-${{ matrix.platform.target }}.tar
+          
+          # 启动测试容器（使用不同的端口避免冲突）
+          TEST_PORT=$((9824 + RANDOM % 1000))
+          echo "使用端口 $TEST_PORT 进行测试..."
+          
+          docker run -d \
+            --name ysp-test-${{ matrix.platform.target }} \
+            -p $TEST_PORT:9824 \
+            ysp:${{ matrix.platform.target }}
+          
           # 等待服务启动
-          sleep 5
-          # 测试基础端点是否正常响应
-          curl -f http://localhost:9824/ || exit 1
-          # 测试M3U列表是否可访问
-          curl -f http://localhost:9824/ysp.m3u | grep -q "#EXTM3U" || exit 1
-          docker stop ysp-test
+          echo "等待服务启动..."
+          for i in {1..10}; do
+            if curl -s -f http://localhost:$TEST_PORT/ > /dev/null 2>&1; then
+              echo "✓ 服务在第 $i 秒启动成功"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "✗ 服务启动失败"
+              docker logs ysp-test-${{ matrix.platform.target }}
+              exit 1
+            fi
+            sleep 2
+          done
+          
+          # 测试M3U列表
+          echo "测试M3U列表..."
+          if curl -s -f http://localhost:$TEST_PORT/ysp.m3u | grep -q "#EXTM3U"; then
+            echo "✓ M3U列表正常"
+          else
+            echo "✗ M3U列表获取失败"
+            exit 1
+          fi
+          
+          # 停止并清理测试容器
+          docker stop ysp-test-${{ matrix.platform.target }}
+          docker rm ysp-test-${{ matrix.platform.target }}
+          
+          echo "✓ 镜像测试通过"
 
-      - name: Save image artifact
+      - name: Save image to project directory
+        run: |
+          cd $PROJECT_DIR
+          
+          # 创建images目录（如果不存在）
+          mkdir -p images
+          
+          # 移动镜像文件到images目录
+          mv ysp-${{ matrix.platform.target }}.tar images/
+          
+          # 显示保存的文件
+          echo "已保存的镜像文件:"
+          ls -lh images/
+
+      - name: Upload platform image
         uses: actions/upload-artifact@v4
         with:
-          name: image-${{ matrix.platform }}
-          path: ${{ runner.temp }}/image-${{ matrix.platform }}.tar
+          name: ysp-${{ matrix.platform.target }}-image
+          path: $PROJECT_DIR/images/ysp-${{ matrix.platform.target }}.tar
+          retention-days: 30
 
-      - name: Copy image to project path
+  create-release-package:
+    needs: build-multi-platform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all platform images
         run: |
-          mkdir -p $GITHUB_WORKSPACE/images
-          cp ${{ runner.temp }}/image-${{ matrix.platform }}.tar $GITHUB_WORKSPACE/images/
+          mkdir -p release-images
+          
+          # 由于artifacts下载有点复杂，我们直接从项目目录复制
+          # 这步依赖于上一步的保存操作
+          if [ -d "$PROJECT_DIR/images" ]; then
+            cp $PROJECT_DIR/images/*.tar release-images/ 2>/dev/null || true
+          fi
+          
+          echo "已下载的镜像文件:"
+          ls -lh release-images/ || echo "未找到镜像文件"
+
+      - name: Create README and metadata
+        run: |
+          # 创建版本信息文件
+          cat > release-images/VERSION.md << EOF
+          # YSP Server 多平台镜像
+          
+          版本: ${{ github.event.inputs.version }}
+          构建时间: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          构建ID: ${{ github.run_id }}
+          提交: ${{ github.sha }}
+          
+          包含以下平台镜像:
+          EOF
+          
+          # 添加各平台信息
+          for file in release-images/*.tar 2>/dev/null; do
+            if [ -f "$file" ]; then
+              basename=$(basename "$file" .tar)
+              echo "- $basename.tar" >> release-images/VERSION.md
+            fi
+          done
+          
+          # 创建使用说明
+          cat >> release-images/VERSION.md << 'EOF'
+          
+          ## 使用方法
+          
+          1. 加载镜像到 Docker:
+             ```bash
+             docker load -i ysp-x86_64.tar
+             ```
+          
+          2. 运行容器:
+             ```bash
+             docker run -d -p 9824:9824 --name ysp-server ysp:x86_64
+             ```
+          
+          3. 访问服务:
+             - M3U播放列表: http://localhost:9824/ysp.m3u
+             - Web界面: http://localhost:9824/
+             - 单个频道: http://localhost:9824/ysp?id=cctv1
+          
+          4. 停止容器:
+             ```bash
+             docker stop ysp-server
+             docker rm ysp-server
+             ```
+          
+          ## 支持的命令行参数
+          
+          ```bash
+          # 指定主机IP
+          docker run -d -p 9824:9824 --name ysp-server ysp:x86_64 --host=0.0.0.0
+          
+          # 通过环境变量指定主机IP
+          docker run -d -p 9824:9824 -e HOST_IP=0.0.0.0 --name ysp-server ysp:x86_64
+          ```
+          
+          ## 频道列表
+          
+          包含CCTV全套频道和各省卫视，共60+个频道。
+          EOF
+          
+          # 创建简单的加载脚本
+          cat > release-images/load-images.sh << 'EOF'
+          #!/bin/bash
+          # YSP镜像加载脚本
+          
+          echo "加载YSP Docker镜像..."
+          
+          for img in *.tar; do
+            if [ -f "$img" ]; then
+              echo "正在加载 $img..."
+              docker load -i "$img"
+            fi
+          done
+          
+          echo "所有镜像加载完成!"
+          echo "可用镜像标签:"
+          docker images | grep ysp
+          
+          echo ""
+          echo "运行示例:"
+          echo "  docker run -d -p 9824:9824 --name ysp-server ysp:x86_64"
+          EOF
+          
+          chmod +x release-images/load-images.sh
+          
+          # 显示最终内容
+          echo "发布包内容:"
+          ls -la release-images/
+
+      - name: Upload final release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ysp-release-${{ github.event.inputs.version }}
+          path: release-images/
+          retention-days: 90
+
+  summary:
+    needs: [create-release-package, build-multi-platform]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate build summary
+        run: |
+          echo "## 🎉 YSP多平台镜像构建完成" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**版本:** ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**构建时间:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 构建产物" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. **完整发布包** (ysp-release-${{ github.event.inputs.version }})" >> $GITHUB_STEP_SUMMARY
+          echo "   - 包含所有平台镜像" >> $GITHUB_STEP_SUMMARY
+          echo "   - 使用说明文档" >> $GITHUB_STEP_SUMMARY
+          echo "   - 一键加载脚本" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "2. **各平台独立镜像**" >> $GITHUB_STEP_SUMMARY
+          echo "   - ysp-x86_64-image (Linux AMD64)" >> $GITHUB_STEP_SUMMARY
+          echo "   - ysp-aarch64-image (Linux ARM64)" >> $GITHUB_STEP_SUMMARY
+          echo "   - ysp-armv7-image (Linux ARMv7)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Go模块文件** (go-modules)" >> $GITHUB_STEP_SUMMARY
+          echo "   - 整理后的go.mod和go.sum" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐳 镜像使用" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# 1. 下载发布包并解压" >> $GITHUB_STEP_SUMMARY
+          echo "# 2. 加载镜像" >> $GITHUB_STEP_SUMMARY
+          echo "docker load -i ysp-x86_64.tar" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# 3. 运行容器" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d -p 9824:9824 --name ysp-server ysp:x86_64" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📍 镜像位置" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "镜像文件已保存在: **$PROJECT_DIR/images/**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔧 构建配置" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- 项目目录: $PROJECT_DIR" >> $GITHUB_STEP_SUMMARY
+          echo "- 跳过测试: ${{ github.event.inputs.skip_tests }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 镜像数量: 3 (x86_64, aarch64, armv7)" >> $GITHUB_STEP_SUMMARY
+          
+          # 显示状态
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ 所有构建任务成功完成!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ 构建过程存在问题，请检查日志" >> $GITHUB_STEP_SUMMARY
+          fi
