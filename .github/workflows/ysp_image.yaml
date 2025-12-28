@@ -17,29 +17,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          path: ysp-repo  # 指定检出路径
+          path: source  # 指定检出路径
 
-      - name: Check project directory
+      - name: Check project structure
         id: check
         run: |
           echo "当前工作目录: $(pwd)"
           echo "目录结构:"
           ls -la
           
-          echo "检查ysp-repo目录:"
-          ls -la ysp-repo/
+          echo "检查source目录:"
+          ls -la source/
           
-          echo "检查main目录:"
-          ls -la ysp-repo/main/ 2>/dev/null || echo "main目录不存在"
-          
-          # 检查main/ysp目录是否存在
-          if [ -d "ysp-repo/main/ysp" ]; then
-            echo "找到main/ysp目录"
-            echo "project_exists=true" >> $GITHUB_OUTPUT
-            echo "目录内容:"
-            ls -la ysp-repo/main/ysp/
+          # 检查ysp目录是否存在
+          if [ -d "source/ysp" ]; then
+            echo "找到ysp目录"
+            echo "项目目录内容:"
+            ls -la source/ysp/
+            
+            # 检查必要文件
+            if [ -f "source/ysp/main.go" ] && [ -f "source/ysp/Dockerfile" ] && [ -f "source/ysp/go.mod" ]; then
+              echo "✓ 所有必要文件都存在"
+              echo "project_exists=true" >> $GITHUB_OUTPUT
+            else
+              echo "错误：缺少必要文件"
+              echo "main.go 存在: $([ -f "source/ysp/main.go" ] && echo "是" || echo "否")"
+              echo "Dockerfile 存在: $([ -f "source/ysp/Dockerfile" ] && echo "是" || echo "否")"
+              echo "go.mod 存在: $([ -f "source/ysp/go.mod" ] && echo "是" || echo "否")"
+              echo "project_exists=false" >> $GITHUB_OUTPUT
+              exit 1
+            fi
           else
-            echo "错误：未找到main/ysp目录"
+            echo "错误：未找到ysp目录"
             echo "project_exists=false" >> $GITHUB_OUTPUT
             exit 1
           fi
@@ -65,7 +74,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          path: ysp-repo  # 与setup步骤保持一致
+          path: source  # 与setup步骤保持一致
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -75,66 +84,50 @@ jobs:
       - name: Navigate to project directory
         run: |
           echo "切换到项目目录..."
-          cd ysp-repo/main/ysp
+          cd source/ysp
           echo "当前目录: $(pwd)"
-          echo "文件列表:"
+          echo "项目文件列表:"
           ls -la
-          
-          # 验证必要文件
-          if [ ! -f "main.go" ]; then
-            echo "错误：未找到main.go"
-            exit 1
-          fi
-          if [ ! -f "Dockerfile" ]; then
-            echo "错误：未找到Dockerfile"
-            exit 1
-          fi
-          if [ ! -f "go.mod" ]; then
-            echo "错误：未找到go.mod"
-            exit 1
-          fi
-          
-          echo "✓ 项目文件验证通过"
+          echo ""
+          echo "main.go 前几行:"
+          head -5 main.go
+          echo ""
+          echo "Dockerfile 前几行:"
+          head -10 Dockerfile
+          echo ""
+          echo "go.mod 内容:"
+          cat go.mod
 
       - name: Tidy Go modules
         run: |
-          cd ysp-repo/main/ysp
+          cd source/ysp
           echo "整理Go模块..."
           go mod tidy
+          echo "整理完成"
           echo "go.mod内容:"
-          head -20 go.mod
+          cat go.mod
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:master
-
-      - name: Login to DockerHub (optional)
-        if: false  # 默认不推送，可根据需要启用
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build Docker image
         run: |
-          cd ysp-repo/main/ysp
+          cd source/ysp
           
           echo "构建 ${{ matrix.platform.name }} 镜像..."
           echo "使用Dockerfile:"
           cat Dockerfile
           
-          # 创建构建参数
+          # 准备构建参数
           BUILD_ARGS=""
           if [ "${{ matrix.platform.govariant }}" != "" ]; then
             BUILD_ARGS="--build-arg TARGETVARIANT=${{ matrix.platform.govariant }}"
           fi
           
-          # 构建镜像
+          # 构建镜像并导出为tar文件
           docker buildx build \
             --platform ${{ matrix.platform.name }} \
             --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar \
@@ -142,7 +135,6 @@ jobs:
             -t ysp:${{ github.event.inputs.version }}-${{ matrix.platform.target }} \
             --build-arg TARGETARCH=${{ matrix.platform.goarch }} \
             $BUILD_ARGS \
-            --progress=plain \
             .
           
           echo "镜像构建完成:"
@@ -150,7 +142,7 @@ jobs:
 
       - name: Test Docker image
         run: |
-          cd ysp-repo/main/ysp
+          cd source/ysp
           
           echo "测试 ${{ matrix.platform.name }} 镜像..."
           
@@ -158,7 +150,7 @@ jobs:
           docker load -i ysp-${{ matrix.platform.target }}.tar
           
           # 生成随机端口避免冲突
-          TEST_PORT=$((9824 + $RANDOM % 10000))
+          TEST_PORT=$((9824 + RANDOM % 5000))
           echo "使用端口 $TEST_PORT 进行测试"
           
           # 启动容器
@@ -170,40 +162,45 @@ jobs:
           
           # 等待服务启动
           echo "等待服务启动..."
-          for i in $(seq 1 15); do
-            if curl -s -o /dev/null -w "%{http_code}" http://localhost:$TEST_PORT/ | grep -q "200"; then
+          MAX_WAIT=30
+          for i in $(seq 1 $MAX_WAIT); do
+            if curl -s -f http://localhost:$TEST_PORT/ > /dev/null 2>&1; then
               echo "✓ 服务在第 $i 秒启动成功"
               break
             fi
-            sleep 2
-            if [ $i -eq 15 ]; then
+            if [ $i -eq $MAX_WAIT ]; then
               echo "✗ 服务启动超时"
+              echo "容器日志:"
               docker logs ysp-test-${{ matrix.platform.target }}
               exit 1
             fi
+            sleep 1
           done
           
           # 测试M3U端点
           echo "测试M3U端点..."
-          M3U_RESPONSE=$(curl -s http://localhost:$TEST_PORT/ysp.m3u | head -1)
-          if echo "$M3U_RESPONSE" | grep -q "#EXTM3U"; then
-            echo "✓ M3U端点正常: $M3U_RESPONSE"
+          M3U_CONTENT=$(curl -s http://localhost:$TEST_PORT/ysp.m3u | head -5)
+          if echo "$M3U_CONTENT" | grep -q "#EXTM3U"; then
+            echo "✓ M3U端点正常"
+            echo "M3U前5行:"
+            echo "$M3U_CONTENT"
           else
-            echo "✗ M3U端点异常: $M3U_RESPONSE"
+            echo "✗ M3U端点异常，返回内容:"
+            echo "$M3U_CONTENT"
             exit 1
           fi
           
-          # 测试单个频道端点
+          # 测试频道端点
           echo "测试频道端点..."
-          CHANNEL_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$TEST_PORT/ysp?id=cctv1)
-          if [ "$CHANNEL_RESPONSE" = "302" ] || [ "$CHANNEL_RESPONSE" = "200" ]; then
-            echo "✓ 频道端点正常，状态码: $CHANNEL_RESPONSE"
+          CHANNEL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$TEST_PORT/ysp?id=cctv1)
+          if [ "$CHANNEL_STATUS" = "302" ] || [ "$CHANNEL_STATUS" = "200" ]; then
+            echo "✓ 频道端点正常，状态码: $CHANNEL_STATUS"
           else
-            echo "✗ 频道端点异常，状态码: $CHANNEL_RESPONSE"
+            echo "✗ 频道端点异常，状态码: $CHANNEL_STATUS"
             exit 1
           fi
           
-          # 停止容器
+          # 停止并清理测试容器
           docker stop ysp-test-${{ matrix.platform.target }}
           docker rm ysp-test-${{ matrix.platform.target }}
           
@@ -211,32 +208,32 @@ jobs:
 
       - name: Save image locally
         run: |
-          cd ysp-repo/main/ysp
+          cd source/ysp
           
           # 创建images目录
           mkdir -p images
           
-          # 复制镜像文件
+          # 复制镜像文件到images目录
           cp ysp-${{ matrix.platform.target }}.tar images/
           
           # 创建SHA256校验和
           sha256sum images/ysp-${{ matrix.platform.target }}.tar > images/ysp-${{ matrix.platform.target }}.tar.sha256
           
-          echo "镜像已保存到:"
+          echo "镜像文件已保存:"
           ls -lh images/
 
       - name: Upload platform image
         uses: actions/upload-artifact@v4
         with:
           name: ysp-${{ matrix.platform.target }}-image
-          path: ysp-repo/main/ysp/images/ysp-${{ matrix.platform.target }}.tar
+          path: source/ysp/images/ysp-${{ matrix.platform.target }}.tar
           retention-days: 30
 
       - name: Upload checksum
         uses: actions/upload-artifact@v4
         with:
           name: ysp-${{ matrix.platform.target }}-checksum
-          path: ysp-repo/main/ysp/images/ysp-${{ matrix.platform.target }}.tar.sha256
+          path: source/ysp/images/ysp-${{ matrix.platform.target }}.tar.sha256
           retention-days: 30
 
   package:
@@ -246,31 +243,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download all artifacts
-        run: |
-          mkdir -p all-images
-          
-          # 下载所有平台的镜像
-          echo "平台列表:"
-          echo "1. x86_64 (amd64)"
-          echo "2. aarch64 (arm64)"
-          echo "3. armv7 (arm/v7)"
-          
-          # 注意：实际下载需要在后续步骤使用download-artifact
-
-      - name: Download artifacts using GitHub CLI
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # 创建目录
-          mkdir -p release-package
-          mkdir -p release-package/images
-          
-          # 由于当前运行环境中可能无法直接下载其他job的artifacts
-          # 我们将在summary中提供下载链接
-          echo "将在构建摘要中提供下载链接"
-
-      - name: Create release manifest
+      - name: Create release package
         run: |
           mkdir -p release-package
           
@@ -443,6 +416,9 @@ jobs:
           EOF
           
           chmod +x release-package/verify.sh
+          
+          echo "发布包创建完成:"
+          ls -la release-package/
 
       - name: Upload release package
         uses: actions/upload-artifact@v4
@@ -511,8 +487,8 @@ jobs:
           
           echo "## 🔧 项目信息" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **项目目录**: main/ysp" >> $GITHUB_STEP_SUMMARY
-          echo "- **镜像已保存到**: main/ysp/images/" >> $GITHUB_STEP_SUMMARY
+          echo "- **项目目录**: ysp/" >> $GITHUB_STEP_SUMMARY
+          echo "- **镜像已保存到**: ysp/images/" >> $GITHUB_STEP_SUMMARY
           echo "- **包含频道**: 60+个央视频道和卫视频道" >> $GITHUB_STEP_SUMMARY
           echo "- **端口**: 9824" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -526,3 +502,7 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "构建过程中出现问题，请检查日志。" >> $GITHUB_STEP_SUMMARY
           fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*构建完成时间: $(date)*" >> $GITHUB_STEP_SUMMARY
