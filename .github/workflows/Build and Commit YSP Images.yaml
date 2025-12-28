@@ -1,0 +1,113 @@
+name: Build and Commit YSP Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '镜像版本标签'
+        required: true
+        default: 'latest'
+
+jobs:
+  init-go-module:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # 必须完全检出历史，后续推送需要
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Initialize Go module
+        run: |
+          cd ysp
+          if [ ! -f "go.mod" ]; then
+            go mod init ysp
+            go get github.com/gorilla/mux
+            go get golang.org/x/crypto
+          fi
+          go mod tidy
+
+  build-and-commit:
+    needs: init-go-module
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform:
+          - name: linux/amd64
+            target: x86_64
+            goarch: amd64
+          - name: linux/arm64
+            target: aarch64
+            goarch: arm64
+          - name: linux/arm/v7
+            target: armv7
+            goarch: arm
+            govariant: v7
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          cd ysp
+          echo "正在构建 ${{ matrix.platform.target }} 平台镜像..."
+          if [ "${{ matrix.platform.govariant }}" != "" ]; then
+            docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} --build-arg TARGETVARIANT=${{ matrix.platform.govariant }} .
+          else
+            docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} .
+          fi
+          echo "构建完成。"
+
+      - name: Save and checksum image
+        run: |
+          cd ysp
+          # 确保目标目录存在
+          mkdir -p images
+          # 移动并重命名文件，保持一致性
+          mv ysp-${{ matrix.platform.target }}.tar images/
+          # 计算校验和
+          cd images
+          sha256sum ysp-${{ matrix.platform.target }}.tar > ysp-${{ matrix.platform.target }}.tar.sha256
+          echo "文件已保存至 ysp/images/"
+
+      - name: Commit and Push to Git Repository
+        env:
+          # 使用GITHUB_TOKEN进行身份验证，它具有写入仓库的权限
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 配置Git用户
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 检查是否有文件变动（新镜像）
+          if git status --porcelain | grep -q "ysp/images/"; then
+            echo "检测到新的镜像文件，准备提交..."
+            # 添加变动的文件
+            git add ysp/images/
+            # 创建提交信息，[skip ci] 是关键，防止循环触发
+            git commit -m "chore(ci): 自动更新 ${{ matrix.platform.target }} 平台镜像 [skip ci]"
+            # 推送到当前分支
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+            echo "✅ 已提交并推送 ${{ matrix.platform.target }} 镜像文件至仓库。"
+          else
+            echo "没有检测到文件变动，跳过提交。"
+          fi
