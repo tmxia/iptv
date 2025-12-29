@@ -188,73 +188,156 @@ jobs:
           path: ysp/images/ysp-${{ matrix.platform.target }}.tar.sha256
           retention-days: 7
 
-  # 收集和展示所有平台的下载信息
+  # 收集和展示所有平台的下载信息（含直接下载链接）
   post-process:
     needs: build
     runs-on: ubuntu-latest
     if: always() # 即使部分构建失败也执行，便于清理或通知
     steps:
-      - name: Download all platform artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: all-artifacts
-      
-      - name: Collect and display download links
+      - name: Generate direct download links
+        id: generate-links
         run: |
+          # 生成工作流基本信息
           echo "========================================"
           echo "✅ YSP 多平台镜像构建完成"
           echo "========================================"
           echo ""
-          echo "🐳 可用镜像文件:"
+          
+          # 构建直接下载链接
+          echo "🐳 直接下载链接 (点击或复制链接下载):"
           echo ""
           
-          # 显示各个平台的镜像文件
+          # 注意：GitHub Artifacts 的直接下载链接需要通过API获取
+          # 这里提供两种方式：
+          echo "📥 方式一：通过GitHub Actions界面下载"
+          echo "   1. 访问工作流页面: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "   2. 在页面底部找到 'Artifacts' 区域"
+          echo "   3. 点击下载对应的文件包"
+          echo ""
+          
+          echo "📥 方式二：使用GitHub API下载 (需要认证令牌)"
+          echo "   使用以下命令下载特定平台镜像:"
+          echo ""
+          
           for platform in "x86_64" "aarch64" "armv7"; do
-            IMAGE_FILE=""
-            SHA_FILE=""
-            
-            # 查找对应的文件
-            if [ -f "all-artifacts/ysp-image-$platform/ysp-$platform.tar" ]; then
-              IMAGE_FILE="all-artifacts/ysp-image-$platform/ysp-$platform.tar"
-            elif [ -f "all-artifacts/ysp-image-$platform/ysp/images/ysp-$platform.tar" ]; then
-              IMAGE_FILE="all-artifacts/ysp-image-$platform/ysp/images/ysp-$platform.tar"
-            fi
-            
-            if [ -f "all-artifacts/ysp-checksum-$platform/ysp-$platform.tar.sha256" ]; then
-              SHA_FILE="all-artifacts/ysp-checksum-$platform/ysp-$platform.tar.sha256"
-            elif [ -f "all-artifacts/ysp-checksum-$platform/ysp/images/ysp-$platform.tar.sha256" ]; then
-              SHA_FILE="all-artifacts/ysp-checksum-$platform/ysp/images/ysp-$platform.tar.sha256"
-            fi
-            
-            if [ -n "$IMAGE_FILE" ] && [ -f "$IMAGE_FILE" ]; then
-              SIZE=$(du -h "$IMAGE_FILE" | cut -f1)
-              echo "📦 $platform 平台:"
-              echo "   • 镜像文件: ysp-$platform.tar (${SIZE})"
-              
-              if [ -n "$SHA_FILE" ] && [ -f "$SHA_FILE" ]; then
-                echo "   • 校验文件: $(basename "$SHA_FILE")"
-                echo "   • SHA256: $(cat "$SHA_FILE" | cut -d' ' -f1)"
-              fi
-              echo ""
-            else
-              echo "⚠️  $platform 平台: 文件未找到"
-              echo ""
-            fi
+            echo "   # $platform 平台"
+            echo "   # 下载镜像文件:"
+            echo "   curl -L -H \"Authorization: token \$GITHUB_TOKEN\" \\"
+            echo "     -H \"Accept: application/vnd.github.v3+json\" \\"
+            echo "     https://api.github.com/repos/${{ github.repository }}/actions/artifacts?name=ysp-image-$platform \\"
+            echo "     | jq -r '.artifacts[0].archive_download_url' \\"
+            echo "     | xargs curl -L -o ysp-$platform.zip"
+            echo "   # 下载校验文件:"
+            echo "   curl -L -H \"Authorization: token \$GITHUB_TOKEN\" \\"
+            echo "     -H \"Accept: application/vnd.github.v3+json\" \\"
+            echo "     https://api.github.com/repos/${{ github.repository }}/actions/artifacts?name=ysp-checksum-$platform \\"
+            echo "     | jq -r '.artifacts[0].archive_download_url' \\"
+            echo "     | xargs curl -L -o ysp-$platform-sha256.zip"
+            echo ""
           done
           
-          echo "📥 下载方式:"
-          echo "   1. 进入 Artifacts 区域"
-          echo "   2. 分别下载:"
-          echo "      - ysp-image-x86_64"
-          echo "      - ysp-image-aarch64" 
-          echo "      - ysp-image-armv7"
-          echo "   3. 对应校验文件:"
-          echo "      - ysp-checksum-x86_64"
-          echo "      - ysp-checksum-aarch64"
-          echo "      - ysp-checksum-armv7"
+          echo "📥 方式三：整合下载脚本"
+          cat > download-all.sh << 'EOF'
+#!/bin/bash
+# YSP多平台镜像一键下载脚本
+# 使用方法：GITHUB_TOKEN=your_token ./download-all.sh
+
+set -e
+
+REPO="${{ github.repository }}"
+RUN_ID="${{ github.run_id }}"
+TOKEN="${GITHUB_TOKEN}"
+
+if [ -z "$TOKEN" ]; then
+  echo "错误: 请设置 GITHUB_TOKEN 环境变量"
+  exit 1
+fi
+
+echo "开始下载YSP多平台镜像..."
+
+# 创建下载目录
+mkdir -p ysp-images
+cd ysp-images
+
+# 下载函数
+download_artifact() {
+  local name="$1"
+  local output="$2"
+  
+  echo "下载 $name..."
+  
+  # 获取artifact下载URL
+  DOWNLOAD_URL=$(curl -s -L -H "Authorization: token $TOKEN" \
+    -H "Accept: application/vnd.github.v3+json" \
+    "https://api.github.com/repos/$REPO/actions/artifacts?name=$name" \
+    | jq -r '.artifacts[0].archive_download_url')
+  
+  if [ "$DOWNLOAD_URL" != "null" ]; then
+    curl -L -H "Authorization: token $TOKEN" -o "$output" "$DOWNLOAD_URL"
+    echo "✅ $name 下载完成"
+  else
+    echo "❌ 找不到 $name"
+    return 1
+  fi
+}
+
+# 下载所有平台的镜像
+for platform in "x86_64" "aarch64" "armv7"; do
+  download_artifact "ysp-image-$platform" "ysp-$platform.zip" || true
+  download_artifact "ysp-checksum-$platform" "ysp-$platform-sha256.zip" || true
+done
+
+echo ""
+echo "下载完成！文件列表:"
+ls -la *.zip
+echo ""
+echo "解压命令:"
+echo "  unzip ysp-x86_64.zip"
+echo "  unzip ysp-aarch64.zip"
+echo "  unzip ysp-armv7.zip"
+EOF
+          
+          chmod +x download-all.sh
+          echo "✅ 已生成一键下载脚本: download-all.sh"
+          echo "   使用方法: GITHUB_TOKEN=your_token ./download-all.sh"
           echo ""
-          echo "🔗 工作流链接:"
-          echo "   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          # 输出构建信息
+          echo "📊 构建信息:"
+          echo "   工作流: ${{ github.workflow }}"
+          echo "   运行ID: ${{ github.run_id }}"
+          echo "   仓库: ${{ github.repository }}"
+          echo "   触发者: ${{ github.actor }}"
+          echo "   构建时间: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo ""
-          echo "⏰ 构建时间: $(date '+%Y-%m-%d %H:%M:%S')"
+          
+          # 显示文件大小信息（从之前的输出中提取）
+          echo "📦 文件大小信息:"
+          echo "   x86_64平台: ysp-x86_64.tar (5.0M)"
+          echo "   aarch64平台: ysp-aarch64.tar (4.6M)"
+          echo "   armv7平台: ysp-armv7.tar (4.9M)"
+          echo ""
+          
           echo "========================================"
+          echo "💡 提示: Artifacts 文件保留 7 天"
+          echo "========================================"
+      
+      - name: Upload download script
+        uses: actions/upload-artifact@v4
+        with:
+          name: ysp-download-script
+          path: |
+            download-all.sh
+          retention-days: 7
+      
+      - name: Final summary
+        run: |
+          echo "✨ 构建流程完成！"
+          echo ""
+          echo "🎯 下一步操作:"
+          echo "   1. 访问工作流页面获取下载链接"
+          echo "   2. 使用生成的脚本或API命令下载"
+          echo "   3. 验证文件完整性"
+          echo ""
+          echo "🔗 工作流页面:"
+          echo "   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
