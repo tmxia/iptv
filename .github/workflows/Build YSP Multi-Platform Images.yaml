@@ -67,9 +67,6 @@ jobs:
             target: armv7
             goarch: arm
             govariant: v7
-    outputs:
-      artifact-${{ matrix.platform.target }}: ${{ steps.upload-image.outputs.artifact-id }}
-      checksum-${{ matrix.platform.target }}: ${{ steps.upload-checksum.outputs.artifact-id }}
     steps:
       - name: Download prepared workspace
         uses: actions/download-artifact@v4
@@ -148,7 +145,6 @@ jobs:
           echo "📦 校验和文件已生成"
 
       - name: Upload image artifact
-        id: upload-image
         uses: actions/upload-artifact@v4
         with:
           name: ysp-image-${{ matrix.platform.target }}
@@ -156,7 +152,6 @@ jobs:
           retention-days: 7
 
       - name: Upload checksum artifact
-        id: upload-checksum
         uses: actions/upload-artifact@v4
         with:
           name: ysp-checksum-${{ matrix.platform.target }}
@@ -175,15 +170,6 @@ jobs:
           path: all-artifacts
       
       - name: Collect and display dynamic build info
-        env:
-          # 从build作业的输出中获取所有artifact ID
-          X86_64_ARTIFACT_ID: ${{ needs.build.outputs.artifact-x86_64 }}
-          AARCH64_ARTIFACT_ID: ${{ needs.build.outputs.artifact-aarch64 }}
-          ARMV7_ARTIFACT_ID: ${{ needs.build.outputs.artifact-armv7 }}
-          
-          X86_64_CHECKSUM_ID: ${{ needs.build.outputs.checksum-x86_64 }}
-          AARCH64_CHECKSUM_ID: ${{ needs.build.outputs.checksum-aarch64 }}
-          ARMV7_CHECKSUM_ID: ${{ needs.build.outputs.checksum-armv7 }}
         run: |
           echo "========================================"
           echo "✅ YSP 多平台镜像构建完成"
@@ -197,62 +183,74 @@ jobs:
           RUN_ID="${{ github.run_id }}"
           SERVER_URL="${{ github.server_url }}"
           
-          # 动态生成各平台下载链接
+          # 动态收集各平台信息
           platforms=("x86_64" "aarch64" "armv7")
           
           for platform in "${platforms[@]}"; do
-            # 获取对应的Artifact ID
-            artifact_var="${platform^^}_ARTIFACT_ID"
-            checksum_var="${platform^^}_CHECKSUM_ID"
-            ARTIFACT_ID="${!artifact_var}"
-            CHECKSUM_ID="${!checksum_var}"
+            IMAGE_FILE=""
+            SHA_FILE=""
             
-            if [ -n "$ARTIFACT_ID" ]; then
-              # 镜像文件下载链接
-              IMAGE_URL="${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}"
-              
-              # 校验文件下载链接
-              CHECKSUM_URL="${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}/artifacts/${CHECKSUM_ID}"
-              
-              # 查找本地文件获取大小
-              IMAGE_FILE=""
-              for file in $(find all-artifacts -name "*.tar" -type f 2>/dev/null); do
-                if echo "$file" | grep -q "$platform"; then
-                  IMAGE_FILE="$file"
-                  break
-                fi
-              done
-              
-              if [ -n "$IMAGE_FILE" ] && [ -f "$IMAGE_FILE" ]; then
-                SIZE=$(du -h "$IMAGE_FILE" | cut -f1)
-                echo "📦 $platform 平台:"
-                echo "   镜像文件: ysp-image-$platform.tar (${SIZE})"
-                echo "   镜像下载: $IMAGE_URL"
-                
-                # 查找校验文件
-                SHA_FILE=""
-                for file in $(find all-artifacts -name "*.sha256" -type f 2>/dev/null); do
-                  if echo "$file" | grep -q "$platform"; then
-                    SHA_FILE="$file"
-                    break
-                  fi
-                done
-                
-                if [ -n "$SHA_FILE" ] && [ -f "$SHA_FILE" ]; then
-                  SHA_VALUE=$(cat "$SHA_FILE" | cut -d' ' -f1)
-                  echo "   SHA256: $SHA_VALUE"
-                  echo "   校验文件: $CHECKSUM_URL"
-                fi
-                echo ""
-              else
-                echo "📦 $platform 平台:"
-                echo "   镜像下载: $IMAGE_URL"
-                echo "   校验下载: $CHECKSUM_URL"
-                echo "   ⚠️  注意: 无法获取本地文件信息"
-                echo ""
+            # 查找镜像文件
+            for file in $(find all-artifacts -name "*.tar" -type f 2>/dev/null); do
+              if echo "$file" | grep -q "$platform"; then
+                IMAGE_FILE="$file"
+                break
               fi
+            done
+            
+            # 查找校验文件
+            for file in $(find all-artifacts -name "*.sha256" -type f 2>/dev/null); do
+              if echo "$file" | grep -q "$platform"; then
+                SHA_FILE="$file"
+                break
+              fi
+            done
+            
+            if [ -n "$IMAGE_FILE" ] && [ -f "$IMAGE_FILE" ]; then
+              SIZE=$(du -h "$IMAGE_FILE" | cut -f1)
+              echo "📦 $platform 平台:"
+              echo "   镜像文件: $(basename "$IMAGE_FILE") (${SIZE})"
+              
+              # 获取Artifact信息
+              ARTIFACT_DIR="all-artifacts"
+              ARTIFACT_NAME=""
+              
+              # 检查artifact目录结构
+              if [ -d "$ARTIFACT_DIR/ysp-image-$platform" ]; then
+                # 新版本的artifact目录结构
+                ARTIFACT_INFO_FILE="$ARTIFACT_DIR/ysp-image-$platform/artifact-info.json"
+                if [ -f "$ARTIFACT_INFO_FILE" ]; then
+                  ARTIFACT_ID=$(grep -o '"id":[[:space:]]*[0-9]*' "$ARTIFACT_INFO_FILE" | head -1 | cut -d':' -f2 | tr -d ' ')
+                  if [ -n "$ARTIFACT_ID" ]; then
+                    echo "   下载链接: ${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}"
+                  fi
+                fi
+              fi
+              
+              if [ -n "$SHA_FILE" ] && [ -f "$SHA_FILE" ]; then
+                SHA_VALUE=$(cat "$SHA_FILE" | cut -d' ' -f1)
+                echo "   SHA256: $SHA_VALUE"
+                
+                # 尝试获取checksum artifact信息
+                if [ -d "$ARTIFACT_DIR/ysp-checksum-$platform" ]; then
+                  CHECKSUM_INFO_FILE="$ARTIFACT_DIR/ysp-checksum-$platform/artifact-info.json"
+                  if [ -f "$CHECKSUM_INFO_FILE" ]; then
+                    CHECKSUM_ID=$(grep -o '"id":[[:space:]]*[0-9]*' "$CHECKSUM_INFO_FILE" | head -1 | cut -d':' -f2 | tr -d ' ')
+                    if [ -n "$CHECKSUM_ID" ]; then
+                      echo "   校验文件: ${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}/artifacts/${CHECKSUM_ID}"
+                    fi
+                  fi
+                fi
+              fi
+              
+              # 备用方法：如果没有找到artifact-info，显示通用链接
+              if [ -z "$ARTIFACT_ID" ]; then
+                echo "   下载页面: ${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
+              fi
+              
+              echo ""
             else
-              echo "⚠️  $platform 平台: 镜像未生成或上传失败"
+              echo "⚠️  $platform 平台: 镜像文件未生成"
               echo ""
             fi
           done
@@ -270,7 +268,19 @@ jobs:
           
           echo ""
           echo "📋 使用说明:"
-          echo "   1. 点击上方链接下载镜像文件"
+          echo "   1. 在Artifacts区域下载对应平台的镜像文件"
           echo "   2. 使用 'docker load -i ysp-<平台>.tar' 导入镜像"
-          echo "   3. 使用 'docker run -d -p 8080:8080 ysp' 运行容器"
+          echo "   3. 使用 'docker run -d -p 8080:8080 ysp:<平台>' 运行容器"
+          echo ""
+          echo "🔗 Artifacts下载:"
+          echo "   ${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
           echo "========================================"
+      
+      - name: Display artifact structure (调试)
+        if: always()
+        run: |
+          echo "📁 Artifacts目录结构:"
+          find all-artifacts -type f -name "*.json" | head -20
+          echo ""
+          echo "📄 文件列表:"
+          find all-artifacts -type f | head -30
