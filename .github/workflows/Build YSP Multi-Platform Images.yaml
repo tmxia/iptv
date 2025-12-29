@@ -182,8 +182,13 @@ jobs:
           REPO="${{ github.repository }}"
           RUN_ID="${{ github.run_id }}"
           SERVER_URL="${{ github.server_url }}"
+          RUN_URL="${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
           
-          # 动态收集各平台信息
+          # 列出所有Artifacts
+          echo "📦 可下载的Artifacts列表:"
+          echo ""
+          
+          # 镜像文件
           platforms=("x86_64" "aarch64" "armv7")
           
           for platform in "${platforms[@]}"; do
@@ -208,46 +213,14 @@ jobs:
             
             if [ -n "$IMAGE_FILE" ] && [ -f "$IMAGE_FILE" ]; then
               SIZE=$(du -h "$IMAGE_FILE" | cut -f1)
-              echo "📦 $platform 平台:"
-              echo "   镜像文件: $(basename "$IMAGE_FILE") (${SIZE})"
-              
-              # 获取Artifact信息
-              ARTIFACT_DIR="all-artifacts"
-              ARTIFACT_NAME=""
-              
-              # 检查artifact目录结构
-              if [ -d "$ARTIFACT_DIR/ysp-image-$platform" ]; then
-                # 新版本的artifact目录结构
-                ARTIFACT_INFO_FILE="$ARTIFACT_DIR/ysp-image-$platform/artifact-info.json"
-                if [ -f "$ARTIFACT_INFO_FILE" ]; then
-                  ARTIFACT_ID=$(grep -o '"id":[[:space:]]*[0-9]*' "$ARTIFACT_INFO_FILE" | head -1 | cut -d':' -f2 | tr -d ' ')
-                  if [ -n "$ARTIFACT_ID" ]; then
-                    echo "   下载链接: ${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}"
-                  fi
-                fi
-              fi
+              echo "✅ $platform 平台镜像:"
+              echo "   文件名: ysp-image-$platform.zip"
+              echo "   文件大小: ${SIZE}"
               
               if [ -n "$SHA_FILE" ] && [ -f "$SHA_FILE" ]; then
                 SHA_VALUE=$(cat "$SHA_FILE" | cut -d' ' -f1)
                 echo "   SHA256: $SHA_VALUE"
-                
-                # 尝试获取checksum artifact信息
-                if [ -d "$ARTIFACT_DIR/ysp-checksum-$platform" ]; then
-                  CHECKSUM_INFO_FILE="$ARTIFACT_DIR/ysp-checksum-$platform/artifact-info.json"
-                  if [ -f "$CHECKSUM_INFO_FILE" ]; then
-                    CHECKSUM_ID=$(grep -o '"id":[[:space:]]*[0-9]*' "$CHECKSUM_INFO_FILE" | head -1 | cut -d':' -f2 | tr -d ' ')
-                    if [ -n "$CHECKSUM_ID" ]; then
-                      echo "   校验文件: ${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}/artifacts/${CHECKSUM_ID}"
-                    fi
-                  fi
-                fi
               fi
-              
-              # 备用方法：如果没有找到artifact-info，显示通用链接
-              if [ -z "$ARTIFACT_ID" ]; then
-                echo "   下载页面: ${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
-              fi
-              
               echo ""
             else
               echo "⚠️  $platform 平台: 镜像文件未生成"
@@ -267,20 +240,20 @@ jobs:
           fi
           
           echo ""
-          echo "📋 使用说明:"
-          echo "   1. 在Artifacts区域下载对应平台的镜像文件"
-          echo "   2. 使用 'docker load -i ysp-<平台>.tar' 导入镜像"
-          echo "   3. 使用 'docker run -d -p 8080:8080 ysp:<平台>' 运行容器"
+          echo "📋 下载和使用说明:"
+          echo "   1. 访问以下链接查看所有Artifacts:"
+          echo "      $RUN_URL"
           echo ""
-          echo "🔗 Artifacts下载:"
-          echo "   ${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
+          echo "   2. 在Artifacts区域找到以下文件并下载:"
+          echo "      - ysp-image-x86_64.zip (x86_64平台镜像)"
+          echo "      - ysp-image-aarch64.zip (aarch64平台镜像)"
+          echo "      - ysp-image-armv7.zip (armv7平台镜像)"
+          echo "      - ysp-checksum-*.zip (对应平台的校验文件)"
+          echo ""
+          echo "   3. 下载并解压后，导入和运行镜像:"
+          echo "      docker load -i ysp-<平台>.tar"
+          echo "      docker run -d -p 8080:8080 ysp"
+          echo ""
+          echo "🔗 Artifacts下载页面:"
+          echo "   $RUN_URL"
           echo "========================================"
-      
-      - name: Display artifact structure (调试)
-        if: always()
-        run: |
-          echo "📁 Artifacts目录结构:"
-          find all-artifacts -type f -name "*.json" | head -20
-          echo ""
-          echo "📄 文件列表:"
-          find all-artifacts -type f | head -30
