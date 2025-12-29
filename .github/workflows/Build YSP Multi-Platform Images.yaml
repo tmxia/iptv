@@ -9,22 +9,22 @@ on:
         default: 'latest'
 
 jobs:
-  setup:
+  # 前置准备作业：执行所有可共享的步骤
+  prepare:
     runs-on: ubuntu-latest
+    outputs: # 定义输出变量，供后续作业使用
+      prepared-workspace-version: ${{ steps.generate-timestamp.outputs.timestamp }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-  init-go-module:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1 # 浅克隆，加快速度
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+          cache-dependency-path: ./ysp/go.sum # 启用Go模块缓存
 
       - name: Initialize Go module
         run: |
@@ -36,10 +36,25 @@ jobs:
           fi
           go mod tidy
 
+      - name: Generate timestamp for workspace
+        id: generate-timestamp
+        run: echo "timestamp=$(date +%s)" >> $GITHUB_OUTPUT
+
+      - name: Upload prepared workspace
+        uses: actions/upload-artifact@v4
+        with:
+          name: prepared-workspace
+          path: |
+            ysp/
+            !ysp/images/
+          retention-days: 1
+
+  # 并行构建作业
   build:
-    needs: init-go-module
+    needs: prepare # 依赖前置准备作业
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false # 即使一个平台失败，其他平台继续构建
       matrix:
         platform:
           - name: linux/amd64
@@ -53,56 +68,71 @@ jobs:
             goarch: arm
             govariant: v7
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      # 核心优化：下载共享环境，替代重复的检出和安装
+      - name: Download prepared workspace
+        uses: actions/download-artifact@v4
         with:
-          go-version: '1.25'
+          name: prepared-workspace
+          path: .
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:master
+            network=host
 
-      - name: Build Docker image
+      - name: Build Docker image for ${{ matrix.platform.target }}
         run: |
           cd ysp
-          if [ "${{ matrix.platform.govariant }}" != "" ]; then
-            docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} --build-arg TARGETVARIANT=${{ matrix.platform.govariant }} .
-          else
-            docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} .
+          # 根据平台变量动态构建命令
+          BUILD_ARGS="--platform ${{ matrix.platform.name }} \
+                      --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar \
+                      -t ysp:${{ matrix.platform.target }} \
+                      --build-arg TARGETARCH=${{ matrix.platform.goarch }}"
+          
+          if [ -n "${{ matrix.platform.govariant }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --build-arg TARGETVARIANT=${{ matrix.platform.govariant }}"
           fi
+          
+          docker buildx build $BUILD_ARGS .
 
-      - name: Create images directory in ysp folder
+      - name: Prepare images directory
         run: |
-          # 在 ysp 目录下创建 images 目录
           cd ysp
           mkdir -p images
 
-      - name: Save image and calculate checksum
+      - name: Move image and calculate checksum
         run: |
-          # 进入 ysp 目录
           cd ysp
-          
-          # 将镜像文件移动到 images 目录
-          mv ysp-${{ matrix.platform.target }}.tar images/ysp-${{ matrix.platform.target }}.tar
-          
-          # 计算校验和
+          mv ysp-${{ matrix.platform.target }}.tar images/
           cd images
           sha256sum ysp-${{ matrix.platform.target }}.tar > ysp-${{ matrix.platform.target }}.tar.sha256
-          cd ..
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ysp-${{ matrix.platform.target }}
+          name: ysp-image-${{ matrix.platform.target }}
           path: ysp/images/ysp-${{ matrix.platform.target }}.tar
+          retention-days: 7
 
-      - name: Upload SHA256 checksum artifact
+      - name: Upload checksum artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ysp-${{ matrix.platform.target }}-sha256
+          name: ysp-checksum-${{ matrix.platform.target }}
           path: ysp/images/ysp-${{ matrix.platform.target }}.tar.sha256
+          retention-days: 7
+
+  # 可选：后续处理作业，例如合并或发布
+  post-process:
+    needs: build
+    runs-on: ubuntu-latest
+    if: always() # 即使部分构建失败也执行，便于清理或通知
+    steps:
+      - name: Summary
+        run: |
+          echo "所有平台的Docker镜像构建任务已完成。"
+          echo "请到 Artifacts 区域下载构建产物。"
