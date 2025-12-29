@@ -182,7 +182,6 @@ jobs:
           REPO="${{ github.repository }}"
           RUN_ID="${{ github.run_id }}"
           WEB_URL="${{ github.server_url }}/$REPO/actions/runs/$RUN_ID"
-          API_BASE="https://api.github.com/repos/$REPO/actions/artifacts"
           
           # 动态收集各平台信息
           for platform in "x86_64" "aarch64" "armv7"; do
@@ -217,7 +216,6 @@ jobs:
               
               # 直接下载链接
               echo "   网页下载: $WEB_URL"
-              echo "   API链接: $API_BASE?name=ysp-image-$platform"
               echo ""
             else
               echo "⚠️  $platform 平台: 镜像文件未生成"
@@ -225,9 +223,6 @@ jobs:
             fi
           done
           
-          echo "📥 下载说明:"
-          echo "   1. 网页下载: 访问上方链接，在 'Artifacts' 区域下载文件"
-          echo "   2. API下载: 使用API链接配合 GitHub Token 获取文件"
           echo ""
           echo "⏰ 构建时间: $(date '+%Y-%m-%d %H:%M:%S')"
           echo "🔗 工作流运行: #${{ github.run_number }}"
