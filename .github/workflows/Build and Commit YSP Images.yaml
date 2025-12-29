@@ -9,16 +9,22 @@ on:
         default: 'latest'
 
 jobs:
-  init-go-module:
+  # 前置作业：一次性准备共享环境
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      prepared-workspace-version: ${{ steps.generate-version.outputs.version }}
     steps:
-      - name: Checkout repository (Shallow)
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+          cache-dependency-path: ysp/go.sum
 
       - name: Initialize Go module
         run: |
@@ -30,10 +36,29 @@ jobs:
           fi
           go mod tidy
 
+      - name: Generate workspace version
+        id: generate-version
+        run: |
+          # 基于时间和随机数生成唯一版本标识
+          TIMESTAMP=$(date +%s)
+          RANDOM_SUFFIX=$(openssl rand -hex 4)
+          echo "version=${TIMESTAMP}-${RANDOM_SUFFIX}" >> $GITHUB_OUTPUT
+
+      - name: Upload prepared workspace
+        uses: actions/upload-artifact@v4
+        with:
+          name: prepared-workspace
+          path: |
+            ysp/
+            !ysp/images/
+          retention-days: 1
+
+  # 并行构建作业：下载共享环境并构建
   build-and-commit:
-    needs: init-go-module
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - name: linux/amd64
@@ -47,13 +72,12 @@ jobs:
             goarch: arm
             govariant: v7
     steps:
-      - name: Checkout repository (Shallow)
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      # 核心优化：下载共享环境，无需重复检出和安装
+      - name: Download prepared workspace
+        uses: actions/download-artifact@v4
         with:
-          go-version: '1.25'
+          name: prepared-workspace
+          path: .
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -65,11 +89,8 @@ jobs:
         run: |
           echo "🧹 构建前清理磁盘空间..."
           df -h
-          # 清理Docker占用的空间（非常有效）
           docker system prune -a -f --volumes || true
-          # 清理APT缓存
           sudo apt-get clean || true
-          # 删除临时目录
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/share/boost || true
           echo "清理后磁盘状态:"
           df -h
@@ -78,11 +99,20 @@ jobs:
         run: |
           cd ysp
           echo "🚧 正在构建 ${{ matrix.platform.target }} 平台镜像..."
-          if [ "${{ matrix.platform.govariant }}" != "" ]; then
-            docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} --build-arg TARGETVARIANT=${{ matrix.platform.govariant }} .
-          else
-            docker buildx build --platform ${{ matrix.platform.name }} --output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar -t ysp:${{ matrix.platform.target }} --build-arg TARGETARCH=${{ matrix.platform.goarch }} .
+          
+          # 动态构建命令
+          BUILD_CMD="docker buildx build --platform ${{ matrix.platform.name }} "
+          BUILD_CMD+="--output type=docker,dest=./ysp-${{ matrix.platform.target }}.tar "
+          BUILD_CMD+="-t ysp:${{ matrix.platform.target }} "
+          BUILD_CMD+="--build-arg TARGETARCH=${{ matrix.platform.goarch }}"
+          
+          if [ -n "${{ matrix.platform.govariant }}" ]; then
+            BUILD_CMD+=" --build-arg TARGETVARIANT=${{ matrix.platform.govariant }}"
           fi
+          
+          BUILD_CMD+=" ."
+          eval $BUILD_CMD
+          
           echo "✅ 构建完成。"
 
       - name: Save and checksum image
@@ -104,6 +134,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # 提交作业：收集所有构建产物并提交
   commit-all-to-repo:
     needs: build-and-commit
     runs-on: ubuntu-latest
@@ -112,23 +143,17 @@ jobs:
         run: |
           echo "🧹 检出前彻底清理磁盘空间..."
           df -h
-          # 强力清理Docker，这是最主要的空间占用
           docker system prune -a -f --volumes || true
-          # 清理系统包管理器缓存
           sudo apt-get autoremove -y || true
           sudo apt-get clean || true
-          # 删除其他可能的大目录
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/share/boost /image-generation /__t /opt/hostedtoolcache/CodeQL /opt/microsoft /usr/share/dotnet/shared /usr/share/dotnet/host /usr/share/dotnet/sdk || true
           echo "清理后磁盘状态:"
           df -h
 
-      - name: Checkout repository (Limited depth)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # 🔥 核心优化：使用有限深度，而非0（完整克隆）
-          # 深度10通常足够包含推送所需的最新提交历史
           fetch-depth: 10
-          # 设置为单分支克隆，进一步减少数据量
           ref: ${{ github.ref }}
 
       - name: Download all built images
@@ -142,10 +167,15 @@ jobs:
         run: |
           echo "🗂️ 整理所有平台的镜像文件到仓库目录..."
           mkdir -p ysp/images
-          # 清理可能存在的旧文件，避免冲突
+          
+          # 清理可能存在的旧文件
           rm -f ysp/images/ysp-*.tar ysp/images/ysp-*.tar.sha256
+          
           # 复制新文件
-          find downloaded-artifacts -type f \( -name "*.tar" -o -name "*.sha256" \) -exec cp {} ysp/images/ \;
+          if [ -d "downloaded-artifacts" ]; then
+            find downloaded-artifacts -type f \( -name "*.tar" -o -name "*.sha256" \) -exec cp {} ysp/images/ \;
+          fi
+          
           echo "整理后的文件列表:"
           ls -la ysp/images/
 
@@ -153,24 +183,24 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # 确保有足够的提交历史用于推送
-          git fetch --depth=20 origin ${{ github.ref_name }} || true
 
       - name: Commit and Push All to Git Repository
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "🔍 检查仓库变动..."
-          if git status --porcelain ysp/images/ | grep -q .; then
-            echo "📝 检测到文件变动，准备提交所有镜像..."
-            git add ysp/images/
-            git commit -m "chore(ci): 自动更新所有多平台镜像 [skip ci]"
-            
-            echo "📤 正在推送到仓库 (使用有限深度策略)..."
-            # 使用--force-if-includes作为更安全的强制推送选项
-            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref }} --force-if-includes
-            
-            echo "✅ 已成功提交并推送所有镜像文件至仓库。"
-          else
+          
+          # 检查是否有文件需要提交
+          if [ -z "$(git status --porcelain ysp/images/)" ]; then
             echo "ℹ️ 没有检测到新的文件变动，跳过提交。"
+            exit 0
           fi
+          
+          echo "📝 检测到文件变动，准备提交所有镜像..."
+          git add ysp/images/
+          git commit -m "chore(ci): 自动更新所有多平台镜像 [skip ci]"
+          
+          echo "📤 正在推送到仓库..."
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref }} --force-if-includes
+          
+          echo "✅ 已成功提交并推送所有镜像文件至仓库。"
