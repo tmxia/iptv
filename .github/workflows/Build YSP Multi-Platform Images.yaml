@@ -311,13 +311,6 @@ EOF
           echo "   构建时间: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo ""
           
-          # 显示文件大小信息（从之前的输出中提取）
-          echo "📦 文件大小信息:"
-          echo "   x86_64平台: ysp-x86_64.tar (5.0M)"
-          echo "   aarch64平台: ysp-aarch64.tar (4.6M)"
-          echo "   armv7平台: ysp-armv7.tar (4.9M)"
-          echo ""
-          
           echo "========================================"
           echo "💡 提示: Artifacts 文件保留 7 天"
           echo "========================================"
