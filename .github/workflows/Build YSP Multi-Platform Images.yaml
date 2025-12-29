@@ -67,6 +67,9 @@ jobs:
             target: armv7
             goarch: arm
             govariant: v7
+    outputs:
+      artifact-${{ matrix.platform.target }}: ${{ steps.upload-image.outputs.artifact-id }}
+      checksum-${{ matrix.platform.target }}: ${{ steps.upload-checksum.outputs.artifact-id }}
     steps:
       - name: Download prepared workspace
         uses: actions/download-artifact@v4
@@ -145,6 +148,7 @@ jobs:
           echo "📦 校验和文件已生成"
 
       - name: Upload image artifact
+        id: upload-image
         uses: actions/upload-artifact@v4
         with:
           name: ysp-image-${{ matrix.platform.target }}
@@ -152,6 +156,7 @@ jobs:
           retention-days: 7
 
       - name: Upload checksum artifact
+        id: upload-checksum
         uses: actions/upload-artifact@v4
         with:
           name: ysp-checksum-${{ matrix.platform.target }}
@@ -160,7 +165,7 @@ jobs:
 
   # 动态收集和展示构建信息
   post-process:
-    needs: build
+    needs: [build]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -170,6 +175,15 @@ jobs:
           path: all-artifacts
       
       - name: Collect and display dynamic build info
+        env:
+          # 从build作业的输出中获取所有artifact ID
+          X86_64_ARTIFACT_ID: ${{ needs.build.outputs.artifact-x86_64 }}
+          AARCH64_ARTIFACT_ID: ${{ needs.build.outputs.artifact-aarch64 }}
+          ARMV7_ARTIFACT_ID: ${{ needs.build.outputs.artifact-armv7 }}
+          
+          X86_64_CHECKSUM_ID: ${{ needs.build.outputs.checksum-x86_64 }}
+          AARCH64_CHECKSUM_ID: ${{ needs.build.outputs.checksum-aarch64 }}
+          ARMV7_CHECKSUM_ID: ${{ needs.build.outputs.checksum-armv7 }}
         run: |
           echo "========================================"
           echo "✅ YSP 多平台镜像构建完成"
@@ -181,49 +195,82 @@ jobs:
           # 基础URL
           REPO="${{ github.repository }}"
           RUN_ID="${{ github.run_id }}"
-          WEB_URL="${{ github.server_url }}/$REPO/actions/runs/$RUN_ID"
+          SERVER_URL="${{ github.server_url }}"
           
-          # 动态收集各平台信息
-          for platform in "x86_64" "aarch64" "armv7"; do
-            IMAGE_FILE=""
-            SHA_FILE=""
+          # 动态生成各平台下载链接
+          platforms=("x86_64" "aarch64" "armv7")
+          
+          for platform in "${platforms[@]}"; do
+            # 获取对应的Artifact ID
+            artifact_var="${platform^^}_ARTIFACT_ID"
+            checksum_var="${platform^^}_CHECKSUM_ID"
+            ARTIFACT_ID="${!artifact_var}"
+            CHECKSUM_ID="${!checksum_var}"
             
-            # 查找镜像文件
-            for file in $(find all-artifacts -name "*.tar" -type f 2>/dev/null); do
-              if echo "$file" | grep -q "$platform"; then
-                IMAGE_FILE="$file"
-                break
-              fi
-            done
-            
-            # 查找校验文件
-            for file in $(find all-artifacts -name "*.sha256" -type f 2>/dev/null); do
-              if echo "$file" | grep -q "$platform"; then
-                SHA_FILE="$file"
-                break
-              fi
-            done
-            
-            if [ -n "$IMAGE_FILE" ] && [ -f "$IMAGE_FILE" ]; then
-              SIZE=$(du -h "$IMAGE_FILE" | cut -f1)
-              echo "📦 $platform 平台:"
-              echo "   镜像文件: $(basename "$IMAGE_FILE") (${SIZE})"
+            if [ -n "$ARTIFACT_ID" ]; then
+              # 镜像文件下载链接
+              IMAGE_URL="${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}"
               
-              if [ -n "$SHA_FILE" ] && [ -f "$SHA_FILE" ]; then
-                SHA_VALUE=$(cat "$SHA_FILE" | cut -d' ' -f1)
-                echo "   SHA256: $SHA_VALUE"
-              fi
+              # 校验文件下载链接
+              CHECKSUM_URL="${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}/artifacts/${CHECKSUM_ID}"
               
-              # 直接下载链接
-              echo "   网页下载: $WEB_URL"
-              echo ""
+              # 查找本地文件获取大小
+              IMAGE_FILE=""
+              for file in $(find all-artifacts -name "*.tar" -type f 2>/dev/null); do
+                if echo "$file" | grep -q "$platform"; then
+                  IMAGE_FILE="$file"
+                  break
+                fi
+              done
+              
+              if [ -n "$IMAGE_FILE" ] && [ -f "$IMAGE_FILE" ]; then
+                SIZE=$(du -h "$IMAGE_FILE" | cut -f1)
+                echo "📦 $platform 平台:"
+                echo "   镜像文件: ysp-image-$platform.tar (${SIZE})"
+                echo "   镜像下载: $IMAGE_URL"
+                
+                # 查找校验文件
+                SHA_FILE=""
+                for file in $(find all-artifacts -name "*.sha256" -type f 2>/dev/null); do
+                  if echo "$file" | grep -q "$platform"; then
+                    SHA_FILE="$file"
+                    break
+                  fi
+                done
+                
+                if [ -n "$SHA_FILE" ] && [ -f "$SHA_FILE" ]; then
+                  SHA_VALUE=$(cat "$SHA_FILE" | cut -d' ' -f1)
+                  echo "   SHA256: $SHA_VALUE"
+                  echo "   校验文件: $CHECKSUM_URL"
+                fi
+                echo ""
+              else
+                echo "📦 $platform 平台:"
+                echo "   镜像下载: $IMAGE_URL"
+                echo "   校验下载: $CHECKSUM_URL"
+                echo "   ⚠️  注意: 无法获取本地文件信息"
+                echo ""
+              fi
             else
-              echo "⚠️  $platform 平台: 镜像文件未生成"
+              echo "⚠️  $platform 平台: 镜像未生成或上传失败"
               echo ""
             fi
           done
           
           echo ""
-          echo "⏰ 构建时间: $(date '+%Y-%m-%d %H:%M:%S')"
-          echo "🔗 工作流运行: #${{ github.run_number }}"
+          echo "📊 构建摘要:"
+          echo "   工作流运行: #${{ github.run_number }}"
+          echo "   构建时间: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "   代码版本: ${{ github.sha }}"
+          echo "   触发方式: ${{ github.event_name }}"
+          
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "   版本标签: ${{ github.event.inputs.version }}"
+          fi
+          
+          echo ""
+          echo "📋 使用说明:"
+          echo "   1. 点击上方链接下载镜像文件"
+          echo "   2. 使用 'docker load -i ysp-<平台>.tar' 导入镜像"
+          echo "   3. 使用 'docker run -d -p 8080:8080 ysp' 运行容器"
           echo "========================================"
