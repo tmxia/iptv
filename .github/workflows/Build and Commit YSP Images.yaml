@@ -72,12 +72,50 @@ jobs:
             goarch: arm
             govariant: v7
     steps:
-      # 核心优化：下载共享环境，无需重复检出和安装
+      # 下载到临时目录再移动
       - name: Download prepared workspace
         uses: actions/download-artifact@v4
         with:
           name: prepared-workspace
-          path: .
+          path: workspace-temp
+
+      - name: Restore workspace structure
+        run: |
+          echo "📁 恢复工作区结构..."
+          
+          # 检查下载的目录结构
+          echo "临时目录内容:"
+          ls -la workspace-temp/
+          
+          # 情况1：如果直接包含了ysp目录
+          if [ -d "workspace-temp/ysp" ]; then
+            echo "检测到 workspace-temp/ysp 目录"
+            mv workspace-temp/ysp .
+          # 情况2：如果文件直接解压在临时目录根下
+          else
+            echo "检测到文件直接位于 workspace-temp/"
+            # 将临时目录重命名为ysp
+            mv workspace-temp ysp
+          fi
+          
+          # 验证ysp目录是否存在
+          if [ -d "ysp" ]; then
+            echo "✅ ysp 目录创建成功"
+            echo "ysp目录内容:"
+            ls -la ysp/
+            
+            # 检查关键文件
+            if [ -f "ysp/go.mod" ]; then
+              echo "✅ 找到 go.mod 文件"
+            else
+              echo "⚠️  警告: 未找到 go.mod 文件"
+              echo "当前目录树:"
+              find . -name "*.go" -o -name "go.mod" -o -name "go.sum" | head -10
+            fi
+          else
+            echo "❌ 错误: ysp 目录创建失败"
+            exit 1
+          fi
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -111,6 +149,7 @@ jobs:
           fi
           
           BUILD_CMD+=" ."
+          echo "执行命令: $BUILD_CMD"
           eval $BUILD_CMD
           
           echo "✅ 构建完成。"
@@ -119,7 +158,17 @@ jobs:
         run: |
           cd ysp
           mkdir -p images
-          mv ysp-${{ matrix.platform.target }}.tar images/
+          
+          # 确保镜像文件存在
+          if [ -f "ysp-${{ matrix.platform.target }}.tar" ]; then
+            mv ysp-${{ matrix.platform.target }}.tar images/
+            echo "✅ 镜像文件已移动到 images/ 目录"
+          else
+            echo "❌ 错误: 找不到 ysp-${{ matrix.platform.target }}.tar"
+            ls -la *.tar 2>/dev/null || echo "没有找到任何.tar文件"
+            exit 1
+          fi
+          
           cd images
           sha256sum ysp-${{ matrix.platform.target }}.tar > ysp-${{ matrix.platform.target }}.tar.sha256
           echo "📦 文件已保存至 ysp/images/"
