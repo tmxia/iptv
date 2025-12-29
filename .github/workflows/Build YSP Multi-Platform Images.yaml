@@ -188,13 +188,73 @@ jobs:
           path: ysp/images/ysp-${{ matrix.platform.target }}.tar.sha256
           retention-days: 7
 
-  # 可选：后续处理作业，例如合并或发布
+  # 收集和展示所有平台的下载信息
   post-process:
     needs: build
     runs-on: ubuntu-latest
     if: always() # 即使部分构建失败也执行，便于清理或通知
     steps:
-      - name: Summary
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+      
+      - name: Collect and display download links
         run: |
-          echo "所有平台的Docker镜像构建任务已完成。"
-          echo "请到 Artifacts 区域下载构建产物。"
+          echo "========================================"
+          echo "✅ YSP 多平台镜像构建完成"
+          echo "========================================"
+          echo ""
+          echo "🐳 可用镜像文件:"
+          echo ""
+          
+          # 显示各个平台的镜像文件
+          for platform in "x86_64" "aarch64" "armv7"; do
+            IMAGE_FILE=""
+            SHA_FILE=""
+            
+            # 查找对应的文件
+            if [ -f "all-artifacts/ysp-image-$platform/ysp-$platform.tar" ]; then
+              IMAGE_FILE="all-artifacts/ysp-image-$platform/ysp-$platform.tar"
+            elif [ -f "all-artifacts/ysp-image-$platform/ysp/images/ysp-$platform.tar" ]; then
+              IMAGE_FILE="all-artifacts/ysp-image-$platform/ysp/images/ysp-$platform.tar"
+            fi
+            
+            if [ -f "all-artifacts/ysp-checksum-$platform/ysp-$platform.tar.sha256" ]; then
+              SHA_FILE="all-artifacts/ysp-checksum-$platform/ysp-$platform.tar.sha256"
+            elif [ -f "all-artifacts/ysp-checksum-$platform/ysp/images/ysp-$platform.tar.sha256" ]; then
+              SHA_FILE="all-artifacts/ysp-checksum-$platform/ysp/images/ysp-$platform.tar.sha256"
+            fi
+            
+            if [ -n "$IMAGE_FILE" ] && [ -f "$IMAGE_FILE" ]; then
+              SIZE=$(du -h "$IMAGE_FILE" | cut -f1)
+              echo "📦 $platform 平台:"
+              echo "   • 镜像文件: ysp-$platform.tar (${SIZE})"
+              
+              if [ -n "$SHA_FILE" ] && [ -f "$SHA_FILE" ]; then
+                echo "   • 校验文件: $(basename "$SHA_FILE")"
+                echo "   • SHA256: $(cat "$SHA_FILE" | cut -d' ' -f1)"
+              fi
+              echo ""
+            else
+              echo "⚠️  $platform 平台: 文件未找到"
+              echo ""
+            fi
+          done
+          
+          echo "📥 下载方式:"
+          echo "   1. 进入 Artifacts 区域"
+          echo "   2. 分别下载:"
+          echo "      - ysp-image-x86_64"
+          echo "      - ysp-image-aarch64" 
+          echo "      - ysp-image-armv7"
+          echo "   3. 对应校验文件:"
+          echo "      - ysp-checksum-x86_64"
+          echo "      - ysp-checksum-aarch64"
+          echo "      - ysp-checksum-armv7"
+          echo ""
+          echo "🔗 工作流链接:"
+          echo "   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo ""
+          echo "⏰ 构建时间: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "========================================"
