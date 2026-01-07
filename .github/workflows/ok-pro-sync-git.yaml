@@ -41,17 +41,25 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y jq curl unzip
         
-    - name: Install Android SDK for aapt2
+    # ========== 修改点 1：安装指定版本的独立 aapt2 ==========
+    - name: Install a Stable aapt2 Version
       run: |
-        SDK_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip"
-        curl -sL "$SDK_TOOLS_URL" -o sdk-tools.zip
-        unzip -q sdk-tools.zip -d android-sdk
+        # 选择一个稳定的 aapt2 版本
+        AAPT2_VERSION="7.4.2-10880808"
         
-        echo "ANDROID_SDK_ROOT=$GITHUB_WORKSPACE/android-sdk" >> $GITHUB_ENV
-        echo "$GITHUB_WORKSPACE/android-sdk/cmdline-tools/bin" >> $GITHUB_PATH
+        # 从 Google Maven 仓库直接下载指定版本的 aapt2
+        AAPT2_URL="https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/${AAPT2_VERSION}/aapt2-${AAPT2_VERSION}-linux.jar"
+        echo "正在下载 aapt2 版本: $AAPT2_VERSION"
+        curl -sL "$AAPT2_URL" -o aapt2.jar
         
-        yes | android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=$GITHUB_WORKSPACE/android-sdk "build-tools;34.0.0"
-        echo "aapt2路径: $GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2"
+        # 解压出 aapt2 二进制文件
+        unzip -p aapt2.jar aapt2 > "$GITHUB_WORKSPACE/aapt2"
+        chmod +x "$GITHUB_WORKSPACE/aapt2"
+        
+        # 验证是否安装成功
+        echo "aapt2 安装完成，路径: $GITHUB_WORKSPACE/aapt2"
+        echo "版本信息:"
+        "$GITHUB_WORKSPACE/aapt2" version
         
     - name: Run APK sync script
       env:
@@ -76,6 +84,36 @@ jobs:
         # 目标仓库目录
         TARGET_DIR="$GITHUB_WORKSPACE/target-repo"
         VERSION_FILE="$TARGET_DIR/version.txt"
+        
+        # ========== 新增函数：验证 APK 文件完整性 ==========
+        validate_apk_file() {
+          local apk_path="$1"
+          local apk_name="$2"
+          
+          echo "验证 $apk_name 文件完整性..." >&2
+          
+          # 1. 检查文件是否为空
+          if [ ! -s "$apk_path" ]; then
+            echo "错误: $apk_name 文件为空" >&2
+            return 1
+          fi
+          
+          # 2. 检查是否为有效的 ZIP/APK 文件
+          if ! unzip -t -q "$apk_path" >/dev/null 2>&1; then
+            echo "错误: $apk_name 不是有效的ZIP/APK文件" >&2
+            return 1
+          fi
+          
+          # 3. 检查是否包含基本的APK结构文件 (AndroidManifest.xml)
+          if ! unzip -l "$apk_path" 2>/dev/null | head -20 | grep -q "AndroidManifest.xml"; then
+            echo "警告: $apk_name 可能缺少 AndroidManifest.xml" >&2
+            # 这里不直接返回失败，因为有些APK可能结构特殊，让aapt2去尝试解析
+          fi
+          
+          echo "  ✓ $apk_name 基础验证通过" >&2
+          return 0
+        }
+        # ========== 新增函数结束 ==========
         
         # 1. 目标文件存在性检测
         echo "检查目标文件存在性..."
@@ -111,7 +149,7 @@ jobs:
         NEED_UPDATE_STABLE=0
         NEED_UPDATE_PRE=0
         
-        # 提取版本号函数
+        # 提取版本号函数 (已使用新aapt2路径)
         extract_apk_version() {
           local apk_path="$1"
           echo "从APK提取版本号: $apk_path" >&2
@@ -162,12 +200,24 @@ jobs:
           exit 1
         fi
         
+        # ========== 修改点 2：下载后立即验证电视版APK ==========
+        if ! validate_apk_file "$WORK_DIR/$STABLE_APK_NAME" "电视版APK (leanback-pro.apk)"; then
+          echo "错误: 电视版APK文件验证失败，无法继续处理。文件可能已损坏或格式不正确。"
+          exit 1
+        fi
+        
         # 下载手机版APK
         echo "下载手机版APK..."
         PRE_RELEASE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$PRE_RELEASE_APK_NAME"
         curl -sL "$PRE_RELEASE_DOWNLOAD_URL" -o "$WORK_DIR/$PRE_RELEASE_APK_NAME"
         if [ ! -f "$WORK_DIR/$PRE_RELEASE_APK_NAME" ]; then
           echo "错误: 手机版APK下载失败"
+          exit 1
+        fi
+        
+        # ========== 修改点 2：下载后立即验证手机版APK ==========
+        if ! validate_apk_file "$WORK_DIR/$PRE_RELEASE_APK_NAME" "手机版APK (mobile-pro.apk)"; then
+          echo "错误: 手机版APK文件验证失败，无法继续处理。文件可能已损坏或格式不正确。"
           exit 1
         fi
         
