@@ -111,6 +111,43 @@ jobs:
         NEED_UPDATE_STABLE=0
         NEED_UPDATE_PRE=0
         
+        # APK文件完整性验证函数
+        validate_apk_file() {
+          local apk_path="$1"
+          local apk_name="$2"
+          
+          echo "验证 [$apk_name] 文件完整性..." >&2
+          
+          # 1. 基础存在性检查
+          if [ ! -f "$apk_path" ]; then
+            echo "错误: 文件不存在 - $apk_path" >&2
+            return 1
+          fi
+          
+          # 2. 检查文件大小（非空）
+          local file_size=$(stat -c%s "$apk_path" 2>/dev/null || wc -c < "$apk_path")
+          if [ "$file_size" -lt 10240 ]; then # 假设小于10KB为无效文件
+            echo "错误: 文件过小 (${file_size} 字节)，可能下载不完整" >&2
+            return 1
+          fi
+          
+          # 3. 检查是否为有效的 ZIP/APK 格式 (核心检查)
+          if ! unzip -t -q "$apk_path" >/dev/null 2>&1; then
+            echo "错误: 文件不是有效的ZIP/APK格式，无法解压验证" >&2
+            return 1
+          fi
+          
+          # 4. 快速检查是否包含APK关键文件 (可选，但建议)
+          local manifest_check=$(unzip -l "$apk_path" 2>/dev/null | grep -m1 "AndroidManifest.xml")
+          if [ -z "$manifest_check" ]; then
+            echo "警告: 文件可能缺少 AndroidManifest.xml，但继续处理..." >&2
+            # 不在此处失败，让 aapt2 去最终判断
+          fi
+          
+          echo "  ✅ [$apk_name] 完整性验证通过 (大小: $((file_size/1024)) KB)" >&2
+          return 0
+        }
+        
         # 提取版本号函数
         extract_apk_version() {
           local apk_path="$1"
@@ -162,12 +199,24 @@ jobs:
           exit 1
         fi
         
+        # 下载后立即验证电视版APK
+        if ! validate_apk_file "$WORK_DIR/$STABLE_APK_NAME" "电视版APK($STABLE_APK_NAME)"; then
+          echo "❌ 错误: 电视版APK文件验证失败，同步中止。请检查源文件是否完整。" >&2
+          exit 1
+        fi
+        
         # 下载手机版APK
         echo "下载手机版APK..."
         PRE_RELEASE_DOWNLOAD_URL="https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_BRANCH/$APK_DIR/$PRE_RELEASE_APK_NAME"
         curl -sL "$PRE_RELEASE_DOWNLOAD_URL" -o "$WORK_DIR/$PRE_RELEASE_APK_NAME"
         if [ ! -f "$WORK_DIR/$PRE_RELEASE_APK_NAME" ]; then
           echo "错误: 手机版APK下载失败"
+          exit 1
+        fi
+        
+        # 下载后立即验证手机版APK
+        if ! validate_apk_file "$WORK_DIR/$PRE_RELEASE_APK_NAME" "手机版APK($PRE_RELEASE_APK_NAME)"; then
+          echo "❌ 错误: 手机版APK文件验证失败，同步中止。请检查源文件是否完整。" >&2
           exit 1
         fi
         
