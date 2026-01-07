@@ -116,7 +116,7 @@ jobs:
           local apk_path="$1"
           echo "从APK提取版本号: $apk_path" >&2
           
-          VERSION_INFO=$("$GITHUB_WORKSPACE/android-sdk/build-tools/34.0.0/aapt2" dump badging "$apk_path" 2>/dev/null | grep "versionName")
+          VERSION_INFO=$("$GITHUB_WORKSPACE/aapt2" dump badging "$apk_path" 2>/dev/null | grep "versionName")
           VERSION=$(echo "$VERSION_INFO" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           
           if [ -z "$VERSION" ]; then
