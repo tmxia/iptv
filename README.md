@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2026-01-16 22:17:50 (北京时间)
+最后更新: 2026-01-16 22:31:59 (北京时间)
 
 ## 应用
 
@@ -12,8 +12,8 @@
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 46.61 | v1.2.12.1500 | 2026-01-12 |
 | <div>mobile-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk)</small></div> | 83.63 | v3.9.1 | 2026-01-11 |
 | <div>leanback-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk)</small></div> | 82.75 | v3.9.1 | 2026-01-11 |
-| <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.14 | v3.9.2 | 2026-01-10 |
 | <div>plus_mod.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_mod.apk)</small></div> | 65.31 | v12.2.10.2 | 2026-01-10 |
+| <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.15 | v3.8.18 | 2026-01-09 |
 | <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 47.78 | v3.6.0 | 2026-01-07 |
 | <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 61.50 | v3.6.0 | 2026-01-07 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.33 | v2.0.0.198 | 2026-01-05 |
