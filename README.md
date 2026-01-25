@@ -1,12 +1,12 @@
 # 应用版本列表
 
-最后更新: 2026-01-25 18:29:49 (北京时间)
+最后更新: 2026-01-25 18:33:17 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
-| <div>yykm_tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/yykm_tv.apk)</small></div> | 72.54 | v3.6.9 | 2026-01-25 |
+| <div>yykm_tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/yykm_tv.apk)</small></div> | 72.52 | v3.6.10 | 2026-01-25 |
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.10 | v4.0.1 | 2026-01-25 |
 | <div>plus_mod.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_mod.apk)</small></div> | 65.53 | v12.3.1.1 | 2026-01-24 |
 | <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 47.36 | v12.3.1 | 2026-01-24 |
