@@ -1,11 +1,13 @@
 # 应用版本列表
 
-最后更新: 2026-02-03 21:04:57 (北京时间)
+最后更新: 2026-02-03 21:15:31 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
+| <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 77.30 | v3.6.7 | 2026-02-03 |
+| <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 87.41 | v3.6.7 | 2026-02-03 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.33 | v2.1.0.201 | 2026-02-03 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 54.93 | v1.2.14.1700 | 2026-02-02 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 45.59 | v1.2.14.1700 | 2026-02-02 |
@@ -17,8 +19,6 @@
 | <div>plus_modz.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_modz.apk)</small></div> | 43.74 | v12.3.1.1 | 2026-01-26 |
 | <div>mobile-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile-pro.apk)</small></div> | 83.56 | v3.9.3 | 2026-01-22 |
 | <div>leanback-pro.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback-pro.apk)</small></div> | 82.76 | v3.9.3 | 2026-01-22 |
-| <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 47.87 | v3.6.2 | 2026-01-22 |
-| <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 61.58 | v3.6.2 | 2026-01-22 |
 | <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 13.82 | v1.2.4 | 2026-01-21 |
 | <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 14.19 | v1.2.4 | 2026-01-21 |
 | <div>youtube-music.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube-music.apk)</small></div> | 61.24 | v8.10.52 | 2026-01-20 |
