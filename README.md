@@ -1,15 +1,15 @@
 # 应用版本列表
 
-最后更新: 2026-03-03 10:49:42 (北京时间)
+最后更新: 2026-03-03 12:08:00 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
+| <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 55.02 | v1.2.15.1806 | 2026-03-03 |
+| <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 46.85 | v1.2.15.1806 | 2026-03-03 |
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.11 | v12.4.1.8 | 2026-03-01 |
 | <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 48.49 | v12.4.1 | 2026-02-28 |
-| <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 55.02 | v1.2.15.1804 | 2026-02-28 |
-| <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 46.85 | v1.2.15.1804 | 2026-02-28 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.33 | v2.1.0.204 | 2026-02-26 |
 | <div>nagramx.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk)</small></div> | 47.55 | v12.3.1.1236 | 2026-02-21 |
 | <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 57.75 | v3.7.0 | 2026-02-21 |
