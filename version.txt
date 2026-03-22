@@ -29,6 +29,6 @@
   "tauxiliary.apk": "v12.5.1.1,2026-03-11",
   "plus_modz.apk": "v12.5.1.0,2026-03-15",
   "yykm_tv.apk": "v3.8.2,2026-03-18",
-  "youtube.apk": "v20.14.43,2026-01-20",
-  "youtube-music.apk": "v8.10.52,2026-01-20"
+  "youtube.apk": "v20.40.45,2026-03-21",
+  "youtube-music.apk": "v8.40.54,2026-03-21"
 }
