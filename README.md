@@ -1,11 +1,12 @@
 # 应用版本列表
 
-最后更新: 2026-04-11 20:35:23 (北京时间)
+最后更新: 2026-04-11 20:39:42 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
+| <div>plus_modz.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_modz.apk)</small></div> | 45.75 | v12.6.4.0 | 2026-04-11 |
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.06 | v12.6.4.2 | 2026-04-10 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 62.25 | v1.2.17.2000 | 2026-04-10 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 51.49 | v1.2.17.2000 | 2026-04-10 |
@@ -19,7 +20,6 @@
 | <div>youtube-music.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube-music.apk)</small></div> | 68.59 | v8.40.54 | 2026-03-21 |
 | <div>youtube.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube.apk)</small></div> | 91.69 | v20.40.45 | 2026-03-21 |
 | <div>mobile.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mobile.apk)</small></div> | 77.25 | v5.0.2 | 2026-03-20 |
-| <div>plus_modz.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_modz.apk)</small></div> | 44.55 | v12.5.1.0 | 2026-03-15 |
 | <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 13.85 | v1.2.6 | 2026-03-01 |
 | <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 14.24 | v1.2.6 | 2026-03-01 |
 | <div>plus_mod.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_mod.apk)</small></div> | 65.56 | v12.3.1.3 | 2026-02-14 |
