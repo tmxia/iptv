@@ -1,18 +1,18 @@
 # 应用版本列表
 
-最后更新: 2026-05-22 12:05:53 (北京时间)
+最后更新: 2026-05-22 12:10:21 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
+| <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 48.84 | v12.7.3 | 2026-05-21 |
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 16.16 | v1.259.0 | 2026-05-21 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 61.75 | v1.2.19.2208 | 2026-05-20 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 49.89 | v1.2.19.2208 | 2026-05-20 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.33 | v2.2.0.214 | 2026-05-13 |
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.05 | v12.7.2.8 | 2026-05-12 |
 | <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 40.83 | v1.0.1409 | 2026-05-12 |
-| <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 49.10 | v12.6.4 | 2026-04-30 |
 | <div>nagramx.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk)</small></div> | 49.10 | v12.6.4.1246 | 2026-04-25 |
 | <div>mytv-tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv.apk)</small></div> | 34.34 | v2.1.0.212 | 2026-04-18 |
 | <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 14.61 | v1.2.7 | 2026-04-14 |
