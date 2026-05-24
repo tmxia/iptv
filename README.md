@@ -1,12 +1,12 @@
 # 应用版本列表
 
-最后更新: 2026-05-24 12:04:50 (北京时间)
+最后更新: 2026-05-24 12:07:56 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
-| <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 48.84 | v12.7.3 | 2026-05-21 |
+| <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 48.85 | v12.7.3 | 2026-05-23 |
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 16.16 | v1.259.0 | 2026-05-21 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 61.75 | v1.2.19.2208 | 2026-05-20 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 49.89 | v1.2.19.2208 | 2026-05-20 |
