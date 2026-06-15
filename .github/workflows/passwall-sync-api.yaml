@@ -2,7 +2,7 @@ name: Passwall Packages Sync from Source Repository
 
 on:
   schedule:
-    - cron: '0 */8 * * *'  # 每8小时运行一次
+    - cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:
 
 permissions:
@@ -25,18 +25,20 @@ jobs:
 
     - name: Run package sync script
       env:
-        SOURCE_REPO: "xiaorouji/openwrt-passwall"
+        SOURCE_REPO: "Openwrt-Passwall/openwrt-passwall"
         TARGET_REPO: "${{ github.repository }}"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        V19_ZIP_TARGET: "19.07_luci-passwall.zip"
-        V24_ZIP_TARGET: "24.10_luci-passwall.zip"
-        V19_ZIP_PATH: "apk/19.07_luci-passwall.zip"
-        V24_ZIP_PATH: "apk/24.10_luci-passwall.zip"
+        # 新版 OpenWrt 23.05-24.10 的 IPK 包
+        IPK_ZIP_TARGET: "23.05-24.10_luci-passwall.zip"
+        IPK_ZIP_PATH: "apk/23.05-24.10_luci-passwall.zip"
+        # 新版 OpenWrt 25.12+ 的 APK 包
+        APK_ZIP_TARGET: "25.12_luci-passwall.zip"
+        APK_ZIP_PATH: "apk/25.12_luci-passwall.zip"
       run: |
         # 创建临时工作目录
         WORK_DIR=$(mktemp -d)
         echo "创建临时目录: $WORK_DIR"
-        mkdir -p "$WORK_DIR/v19" "$WORK_DIR/v24"
+        mkdir -p "$WORK_DIR/ipk" "$WORK_DIR/apk"
         trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
 
         # 验证令牌访问权限
@@ -81,8 +83,8 @@ jobs:
         fi
 
         # 初始化更新标志
-        V19_NEED_UPDATE=false
-        V24_NEED_UPDATE=false
+        IPK_NEED_UPDATE=false
+        APK_NEED_UPDATE=false
 
         # 函数：检查是否需要更新
         check_update() {
@@ -120,59 +122,59 @@ jobs:
           return 1
         }
 
-        # 处理19.07版本
-        echo "===== 处理19.07版本 ====="
-        if check_update "$V19_ZIP_PATH" "$V19_ZIP_TARGET" "$CURRENT_VERSION_DATA" "$TAG_NAME"; then
-          V19_NEED_UPDATE=true
+        # 处理 23.05-24.10 版本 (IPK)
+        echo "===== 处理 23.05-24.10 版本 (IPK) ====="
+        if check_update "$IPK_ZIP_PATH" "$IPK_ZIP_TARGET" "$CURRENT_VERSION_DATA" "$TAG_NAME"; then
+          IPK_NEED_UPDATE=true
           
-          # 获取19.07版本文件URL
-          V19_APP_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("luci-19.07_luci-app-passwall")) | .browser_download_url' | head -1)
-          V19_I18N_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("luci-19.07_luci-i18n-passwall-zh-cn")) | .browser_download_url' | head -1)
+          # 获取 IPK 文件 URL
+          IPK_APP_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("23.05-24.10_luci-app-passwall")) | .browser_download_url' | head -1)
+          IPK_I18N_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("23.05-24.10_luci-i18n-passwall-zh-cn")) | .browser_download_url' | head -1)
           
-          if [ -z "$V19_APP_URL" ] || [ -z "$V19_I18N_URL" ]; then
-            echo "错误: 未找到19.07版本文件"
-            V19_NEED_UPDATE=false
+          if [ -z "$IPK_APP_URL" ] || [ -z "$IPK_I18N_URL" ]; then
+            echo "错误: 未找到 23.05-24.10 版本文件"
+            IPK_NEED_UPDATE=false
           else
-            echo "下载19.07应用文件: $V19_APP_URL"
-            curl -sL "$V19_APP_URL" -o "$WORK_DIR/v19/19.07_luci-app-passwall.ipk"
+            echo "下载 23.05-24.10 应用文件: $IPK_APP_URL"
+            curl -sL "$IPK_APP_URL" -o "$WORK_DIR/ipk/23.05-24.10_luci-app-passwall.ipk"
             
-            echo "下载19.07语言文件: $V19_I18N_URL"
-            curl -sL "$V19_I18N_URL" -o "$WORK_DIR/v19/19.07_luci-i18n-passwall.ipk"
+            echo "下载 23.05-24.10 语言文件: $IPK_I18N_URL"
+            curl -sL "$IPK_I18N_URL" -o "$WORK_DIR/ipk/23.05-24.10_luci-i18n-passwall-zh-cn.ipk"
             
             # 创建ZIP包
-            cd "$WORK_DIR/v19"
-            zip -j "$WORK_DIR/$V19_ZIP_TARGET" ./*
+            cd "$WORK_DIR/ipk"
+            zip -j "$WORK_DIR/$IPK_ZIP_TARGET" ./*
             cd -
             
-            echo "19.07版本文件打包完成"
+            echo "23.05-24.10 版本文件打包完成"
           fi
         fi
 
-        # 处理24.10版本
-        echo "===== 处理24.10版本 ====="
-        if check_update "$V24_ZIP_PATH" "$V24_ZIP_TARGET" "$CURRENT_VERSION_DATA" "$TAG_NAME"; then
-          V24_NEED_UPDATE=true
+        # 处理 25.12+ 版本 (APK)
+        echo "===== 处理 25.12+ 版本 (APK) ====="
+        if check_update "$APK_ZIP_PATH" "$APK_ZIP_TARGET" "$CURRENT_VERSION_DATA" "$TAG_NAME"; then
+          APK_NEED_UPDATE=true
           
-          # 获取24.10版本文件URL
-          V24_APP_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("luci-24.10_luci-app-passwall")) | .browser_download_url' | head -1)
-          V24_I18N_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("luci-24.10_luci-i18n-passwall-zh-cn")) | .browser_download_url' | head -1)
+          # 获取 APK 文件 URL
+          APK_APP_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("25.12+_luci-app-passwall")) | .browser_download_url' | head -1)
+          APK_I18N_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("25.12+_luci-i18n-passwall-zh-cn")) | .browser_download_url' | head -1)
           
-          if [ -z "$V24_APP_URL" ] || [ -z "$V24_I18N_URL" ]; then
-            echo "错误: 未找到24.10版本文件"
-            V24_NEED_UPDATE=false
+          if [ -z "$APK_APP_URL" ] || [ -z "$APK_I18N_URL" ]; then
+            echo "错误: 未找到 25.12+ 版本文件"
+            APK_NEED_UPDATE=false
           else
-            echo "下载24.10应用文件: $V24_APP_URL"
-            curl -sL "$V24_APP_URL" -o "$WORK_DIR/v24/24.10_luci-app-passwall.ipk"
+            echo "下载 25.12+ 应用文件: $APK_APP_URL"
+            curl -sL "$APK_APP_URL" -o "$WORK_DIR/apk/25.12+_luci-app-passwall.apk"
             
-            echo "下载24.10语言文件: $V24_I18N_URL"
-            curl -sL "$V24_I18N_URL" -o "$WORK_DIR/v24/24.10_luci-i18n-passwall.ipk"
+            echo "下载 25.12+ 语言文件: $APK_I18N_URL"
+            curl -sL "$APK_I18N_URL" -o "$WORK_DIR/apk/25.12+_luci-i18n-passwall-zh-cn.apk"
             
             # 创建ZIP包
-            cd "$WORK_DIR/v24"
-            zip -j "$WORK_DIR/$V24_ZIP_TARGET" ./*
+            cd "$WORK_DIR/apk"
+            zip -j "$WORK_DIR/$APK_ZIP_TARGET" ./*
             cd -
             
-            echo "24.10版本文件打包完成"
+            echo "25.12+ 版本文件打包完成"
           fi
         fi
 
@@ -182,17 +184,17 @@ jobs:
         
         # 创建jq更新脚本
         echo '. as $current |' > "$WORK_DIR/update_version.jq"
-        echo 'if $update_v19 then $current | .[$v19_key] = $v19_value else $current end |' >> "$WORK_DIR/update_version.jq"
-        echo 'if $update_v24 then . | .[$v24_key] = $v24_value else . end' >> "$WORK_DIR/update_version.jq"
+        echo 'if $update_ipk then $current | .[$ipk_key] = $ipk_value else $current end |' >> "$WORK_DIR/update_version.jq"
+        echo 'if $update_apk then . | .[$apk_key] = $apk_value else . end' >> "$WORK_DIR/update_version.jq"
         
         # 执行jq更新
         NEW_VERSION_DATA=$(jq -f "$WORK_DIR/update_version.jq" \
-            --arg v19_key "$V19_ZIP_TARGET" \
-            --arg v19_value "${TAG_NAME},${RELEASE_DATE}" \
-            --arg v24_key "$V24_ZIP_TARGET" \
-            --arg v24_value "${TAG_NAME},${RELEASE_DATE}" \
-            --argjson update_v19 "$V19_NEED_UPDATE" \
-            --argjson update_v24 "$V24_NEED_UPDATE" \
+            --arg ipk_key "$IPK_ZIP_TARGET" \
+            --arg ipk_value "${TAG_NAME},${RELEASE_DATE}" \
+            --arg apk_key "$APK_ZIP_TARGET" \
+            --arg apk_value "${TAG_NAME},${RELEASE_DATE}" \
+            --argjson update_ipk "$IPK_NEED_UPDATE" \
+            --argjson update_apk "$APK_NEED_UPDATE" \
             "$WORK_DIR/current_version.json")
         
         NEW_VERSION_CONTENT=$(echo "$NEW_VERSION_DATA" | jq -r .)
@@ -268,29 +270,29 @@ jobs:
           return 0
         }
 
-        # 上传19.07包
-        if [ "$V19_NEED_UPDATE" = true ]; then
-          if upload_file "$WORK_DIR/$V19_ZIP_TARGET" "$V19_ZIP_PATH"; then
-            echo "19.07包上传成功到apk目录"
+        # 上传 IPK 包
+        if [ "$IPK_NEED_UPDATE" = true ]; then
+          if upload_file "$WORK_DIR/$IPK_ZIP_TARGET" "$IPK_ZIP_PATH"; then
+            echo "23.05-24.10 包上传成功到 apk 目录"
           else
-            echo "上传19.07包失败"
+            echo "上传 23.05-24.10 包失败"
             exit 1
           fi
         fi
 
-        # 上传24.10包
-        if [ "$V24_NEED_UPDATE" = true ]; then
-          if upload_file "$WORK_DIR/$V24_ZIP_TARGET" "$V24_ZIP_PATH"; then
-            echo "24.10包上传成功到apk目录"
+        # 上传 APK 包
+        if [ "$APK_NEED_UPDATE" = true ]; then
+          if upload_file "$WORK_DIR/$APK_ZIP_TARGET" "$APK_ZIP_PATH"; then
+            echo "25.12+ 包上传成功到 apk 目录"
           else
-            echo "上传24.10包失败"
+            echo "上传 25.12+ 包失败"
             exit 1
           fi
         fi
 
         echo "同步完成! 最新版本: $TAG_NAME"
-        echo "19.07更新状态: $V19_NEED_UPDATE"
-        echo "24.10更新状态: $V24_NEED_UPDATE"
+        echo "23.05-24.10 更新状态: $IPK_NEED_UPDATE"
+        echo "25.12+ 更新状态: $APK_NEED_UPDATE"
 
   cleanup_self:
     name: Cleanup Workflow History
