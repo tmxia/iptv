@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2026-06-15 23:17:42 (北京时间)
+最后更新: 2026-06-15 23:23:09 (北京时间)
 
 ## 应用
 
@@ -15,11 +15,11 @@
 | <div>25.12_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/25.12_luci-passwall.zip)</small></div> | .90 | 26.6.2-1 | 2026-06-02 |
 | <div>23.05-24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/23.05-24.10_luci-passwall.zip)</small></div> | .90 | 26.6.2-1 | 2026-06-02 |
 | <div>plus_modz.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_modz.apk)</small></div> | 45.48 | v12.7.3.0 | 2026-05-31 |
+| <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 14.69 | v1.2.8 | 2026-05-28 |
+| <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 35.75 | v1.2.8 | 2026-05-28 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.33 | v2.2.0.214 | 2026-05-13 |
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.05 | v12.7.2.8 | 2026-05-12 |
 | <div>mytv-tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv.apk)</small></div> | 34.34 | v2.1.0.212 | 2026-04-18 |
-| <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 14.61 | v1.2.7 | 2026-04-14 |
-| <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 15.14 | v1.2.7 | 2026-04-14 |
 | <div>yykm_tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/yykm_tv.apk)</small></div> | 74.70 | v3.8.4-1 | 2026-03-29 |
 | <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 28.17 | v5.0.2 | 2026-03-22 |
 | <div>youtube-music.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/youtube-music.apk)</small></div> | 68.59 | v8.40.54 | 2026-03-21 |
