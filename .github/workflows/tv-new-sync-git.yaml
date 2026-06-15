@@ -300,7 +300,7 @@ jobs:
             apk_matches = await find_apks_in_channel(client, entity)
             if not apk_matches:
                 log.info("未找到符合条件的APK消息")
-                return None
+                return {}, {}
             
             updates = {}
             apk_files = {}
