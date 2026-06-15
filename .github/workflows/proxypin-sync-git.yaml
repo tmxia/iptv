@@ -32,7 +32,7 @@ jobs:
       env:
         SOURCE_REPO: "wanghongenpin/proxypin"
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        APK_PATTERN: "android-arm64.apk"
+        APK_PATTERN: "android.apk"
         WIN_PATTERN: "windows7-x64.zip"
         ANDROID_TARGET_NAME: "proxypin.apk"
         WINDOWS_TARGET_NAME: "proxypin-win.zip"
