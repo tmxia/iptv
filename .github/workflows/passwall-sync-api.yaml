@@ -22,7 +22,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y jq curl zip
-        
+
     - name: Run package sync script
       env:
         SOURCE_REPO: "xiaorouji/openwrt-passwall"
@@ -48,13 +48,15 @@ jobs:
           exit 1
         fi
 
-        # 获取最新稳定版发布信息
+        # 获取最新稳定版发布信息（使用Token认证）
         echo "获取最新稳定版发布信息..."
-        RELEASE_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases/latest")
-        if [ $? -ne 0 ] || [ "$(echo "$RELEASE_JSON" | jq -r '.message')" = "Not Found" ]; then
-          echo "错误: 无法获取发布信息"
+        RELEASE_URL="https://api.github.com/repos/$SOURCE_REPO/releases/latest"
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" "$RELEASE_URL")
+        if [ "$HTTP_STATUS" != "200" ]; then
+          echo "错误: 获取发布信息失败, HTTP状态码: $HTTP_STATUS"
           exit 1
         fi
+        RELEASE_JSON=$(curl -sL -H "Authorization: token $TOKEN" "$RELEASE_URL")
 
         # 提取版本信息
         TAG_NAME=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
@@ -178,7 +180,7 @@ jobs:
         echo "更新版本数据..."
         echo "$CURRENT_VERSION_DATA" > "$WORK_DIR/current_version.json"
         
-        # 创建jq更新脚本 - FIXED: 使用echo代替here-doc
+        # 创建jq更新脚本
         echo '. as $current |' > "$WORK_DIR/update_version.jq"
         echo 'if $update_v19 then $current | .[$v19_key] = $v19_value else $current end |' >> "$WORK_DIR/update_version.jq"
         echo 'if $update_v24 then . | .[$v24_key] = $v24_value else . end' >> "$WORK_DIR/update_version.jq"
@@ -214,14 +216,19 @@ jobs:
             --arg sha "$SHA_VERSION" \
             '{message: $msg, content: $content, sha: $sha}')
         
-        VERSION_RESPONSE=$(curl -s \
-                  -X PUT \
+        VERSION_RESPONSE=$(curl -s -X PUT \
                   -H "Authorization: token $TOKEN" \
                   -H "Content-Type: application/json" \
                   -d "$JSON_VERSION" \
                   "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
         
-        # 修复：上传ZIP文件使用直接API调用避免jq参数过长
+        # 检查版本文件上传是否成功
+        if echo "$VERSION_RESPONSE" | jq -e '.message' > /dev/null; then
+          echo "错误: 版本文件上传失败 - $(echo "$VERSION_RESPONSE" | jq -r '.message')"
+          exit 1
+        fi
+
+        # 上传ZIP文件的函数
         upload_file() {
           local file_path="$1"
           local target_path="$2"
@@ -235,11 +242,10 @@ jobs:
             sha=$(echo "$CONTENT_JSON" | jq -r '.sha')
           fi
           
-          # 直接构建JSON避免jq处理大文件
           local content_base64=$(base64 -w0 "$file_path")
           local json_file="$WORK_DIR/upload_$(basename "$target_path").json"
           
-          # 手动构建JSON避免jq参数过长
+          # 手动构建JSON
           echo -n '{"message": "' > "$json_file"
           echo -n "更新Passwall包: $target_path" >> "$json_file"
           echo -n '", "content": "' >> "$json_file"
@@ -248,8 +254,7 @@ jobs:
           echo -n "$sha" >> "$json_file"
           echo -n '"}' >> "$json_file"
           
-          RESPONSE=$(curl -s \
-                -X PUT \
+          RESPONSE=$(curl -s -X PUT \
                 -H "Authorization: token $TOKEN" \
                 -H "Content-Type: application/json" \
                 --data-binary "@$json_file" \
@@ -263,19 +268,23 @@ jobs:
           return 0
         }
 
+        # 上传19.07包
         if [ "$V19_NEED_UPDATE" = true ]; then
           if upload_file "$WORK_DIR/$V19_ZIP_TARGET" "$V19_ZIP_PATH"; then
             echo "19.07包上传成功到apk目录"
           else
             echo "上传19.07包失败"
+            exit 1
           fi
         fi
 
+        # 上传24.10包
         if [ "$V24_NEED_UPDATE" = true ]; then
           if upload_file "$WORK_DIR/$V24_ZIP_TARGET" "$V24_ZIP_PATH"; then
             echo "24.10包上传成功到apk目录"
           else
             echo "上传24.10包失败"
+            exit 1
           fi
         fi
 
