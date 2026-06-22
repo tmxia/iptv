@@ -20,7 +20,7 @@
   "hiddify-beta.apk": "v2.5.7,2024-10-03",
   "termux.apk": "v0.118.3,2025-05-22",
   "termux-beta.apk": "v0.119.0,2025-05-22",
-  "nagramx-beta.apk": "v12.8.1,2026-06-20",
+  "nagramx-beta.apk": "v12.8.1,2026-06-21",
   "tv.apk": "v3.3.10,2025-09-05",
   "tv-new.apk": "v3.5.2,2025-04-21",
   "plus_mod.apk": "v12.7.3.1,2026-06-16",
