@@ -1,17 +1,17 @@
 # 应用版本列表
 
-最后更新: 2026-08-07 10:05:11 (北京时间)
+最后更新: 2026-08-07 10:18:17 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
+| <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 16.58 | v1.271.1 | 2026-08-07 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 64.17 | v1.2.23.2606 | 2026-08-05 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 53.11 | v1.2.23.2606 | 2026-08-05 |
 | <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 48.74 | v12.9.2 | 2026-08-03 |
 | <div>nagramx.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx.apk)</small></div> | 48.64 | v12.9.0.1256 | 2026-08-03 |
 | <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.33 | v2.2.0.216 | 2026-08-02 |
-| <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 16.49 | v1.270.0 | 2026-08-01 |
 | <div>25.12_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/25.12_luci-passwall.zip)</small></div> | .81 | 26.8.1-1 | 2026-07-31 |
 | <div>23.05-24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/23.05-24.10_luci-passwall.zip)</small></div> | .81 | 26.8.1-1 | 2026-07-31 |
 | <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 14.89 | v1.3.1 | 2026-07-29 |
