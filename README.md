@@ -1,11 +1,12 @@
 # 应用版本列表
 
-最后更新: 2026-08-30 10:22:44 (北京时间)
+最后更新: 2026-08-30 10:53:11 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
+| <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 26.37 | v1.0.1553 | 2026-08-29 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 64.30 | v1.2.24.2707 | 2026-08-28 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 53.23 | v1.2.24.2707 | 2026-08-28 |
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 17.09 | v1.274.0 | 2026-08-28 |
@@ -19,7 +20,6 @@
 | <div>plus_modz.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_modz.apk)</small></div> | 46.72 | v12.9.2.0 | 2026-08-09 |
 | <div>proxypin-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin-win.zip)</small></div> | 14.89 | v1.3.1 | 2026-07-29 |
 | <div>proxypin.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/proxypin.apk)</small></div> | 35.79 | v1.3.1 | 2026-07-29 |
-| <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 40.93 | v1.0.1466 | 2026-07-16 |
 | <div>tauxiliary.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/tauxiliary.apk)</small></div> | 2.05 | v12.7.2.8 | 2026-05-12 |
 | <div>yykm_tv.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/yykm_tv.apk)</small></div> | 74.70 | v3.8.4-1 | 2026-03-29 |
 | <div>leanback.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/leanback.apk)</small></div> | 28.17 | v5.0.2 | 2026-03-22 |
