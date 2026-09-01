@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2026-09-01 12:56:21 (北京时间)
+最后更新: 2026-09-01 15:00:33 (北京时间)
 
 ## 应用
 
@@ -8,8 +8,8 @@
 |----------|------------|--------|----------|
 | <div>25.12_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/25.12_luci-passwall.zip)</small></div> | .81 | 26.9.1-1 | 2026-09-01 |
 | <div>23.05-24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/23.05-24.10_luci-passwall.zip)</small></div> | .81 | 26.9.1-1 | 2026-09-01 |
-| <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 64.30 | v1.2.24.2708 | 2026-08-31 |
-| <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 53.23 | v1.2.24.2708 | 2026-08-31 |
+| <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 64.30 | v1.2.24.2709 | 2026-09-01 |
+| <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 53.23 | v1.2.24.2709 | 2026-09-01 |
 | <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 26.37 | v1.0.1553 | 2026-08-29 |
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 17.09 | v1.274.0 | 2026-08-28 |
 | <div>nagramx-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/nagramx-beta.apk)</small></div> | 44.36 | v12.10.0 | 2026-08-22 |
