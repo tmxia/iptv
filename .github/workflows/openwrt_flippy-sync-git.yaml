@@ -1,0 +1,521 @@
+name: OpenWrt Kernel Sync from TELEGRAM
+
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  schedule:
+    - cron: '0 18 * * 1' # 周一凌晨2点（北京时间）  
+    - cron: '0 11 * * 1' # 周一下午7点（北京时间）
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Acquire Repository Lock 🔒
+      uses: softprops/turnstyle@v3
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200  # 20分钟超时
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 1
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.13'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip zip
+        pip install telethon requests pytz
+
+    - name: Run Kernel Sync
+      env:
+        TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+        TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+        TELEGRAM_CHANNEL: "openwrt_flippy"
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TARGET_REPO: ${{ github.repository }}
+      run: |
+        python - << "EOF"
+        import os
+        import json
+        import sys
+        import subprocess
+        import shutil
+        import time
+        import re
+        import logging
+        import zipfile
+        from datetime import datetime
+        from telethon import TelegramClient
+        from telethon.sessions import StringSession
+        from telethon.tl.types import DocumentAttributeFilename
+        import pytz
+        
+        # 配置参数
+        KERNEL_GROUPS = {
+            "openwrt_flippy6.1": [
+                r"dtb-rockchip-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
+                r"dtb-amlogic-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
+                r"boot-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
+                r"modules-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
+                r"header-6\.1\..*-flippy-\d+\+.*\.tar\.gz",
+                r"dtb-allwinner-6\.1\..*-flippy-\d+\+.*\.tar\.gz"
+            ],
+            "openwrt_flippy6.6": [
+                r"dtb-rockchip-6\.6\..*-flippy-\d+\+.*\.tar\.gz",
+                r"dtb-amlogic-6\.6\..*-flippy-\d+\+.*\.tar\.gz",
+                r"boot-6\.6\..*-flippy-\d+\+.*\.tar\.gz",
+                r"modules-6\.6\..*-flippy-\d+\+.*\.tar\.gz",
+                r"header-6\.6\..*-flippy-\d+\+.*\.tar\.gz",
+                r"dtb-allwinner-6\.6\..*-flippy-\d+\+.*\.tar\.gz"
+            ],
+            "openwrt_flippy6.12": [
+                r"dtb-amlogic-6\.12\..*-flippy-\d+\+.*\.tar\.gz",
+                r"dtb-rockchip-6\.12\..*-flippy-\d+\+.*\.tar\.gz",
+                r"boot-6\.12\..*-flippy-\d+\+.*\.tar\.gz",
+                r"dtb-allwinner-6\.12\..*-flippy-\d+\+.*\.tar\.gz",
+                r"header-6\.12\..*-flippy-\d+\+.*\.tar\.gz",
+                r"modules-6\.12\..*-flippy-\d+\+.*\.tar\.gz"
+            ]
+        }
+        REQUIRED_FILE_COUNT = 6
+        
+        KERNEL_DIR = "kernels"
+        KERNEL_VERSION_FILE = "kernel_versions.json"
+        
+        # 环境变量
+        WORK_DIR = os.path.join(os.getcwd(), "temp_kernels")
+        GIT_DIR = os.getcwd()
+        os.makedirs(WORK_DIR, exist_ok=True)
+        
+        # 配置日志
+        logging.basicConfig(
+            level=logging.INFO,
+            format='[%(asctime)s] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        log = logging.getLogger()
+        
+        def setup_git():
+            try:
+                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
+                email = os.environ.get('GITHUB_EMAIL', f'{actor}@users.noreply.github.com')
+                
+                subprocess.run(["git", "config", "user.name", actor], cwd=GIT_DIR, check=True)
+                subprocess.run(["git", "config", "user.email", email], cwd=GIT_DIR, check=True)
+                
+                # 拉取最新更改
+                subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=GIT_DIR, check=True)
+                return True
+            except Exception as e:
+                log.error(f"Git设置失败: {str(e)}")
+                return False
+        
+        def commit_and_push(message):
+            try:
+                # 添加内核目录和版本文件
+                subprocess.run(["git", "add", KERNEL_DIR, KERNEL_VERSION_FILE], cwd=GIT_DIR, check=True)
+                
+                # 检查是否有更改
+                status = subprocess.run(["git", "status", "--porcelain"], cwd=GIT_DIR, capture_output=True, text=True)
+                if not status.stdout.strip():
+                    return True
+                
+                # 提交更改
+                subprocess.run(["git", "commit", "-m", message], cwd=GIT_DIR, check=True)
+                
+                token = os.environ['GITHUB_TOKEN']
+                actor = os.environ.get('GITHUB_ACTOR', 'github-actions')
+                repo = os.environ['TARGET_REPO']
+                repo_url = f"https://{actor}:{token}@github.com/{repo}.git"
+                
+                # 重试机制
+                max_attempts = 3
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=GIT_DIR, check=True)
+                        subprocess.run(
+                            ["git", "push", repo_url, "HEAD:main"],
+                            cwd=GIT_DIR,
+                            check=True
+                        )
+                        return True
+                    except subprocess.CalledProcessError:
+                        if attempt < max_attempts:
+                            time.sleep(10)
+                        else:
+                            log.error(f"推送更改失败")
+                            return False
+            except Exception as e:
+                log.error(f"Git操作失败: {str(e)}")
+                return False
+        
+        def get_kernel_versions():
+            """获取内核版本信息，确保包含所有组"""
+            version_path = os.path.join(GIT_DIR, KERNEL_VERSION_FILE)
+            default_versions = {group: {"version": "", "date": ""} for group in KERNEL_GROUPS}
+            
+            if os.path.exists(version_path):
+                try:
+                    with open(version_path, "r") as f:
+                        versions = json.load(f)
+                        # 确保所有组都存在
+                        for group in KERNEL_GROUPS:
+                            if group not in versions:
+                                versions[group] = {"version": "", "date": ""}
+                        return versions
+                except:
+                    return default_versions
+            return default_versions
+        
+        def save_kernel_versions(versions):
+            version_path = os.path.join(GIT_DIR, KERNEL_VERSION_FILE)
+            with open(version_path, "w") as f:
+                json.dump(versions, f, indent=2)
+        
+        def pattern_match(filename, pattern):
+            return re.match(pattern, filename) is not None
+        
+        def find_matching_group(filename):
+            for group, patterns in KERNEL_GROUPS.items():
+                for pattern in patterns:
+                    if pattern_match(filename, pattern):
+                        return group
+            return None
+        
+        def extract_version_from_filename(filename):
+            # 扩展版本匹配模式，支持6.6.93-flippy-93+格式
+            match = re.search(r'(\d+\.\d+\.\d+-flippy-\d+\+[a-z]*)', filename)
+            if not match:
+                # 尝试匹配没有后缀字母的版本（如6.6.93-flippy-93+）
+                match = re.search(r'(\d+\.\d+\.\d+-flippy-\d+\+)', filename)
+            return match.group(1) if match else None
+        
+        async def download_file(client, message, filename, download_path):
+            await client.download_media(message, file=download_path)
+            return True
+        
+        def get_latest_date(messages):
+            latest_date = None
+            for msg in messages:
+                if latest_date is None or msg.date > latest_date:
+                    latest_date = msg.date
+            return latest_date
+        
+        async def process_group(client, group_name, version, files_to_download, group_dir):
+            # 获取组内所有消息的最新日期
+            all_messages = [msg for _, msg in files_to_download]
+            latest_date = get_latest_date(all_messages)
+            
+            # 转换为UTC+8时区
+            utc8 = pytz.timezone('Asia/Shanghai')
+            date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
+            
+            os.makedirs(group_dir, exist_ok=True)
+            
+            # 下载组内所有文件
+            for filename, msg in files_to_download:
+                download_path = os.path.join(group_dir, filename)
+                await download_file(client, msg, filename, download_path)
+            
+            # 创建ZIP文件
+            zip_filename = f"{group_name}_{version}.zip"
+            zip_path = os.path.join(WORK_DIR, zip_filename)
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                for root, _, files in os.walk(group_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        zipf.write(file_path, os.path.basename(file_path))
+            
+            return zip_path, date_utc8
+        
+        async def find_new_kernels(client, kernel_versions):
+            log.info("连接Telegram频道")
+            try:
+                await client.connect()
+                if not await client.is_user_authorized():
+                    log.error("Telegram会话无效")
+                    return None
+                
+                channel = os.environ.get('TELEGRAM_CHANNEL', 'openwrt_flippy')
+                entity = await client.get_entity(channel)
+                
+                updates = {}
+                
+                # 存储找到的文件
+                found_groups = {group: {} for group in KERNEL_GROUPS.keys()}
+                
+                # 获取频道中最新的50条消息
+                async for msg in client.iter_messages(entity, limit=50):
+                    if msg.media and hasattr(msg.media, "document"):
+                        for attr in msg.media.document.attributes:
+                            if isinstance(attr, DocumentAttributeFilename):
+                                filename = attr.file_name
+                                group = find_matching_group(filename)
+                                if group:
+                                    version = extract_version_from_filename(filename)
+                                    if not version:
+                                        continue
+                                    
+                                    if version not in found_groups[group]:
+                                        found_groups[group][version] = {}
+                                    
+                                    found_groups[group][version][filename] = msg
+                
+                # 检查每个组的完整性
+                for group, versions in found_groups.items():
+                    if not versions:
+                        continue
+                        
+                    sorted_versions = sorted(versions.keys(), reverse=True)
+                    for version in sorted_versions:
+                        files = versions[version]
+                        
+                        # 检查是否包含所有必需的文件
+                        required_patterns = KERNEL_GROUPS[group]
+                        matched_files = {}
+                        
+                        for pattern in required_patterns:
+                            for filename in files.keys():
+                                if pattern_match(filename, pattern):
+                                    matched_files[pattern] = filename
+                                    break
+                        
+                        if len(matched_files) == REQUIRED_FILE_COUNT:
+                            log.info(f"发现完整内核组: {group}@{version}")
+                            
+                            # 获取当前版本信息
+                            current_version = kernel_versions.get(group, {}).get("version", "")
+                            current_date = kernel_versions.get(group, {}).get("date", "")
+                            
+                            # 获取组内所有消息的最新日期
+                            all_messages = list(files.values())
+                            latest_date = get_latest_date(all_messages)
+                            
+                            # 转换为日期字符串
+                            utc8 = pytz.timezone('Asia/Shanghai')
+                            date_utc8 = latest_date.astimezone(utc8).strftime("%Y-%m-%d")
+                            
+                            # 检查是否需要更新
+                            version_updated = False
+                            if not current_version:
+                                version_updated = True
+                                log.info(f"首次添加新内核组: {group}")
+                            elif version != current_version:
+                                version_updated = True
+                                log.info(f"发现新版本: {version} (当前: {current_version})")
+                            elif date_utc8 > current_date:
+                                version_updated = True
+                                log.info(f"相同版本但更新日期: {date_utc8} > {current_date}")
+                            
+                            if version_updated:
+                                try:
+                                    files_to_download = [(filename, msg) for filename, msg in files.items()]
+                                    group_dir = os.path.join(WORK_DIR, f"group_{group}_{version}")
+                                    
+                                    zip_path, zip_date = await process_group(client, group, version, files_to_download, group_dir)
+                                    updates[group] = {
+                                        "version": version,
+                                        "date": zip_date,
+                                        "zip_path": zip_path
+                                    }
+                                except Exception as e:
+                                    log.error(f"处理{group}时出错: {str(e)}")
+                            
+                            # 只处理最新版本
+                            break
+                
+                return updates if updates else None
+            finally:
+                # 确保连接关闭
+                await client.disconnect()
+        
+        def delete_old_kernel_versions(group, current_version):
+            target_dir = os.path.join(GIT_DIR, KERNEL_DIR)
+            if not os.path.exists(target_dir):
+                return []
+            
+            # 查找所有同组文件
+            group_files = []
+            for filename in os.listdir(target_dir):
+                if filename.startswith(f"{group}_") and filename.endswith(".zip"):
+                    group_files.append(filename)
+            
+            if not group_files:
+                return []
+            
+            # 删除旧版本文件
+            deleted = []
+            for filename in group_files:
+                if current_version in filename:
+                    continue
+                
+                file_path = os.path.join(target_dir, filename)
+                os.remove(file_path)
+                deleted.append(filename)
+            
+            return deleted
+        
+        def main():
+            log.info("OpenWrt 内核同步工具启动")
+            
+            # 验证环境变量
+            required = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION', 'GITHUB_TOKEN']
+            missing = [var for var in required if not os.environ.get(var)]
+            if missing:
+                log.error(f"缺少环境变量: {', '.join(missing)}")
+                return 1
+            
+            if not setup_git():
+                return 2
+            
+            # 获取内核版本信息
+            kernel_versions = get_kernel_versions()
+            
+            client = TelegramClient(
+                StringSession(os.environ['TELEGRAM_SESSION']),
+                int(os.environ['TELEGRAM_API_ID']),
+                os.environ['TELEGRAM_API_HASH']
+            )
+            
+            try:
+                # 使用上下文管理器确保连接正确关闭
+                with client:
+                    new_kernels = client.loop.run_until_complete(
+                        find_new_kernels(client, kernel_versions))
+            except Exception as e:
+                log.error(f"Telegram操作错误: {str(e)}")
+                return 3
+            
+            updated = False
+            deleted_count = 0
+            
+            if new_kernels:
+                target_dir = os.path.join(GIT_DIR, KERNEL_DIR)
+                os.makedirs(target_dir, exist_ok=True)
+                
+                for group, data in new_kernels.items():
+                    try:
+                        # 复制ZIP文件到仓库
+                        target_path = os.path.join(target_dir, os.path.basename(data["zip_path"]))
+                        shutil.copy2(data["zip_path"], target_path)
+                        
+                        # 更新版本信息
+                        kernel_versions[group] = {
+                            "version": data["version"],
+                            "date": data["date"]
+                        }
+                        log.info(f"已更新: {group}@{data['version']}")
+                        
+                        # 删除旧版本
+                        deleted = delete_old_kernel_versions(group, data["version"])
+                        deleted_count += len(deleted)
+                        
+                        updated = True
+                    except Exception as e:
+                        log.error(f"更新{group}时出错: {str(e)}")
+                
+                if updated:
+                    # 保存内核版本信息
+                    save_kernel_versions(kernel_versions)
+                    
+                    # 生成提交信息
+                    group_versions = []
+                    for group, data in new_kernels.items():
+                        group_versions.append(f"{group}@{data['version']}")
+                    
+                    commit_msg = f"更新OpenWrt内核: {', '.join(group_versions)}"
+                    if deleted_count:
+                        commit_msg += f"\n删除 {deleted_count} 个旧版本"
+                    
+                    if commit_and_push(commit_msg):
+                        log.info(f"同步成功! 更新 {len(new_kernels)} 组, 删除 {deleted_count} 旧版本")
+                    else:
+                        log.error("提交失败")
+                        return 4
+                else:
+                    log.info("所有更新尝试失败")
+            else:
+                log.info("没有需要更新的内核文件")
+            
+            # 清理临时目录
+            if os.path.exists(WORK_DIR):
+                shutil.rmtree(WORK_DIR)
+            
+            log.info("同步任务完成")
+            return 0
+        
+        if __name__ == "__main__":
+            sys.exit(main())
+        EOF
+
+    - name: Release Repository Lock 🔓
+      if: always()
+      uses: softprops/turnstyle@v3
+      with:
+        continue-on-error: true
+        action: unlock
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          try {
+            const issue_number = context.issue.number;
+            if (issue_number) {
+              await github.rest.issues.createComment({
+                issue_number: issue_number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `工作流失败通知 - ${{ github.workflow }} #${{ github.run_number }}`,
+                body: `🚨 OpenWrt内核同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+              });
+            }
+          } catch (error) {
+            core.error(`🚨 OpenWrt内核同步失败！详情请查看运行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`);
+          }
+
+  cleanup_self:
+    name: Cleanup Self Workflow History
+    runs-on: ubuntu-latest
+    needs: sync
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "OpenWrt Kernel Sync from TELEGRAM"
+          repository: ${{ github.repository }}

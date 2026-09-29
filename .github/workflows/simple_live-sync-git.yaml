@@ -1,0 +1,364 @@
+name: Simple_live APK Sync from Source Repository
+
+on:
+  schedule:
+    - cron: '0 */72 * * *'  # 每72小时运行一次
+  workflow_dispatch:
+
+# 使用原生并发控制
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    # 基于文件系统的锁机制
+    - name: Acquire Repository Lock
+      id: lock
+      run: |
+        LOCK_DIR="$GITHUB_WORKSPACE/.lock"
+        LOCK_FILE="$LOCK_DIR/repo-lock"
+        mkdir -p "$LOCK_DIR"
+        
+        for i in {1..20}; do
+          if [ -f "$LOCK_FILE" ]; then
+            echo "锁已被占用，等待重试 ($i/20)..."
+            sleep 30
+          else
+            touch "$LOCK_FILE"
+            echo "lock-acquired=true" >> $GITHUB_OUTPUT
+            echo "成功获取锁"
+            exit 0
+          fi
+        done
+        
+        echo "::error::无法在10分钟内获取锁"
+        exit 1
+
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 1
+
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y jq curl
+
+    - name: Configure Git
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git config pull.rebase true
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        
+    - name: Run APK sync
+      env:
+        SOURCE_REPO: "xiaoyaocz/dart_simple_live"
+        TARGET_REPO: "${{ github.repository }}"
+        STABLE_APK_PATTERN: "app-arm64-v8a-release"  # 安卓版 (手机)
+        TV_APK_PATTERN: "app-armeabi-v7a-release"    # TV版 (电视)
+        ANDROID_KEY_NAME: "simple_live.apk"
+        TV_KEY_NAME: "simple_live-tv.apk"
+      run: |
+        set -euo pipefail
+        
+        # 创建临时工作目录
+        WORK_DIR=$(mktemp -d)
+        trap 'rm -rf "$WORK_DIR"' EXIT
+        
+        # 确保apk目录存在
+        mkdir -p apk
+        
+        # 获取源仓库发布信息
+        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
+        if [ -z "$RELEASES_JSON" ]; then
+          echo "::error::无法获取源仓库发布信息"
+          exit 1
+        fi
+        
+        # 验证JSON格式
+        if ! echo "$RELEASES_JSON" | jq -e . >/dev/null 2>&1; then
+          echo "::error::获取的发布信息不是有效的JSON格式"
+          exit 1
+        fi
+        
+        # 获取并解析版本文件
+        if [ -f "version.txt" ]; then
+          CURRENT_VERSION_JSON=$(cat version.txt | jq -c . || echo "{}")
+          echo "当前仓库版本文件内容:"
+          echo "$CURRENT_VERSION_JSON" | jq .
+        else
+          CURRENT_VERSION_JSON="{}"
+          echo "未找到版本文件，将创建新文件"
+        fi
+        
+        # 提取当前仓库版本
+        CURRENT_ANDROID=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$ANDROID_KEY_NAME\"? // \"\"" | cut -d, -f1)
+        CURRENT_ANDROID_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$ANDROID_KEY_NAME\"? // \"\"" | cut -d, -f2)
+        CURRENT_TV=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$TV_KEY_NAME\"? // \"\"" | cut -d, -f1)
+        CURRENT_TV_DATE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$TV_KEY_NAME\"? // \"\"" | cut -d, -f2)
+        
+        echo "当前仓库安卓版: ${CURRENT_ANDROID:-无} (${CURRENT_ANDROID_DATE:-无日期})"
+        echo "当前仓库TV版: ${CURRENT_TV:-无} (${CURRENT_TV_DATE:-无日期})"
+        
+        # 检查文件存在性函数
+        check_file_exists() {
+          local file_path="$1"
+          if [ -f "$file_path" ] && [ -s "$file_path" ]; then
+            echo "文件存在: $file_path"
+            return 0
+          else
+            echo "文件不存在或为空: $file_path"
+            return 1
+          fi
+        }
+        
+        # 版本信息提取函数 - 修复空参数问题
+        extract_version_info() {
+          local release_json="$1"
+          local tag_name=$(jq -r '.tag_name' <<< "$release_json")
+          local published_at=$(jq -r '.published_at' <<< "$release_json")
+          local date_utc8=$(TZ=UTC date -d "$published_at" +'%Y-%m-%d')
+          
+          # 如果是预发布版（TV版），处理版本号前缀
+          if [[ "${2:-}" == "tv" ]]; then
+            tag_name=$(echo "$tag_name" | sed 's/^tv_//')
+          fi
+          
+          echo "$tag_name $date_utc8"
+        }
+        
+        # 处理安卓版（稳定版）
+        ANDROID_UPDATED=false
+        LATEST_STABLE=$(echo "$RELEASES_JSON" | jq -r '[.[] | select(.prerelease == false)] | sort_by(.published_at) | reverse | .[0]')
+        
+        if [ -n "$LATEST_STABLE" ] && [ "$LATEST_STABLE" != "null" ]; then
+          read NEW_ANDROID_VERSION NEW_ANDROID_DATE <<< $(extract_version_info "$LATEST_STABLE")
+          echo "源仓库安卓版: $NEW_ANDROID_VERSION ($NEW_ANDROID_DATE)"
+          
+          # 检查是否需要更新
+          ANDROID_FILE_PATH="apk/$ANDROID_KEY_NAME"
+          if ! check_file_exists "$ANDROID_FILE_PATH" || [ "$NEW_ANDROID_VERSION" != "$CURRENT_ANDROID" ]; then
+            echo "需要更新安卓版: ${CURRENT_ANDROID:-无} -> $NEW_ANDROID_VERSION"
+            
+            # 获取下载URL
+            ANDROID_URL=$(echo "$LATEST_STABLE" | jq -r \
+              ".assets[] | select(.name | contains(\"$STABLE_APK_PATTERN\")) | .browser_download_url" | head -1)
+            
+            if [ -z "$ANDROID_URL" ]; then
+              echo "::warning::未找到匹配的安卓版APK文件 (模式: $STABLE_APK_PATTERN)"
+            else
+              echo "下载安卓版APK: $ANDROID_URL"
+              if curl -fL "$ANDROID_URL" -o "$WORK_DIR/$ANDROID_KEY_NAME"; then
+                # 验证文件大小
+                FILE_SIZE=$(stat -c%s "$WORK_DIR/$ANDROID_KEY_NAME")
+                if [ "$FILE_SIZE" -gt 1000000 ]; then  # 至少1MB
+                  mv -f "$WORK_DIR/$ANDROID_KEY_NAME" "$ANDROID_FILE_PATH"
+                  ANDROID_UPDATED=true
+                  echo "安卓版APK更新成功"
+                else
+                  echo "::error::下载文件过小（$FILE_SIZE 字节），可能下载失败"
+                  rm -f "$WORK_DIR/$ANDROID_KEY_NAME"
+                fi
+              else
+                echo "::error::下载安卓版APK失败"
+              fi
+            fi
+          else
+            echo "安卓版已是最新，无需更新"
+          fi
+        else
+          echo "::warning::未找到安卓版发布"
+          NEW_ANDROID_VERSION="$CURRENT_ANDROID"
+          NEW_ANDROID_DATE="$CURRENT_ANDROID_DATE"
+        fi
+        
+        # 处理TV版（预发布版）
+        TV_UPDATED=false
+        LATEST_TV=$(echo "$RELEASES_JSON" | jq -r '[.[] | select(.prerelease == true)] | sort_by(.published_at) | reverse | .[0]')
+        
+        if [ -n "$LATEST_TV" ] && [ "$LATEST_TV" != "null" ]; then
+          read NEW_TV_VERSION NEW_TV_DATE <<< $(extract_version_info "$LATEST_TV" "tv")
+          echo "源仓库TV版: $NEW_TV_VERSION ($NEW_TV_DATE)"
+          
+          # 检查是否需要更新
+          TV_FILE_PATH="apk/$TV_KEY_NAME"
+          if ! check_file_exists "$TV_FILE_PATH" || [ "$NEW_TV_VERSION" != "$CURRENT_TV" ]; then
+            echo "需要更新TV版: ${CURRENT_TV:-无} -> $NEW_TV_VERSION"
+            
+            # 获取下载URL
+            TV_URL=$(echo "$LATEST_TV" | jq -r \
+              ".assets[] | select(.name | contains(\"$TV_APK_PATTERN\")) | .browser_download_url" | head -1)
+            
+            if [ -z "$TV_URL" ]; then
+              echo "::warning::未找到匹配的TV版APK文件 (模式: $TV_APK_PATTERN)"
+            else
+              echo "下载TV版APK: $TV_URL"
+              if curl -fL "$TV_URL" -o "$WORK_DIR/$TV_KEY_NAME"; then
+                # 验证文件大小
+                FILE_SIZE=$(stat -c%s "$WORK_DIR/$TV_KEY_NAME")
+                if [ "$FILE_SIZE" -gt 1000000 ]; then  # 至少1MB
+                  mv -f "$WORK_DIR/$TV_KEY_NAME" "$TV_FILE_PATH"
+                  TV_UPDATED=true
+                  echo "TV版APK更新成功"
+                else
+                  echo "::error::下载文件过小（$FILE_SIZE 字节），可能下载失败"
+                  rm -f "$WORK_DIR/$TV_KEY_NAME"
+                fi
+              else
+                echo "::error::下载TV版APK失败"
+              fi
+            fi
+          else
+            echo "TV版已是最新，无需更新"
+          fi
+        else
+          echo "::warning::未找到TV版发布"
+          NEW_TV_VERSION="$CURRENT_TV"
+          NEW_TV_DATE="$CURRENT_TV_DATE"
+        fi
+        
+        # 更新版本文件
+        UPDATE_VERSION_FILE=false
+        UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq -c .)
+        
+        # 安卓版更新检查
+        if [ -n "$NEW_ANDROID_VERSION" ] && 
+           { [ "$NEW_ANDROID_VERSION" != "$CURRENT_ANDROID" ] || 
+             [ "$NEW_ANDROID_DATE" != "$CURRENT_ANDROID_DATE" ]; }; then
+          UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq --arg k "$ANDROID_KEY_NAME" \
+            --arg v "$NEW_ANDROID_VERSION,$NEW_ANDROID_DATE" \
+            '.[$k] = $v')
+          UPDATE_VERSION_FILE=true
+          echo "更新安卓版版本信息: $NEW_ANDROID_VERSION ($NEW_ANDROID_DATE)"
+        fi
+        
+        # TV版更新检查
+        if [ -n "$NEW_TV_VERSION" ] && 
+           { [ "$NEW_TV_VERSION" != "$CURRENT_TV" ] || 
+             [ "$NEW_TV_DATE" != "$CURRENT_TV_DATE" ]; }; then
+          UPDATED_VERSION_JSON=$(echo "$UPDATED_VERSION_JSON" | jq --arg k "$TV_KEY_NAME" \
+            --arg v "$NEW_TV_VERSION,$NEW_TV_DATE" \
+            '.[$k] = $v')
+          UPDATE_VERSION_FILE=true
+          echo "更新TV版版本信息: $NEW_TV_VERSION ($NEW_TV_DATE)"
+        fi
+        
+        # 写入版本文件
+        if $UPDATE_VERSION_FILE; then
+          echo "$UPDATED_VERSION_JSON" | jq . > version.txt
+          echo "版本文件已更新"
+        else
+          echo "版本文件无需更新"
+        fi
+        
+        # 提交更改
+        git add apk/* version.txt
+        
+        # 检查是否有更改
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "检测到更改，提交到Git"
+          COMMIT_MESSAGE="更新APK: "
+          
+          if [ "$ANDROID_UPDATED" = true ]; then
+            COMMIT_MESSAGE+="安卓版=$NEW_ANDROID_VERSION"
+          fi
+          
+          if [ "$TV_UPDATED" = true ]; then
+            if [ "$ANDROID_UPDATED" = true ]; then
+              COMMIT_MESSAGE+=", "
+            fi
+            COMMIT_MESSAGE+="TV版=$NEW_TV_VERSION"
+          fi
+          
+          # 如果没有APK更新但版本文件更新
+          if [ "$ANDROID_UPDATED" = false ] && [ "$TV_UPDATED" = false ] && $UPDATE_VERSION_FILE; then
+            COMMIT_MESSAGE="更新版本文件"
+          fi
+          
+          git commit -m "$COMMIT_MESSAGE"
+          
+          # 推送更改
+          MAX_RETRIES=5
+          RETRY_DELAY=15
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "尝试拉取最新更改..."
+            git pull --rebase
+            
+            echo "尝试推送更改 ($i/$MAX_RETRIES)..."
+            if git push origin HEAD:${GITHUB_REF#refs/heads/}; then
+              echo "推送成功"
+              break
+            else
+              echo "推送失败，等待重试 ($i/$MAX_RETRIES)..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          
+          if [ $i -eq $MAX_RETRIES ]; then
+            echo "::error::推送失败，达到最大重试次数"
+            exit 1
+          fi
+        else
+          echo "没有检测到更改，跳过提交"
+        fi
+        
+        # 最终文件存在性验证
+        echo "最终文件验证:"
+        if [ -n "$NEW_ANDROID_VERSION" ]; then
+          if check_file_exists "apk/$ANDROID_KEY_NAME"; then
+            echo "安卓版APK验证成功"
+          else
+            echo "::error::安卓版APK缺失"
+            exit 1
+          fi
+        fi
+        
+        if [ -n "$NEW_TV_VERSION" ]; then
+          if check_file_exists "apk/$TV_KEY_NAME"; then
+            echo "TV版APK验证成功"
+          else
+            echo "::error::TV版APK缺失"
+            exit 1
+          fi
+        fi
+        
+        echo "同步完成!"
+        echo "安卓版: ${NEW_ANDROID_VERSION:-无} (${NEW_ANDROID_DATE:-无日期})"
+        echo "TV版: ${NEW_TV_VERSION:-无} (${NEW_TV_DATE:-无日期})"
+        exit 0
+
+    - name: Release Repository Lock
+      if: always()
+      run: |
+        # 释放锁
+        LOCK_FILE="$GITHUB_WORKSPACE/.lock/repo-lock"
+        if [ -f "$LOCK_FILE" ]; then
+          rm -f "$LOCK_FILE"
+          echo "锁已释放"
+        else
+          echo "锁文件不存在，无需释放"
+        fi
+
+  cleanup_self:
+    name: Cleanup Self Workflow History
+    runs-on: ubuntu-latest
+    needs: sync
+    if: always()
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "Simple_live APK Sync from Source Repository"
+          repository: ${{ github.repository }}

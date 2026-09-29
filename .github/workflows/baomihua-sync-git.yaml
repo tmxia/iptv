@@ -1,0 +1,399 @@
+name: BaoMiHua APK Download and Sync
+
+on:
+  #schedule:
+    #- cron: '0 */12 * * *'  # 每12小时运行一次
+  workflow_dispatch:
+
+# 使用原生并发控制
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    # 基于缓存的锁机制
+    - name: Acquire Repository Lock 🔒
+      id: lock
+      run: |
+        # 创建锁文件路径
+        LOCK_DIR="$GITHUB_WORKSPACE/.lock"
+        mkdir -p "$LOCK_DIR"
+        LOCK_FILE="$LOCK_DIR/repo-lock"
+        
+        # 尝试获取锁
+        for i in {1..10}; do
+          if [ -f "$LOCK_FILE" ]; then
+            echo "锁已被占用，等待重试 ($i/10)..."
+            sleep 30
+          else
+            # 创建锁文件
+            touch "$LOCK_FILE"
+            echo "lock-acquired=true" >> $GITHUB_OUTPUT
+            echo "成功获取锁"
+            exit 0
+          fi
+        done
+        
+        echo "错误: 无法在5分钟内获取锁"
+        exit 1
+
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 1
+
+    - name: Configure Git
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@users.noreply.github.com"
+        git config pull.rebase true
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl wget python3-pip
+        pip install --upgrade pip
+        pip install cloudscraper requests beautifulsoup4
+
+    - name: Download and process APK
+      env:
+        APK_NAME: "baomihua.apk"
+        DOWNLOAD_PAGE_URL: "https://bmh.163.com/download/"
+      run: |
+        # 1. 确保获取最新代码
+        echo "拉取远程最新更改..."
+        git pull origin main
+        
+        # 创建临时工作目录
+        WORK_DIR=$(mktemp -d)
+        echo "创建临时目录: $WORK_DIR"
+        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
+
+        # 使用cloudscraper绕过Cloudflare获取页面
+        echo "获取下载页面..."
+        cat > "$WORK_DIR/get_page.py" <<EOL
+        import cloudscraper
+        import sys
+        import json
+        
+        scraper = cloudscraper.create_scraper()
+        try:
+            response = scraper.get(sys.argv[1])
+            if response.status_code == 200:
+                print(response.text)
+            else:
+                print(f"错误: 状态码 {response.status_code}", file=sys.stderr)
+                sys.exit(1)
+        except Exception as e:
+            print(f"错误: {str(e)}", file=sys.stderr)
+            sys.exit(1)
+        EOL
+        
+        # 运行Python脚本获取页面
+        DOWNLOAD_PAGE=$(python3 "$WORK_DIR/get_page.py" "$DOWNLOAD_PAGE_URL")
+        if [ $? -ne 0 ]; then
+          echo "获取页面失败"
+          exit 1
+        fi
+        
+        # 解析页面提取Android版本信息和下载链接
+        echo "解析页面提取Android版本信息..."
+        cat > "$WORK_DIR/parse_android.py" <<EOL
+        import sys
+        import re
+        import json
+        from bs4 import BeautifulSoup
+        
+        html_content = sys.argv[1]
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # 查找Android下载项
+        android_items = soup.find_all(attrs={"data-type": "android"})
+        if not android_items:
+            print("错误: 未找到Android下载项", file=sys.stderr)
+            sys.exit(1)
+        
+        android_item = android_items[0]
+        
+        # 提取版本信息
+        version_element = android_item.select_one('.download-item__version')
+        version_text = version_element.get_text().strip() if version_element else ""
+        
+        # 从版本文本中提取版本号
+        version_match = re.search(r'v?([0-9]+\\.[0-9]+\\.[0-9]+)', version_text)
+        if version_match:
+            version = version_match.group(1)
+        else:
+            # 如果没有找到版本号，尝试从JavaScript数据中获取
+            script_tags = soup.find_all('script')
+            for script in script_tags:
+                if script.string and 'android' in script.string.lower():
+                    # 查找版本信息模式
+                    version_matches = re.findall(r'version[\\s:=]+["\']?([0-9]+\\.[0-9]+\\.[0-9]+)["\']?', script.string, re.IGNORECASE)
+                    if version_matches:
+                        version = version_matches[0]
+                        break
+            else:
+                version = "unknown"
+        
+        # 查找JavaScript中的下载链接
+        download_link = None
+        
+        # 方法1: 查找包含下载链接的JavaScript代码
+        for script in soup.find_all('script'):
+            if script.string:
+                # 查找常见的下载链接模式
+                patterns = [
+                    r'https://[^"\']*BaoMiHua[^"\']*\\.apk[^"\']*',
+                    r'https://[^"\']*netease[^"\']*\\.apk[^"\']*',
+                    r'https://[^"\']*gdl\\.netease[^"\']*\\.apk[^"\']*',
+                    r'https://[^"\']*filmly[^"\']*\\.apk[^"\']*'
+                ]
+                for pattern in patterns:
+                    matches = re.findall(pattern, script.string)
+                    if matches:
+                        # 优先选择包含BaoMiHua的链接
+                        for match in matches:
+                            if 'BaoMiHua' in match:
+                                download_link = match
+                                break
+                        if not download_link:
+                            download_link = matches[0]
+                        break
+                if download_link:
+                    break
+        
+        # 方法2: 查找可能包含下载信息的data属性
+        if not download_link:
+            data_links = soup.find_all(attrs={"data-download-url": True})
+            for link in data_links:
+                if 'android' in str(link).lower():
+                    download_link = link.get('data-download-url')
+                    break
+        
+        # 方法3: 查找模态框中的下载链接
+        if not download_link:
+            popup_elements = soup.find_all(class_='filmly-popup')
+            for popup in popup_elements:
+                android_download = popup.select_one('.androiddownload')
+                if android_download:
+                    onclick_attr = android_download.get('onclick')
+                    if onclick_attr:
+                        # 从onclick中提取URL
+                        url_match = re.search(r"window\\.open\\('([^']+)'\\)", onclick_attr)
+                        if url_match:
+                            download_link = url_match.group(1)
+                            break
+                        # 其他可能的onclick模式
+                        url_match = re.search(r"location\\.href=['\"]([^'\"]+)['\"]", onclick_attr)
+                        if url_match:
+                            download_link = url_match.group(1)
+                            break
+                    href_attr = android_download.get('href')
+                    if href_attr and href_attr.startswith('http'):
+                        download_link = href_attr
+                        break
+        
+        # 方法4: 从外部JavaScript文件获取
+        if not download_link:
+            # 查找页面引用的JavaScript文件
+            js_files = []
+            for script in soup.find_all('script'):
+                src = script.get('src')
+                if src and ('download' in src or 'filmly' in src):
+                    js_files.append(src)
+            
+            # 可以在这里添加下载和分析JS文件的逻辑
+            # 但由于复杂度，暂时跳过
+        
+        if not download_link:
+            print("错误: 无法从页面中找到APK下载链接", file=sys.stderr)
+            sys.exit(1)
+        
+        result = {
+            "version": version,
+            "download_url": download_link
+        }
+        
+        print(json.dumps(result))
+        EOL
+        
+        # 运行解析脚本
+        ANDROID_INFO=$(python3 "$WORK_DIR/parse_android.py" "$DOWNLOAD_PAGE")
+        if [ $? -ne 0 ]; then
+          echo "解析Android信息失败"
+          exit 1
+        fi
+        
+        # 提取版本和下载链接
+        VERSION=$(echo "$ANDROID_INFO" | jq -r '.version')
+        APK_LINK=$(echo "$ANDROID_INFO" | jq -r '.download_url')
+        
+        echo "提取到版本号: $VERSION"
+        echo "提取到APK链接: $APK_LINK"
+        
+        if [ "$VERSION" = "unknown" ]; then
+          VERSION=$(date +%Y%m%d%H%M)
+          echo "警告: 使用日期作为版本号: $VERSION"
+        fi
+        
+        # 获取当前日期（北京时间）
+        CURRENT_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
+        echo "当前日期: $CURRENT_DATE"
+
+        # 读取版本文件
+        VERSION_FILE="version.txt"
+        if [ -f "$VERSION_FILE" ]; then
+          CURRENT_VERSION_JSON=$(cat "$VERSION_FILE")
+        else
+          CURRENT_VERSION_JSON="{}"
+        fi
+
+        # 获取当前版本值
+        CURRENT_VALUE=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$APK_NAME\"")
+        CURRENT_VERSION=""
+        if [ "$CURRENT_VALUE" != "null" ] && [ -n "$CURRENT_VALUE" ]; then
+          IFS=',' read -ra parts <<< "$CURRENT_VALUE"
+          CURRENT_VERSION="${parts[0]}"
+        fi
+
+        # 移除当前版本号中的v前缀
+        CURRENT_VERSION_NO_V=${CURRENT_VERSION#v}
+
+        echo "当前版本: $CURRENT_VERSION_NO_V"
+        echo "新版本: $VERSION"
+
+        # 检查是否需要更新
+        NEED_UPDATE=false
+
+        if [ "$CURRENT_VALUE" == "null" ] || [ -z "$CURRENT_VALUE" ]; then
+          echo "需要更新: 版本记录不存在"
+          NEED_UPDATE=true
+        
+        elif [ "$VERSION" != "$CURRENT_VERSION_NO_V" ]; then
+          echo "需要更新: 发现新版本 ($CURRENT_VERSION_NO_V → $VERSION)"
+          NEED_UPDATE=true
+        
+        elif [ ! -f "apk/$APK_NAME" ]; then
+          echo "需要更新: APK文件不存在"
+          NEED_UPDATE=true
+        else
+          echo "无需更新: 版本相同且文件存在"
+        fi
+
+        if [ "$NEED_UPDATE" = false ]; then
+          echo "无需更新，退出"
+          exit 0
+        fi
+
+        # 使用cloudscraper下载文件
+        echo "正在下载APK文件..."
+        cat > "$WORK_DIR/download_file.py" <<EOL
+        import cloudscraper
+        import sys
+        
+        scraper = cloudscraper.create_scraper()
+        try:
+            response = scraper.get(sys.argv[1], stream=True)
+            if response.status_code != 200:
+                print(f"错误: 下载失败，状态码 {response.status_code}", file=sys.stderr)
+                sys.exit(1)
+                
+            with open(sys.argv[2], 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            print(f"下载完成")
+            
+        except Exception as e:
+            print(f"下载错误: {str(e)}", file=sys.stderr)
+            sys.exit(1)
+        EOL
+        
+        # 运行下载脚本
+        python3 "$WORK_DIR/download_file.py" "$APK_LINK" "$WORK_DIR/temp.apk"
+        if [ $? -ne 0 ]; then
+          echo "下载APK失败"
+          exit 1
+        fi
+        
+        # 检查文件大小是否合理
+        if [ ! -f "$WORK_DIR/temp.apk" ]; then
+          echo "错误: APK下载失败 - 文件不存在"
+          exit 1
+        fi
+        
+        FILE_SIZE=$(wc -c < "$WORK_DIR/temp.apk")
+        if [ "$FILE_SIZE" -lt 50000000 ]; then
+          echo "错误: 下载的文件大小($FILE_SIZE 字节)过小"
+          exit 1
+        fi
+
+        # 创建apk目录
+        mkdir -p apk
+
+        # 保存当前版本
+        cp "$WORK_DIR/temp.apk" "apk/$APK_NAME"
+        echo "已保存APK文件 (大小: $FILE_SIZE 字节)"
+
+        # 更新版本文件
+        NEW_VALUE="v$VERSION,$CURRENT_DATE"
+        NEW_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq --arg key "$APK_NAME" --arg value "$NEW_VALUE" '.[$key] = $value')
+        echo "$NEW_VERSION_JSON" > "$VERSION_FILE"
+        echo "更新版本文件"
+
+        # 添加文件到Git
+        git add apk/ "$VERSION_FILE"
+
+        # 检查是否有变更
+        if [ -z "$(git status --porcelain)" ]; then
+          echo "没有需要提交的变更"
+          exit 0
+        fi
+
+        # 提交更改
+        git commit -m "更新网易爆米花: v$VERSION ($CURRENT_DATE)"
+        
+        # 推送更改
+        echo "推送更改到远程仓库..."
+        git push origin main
+
+        echo "同步完成! 版本: v$VERSION, 日期: $CURRENT_DATE"
+
+    - name: Release Repository Lock 🔓
+      if: always()
+      run: |
+        # 释放锁
+        LOCK_FILE="$GITHUB_WORKSPACE/.lock/repo-lock"
+        if [ -f "$LOCK_FILE" ]; then
+          rm -f "$LOCK_FILE"
+          echo "锁已释放"
+        else
+          echo "锁文件不存在，无需释放"
+        fi
+
+  cleanup_self:
+    name: Cleanup Self Workflow History
+    runs-on: ubuntu-latest
+    needs: sync
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2.0.6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "BaoMiHua APK Download and Sync"
+          repository: ${{ github.repository }}

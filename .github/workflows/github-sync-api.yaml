@@ -1,0 +1,298 @@
+name: GitHub APK Download and Sync
+
+on:
+  schedule:
+    - cron: '0 */12 * * *'  # 每12小时运行一次
+  workflow_dispatch:        # 允许手动触发
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout current repository
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 1
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl zip unzip
+
+    - name: Download and process GitHub APK
+      env:
+        TARGET_REPO: "${{ github.repository }}"
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ZIP_NAME: "github.zip"
+        VERSION_KEY: "github.zip"
+        APKPURE_URL: "https://d.apkpure.net/b/XAPK/com.github.android?version=latest"
+      run: |
+        # 创建临时工作目录
+        WORK_DIR=$(mktemp -d)
+        echo "创建临时目录: $WORK_DIR"
+        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
+
+        echo "=== 从 APKPure 下载 ==="
+        SOURCE="APKPure"
+        
+        # 设置浏览器级请求头
+        UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        
+        # 1. 先发送 HEAD 请求获取最终重定向地址、文件名和 Content-Length
+        echo "正在获取 APKPure 下载信息..."
+        HEAD_RESPONSE=$(curl -sI -L -H "User-Agent: $UA" "$APKPURE_URL")
+        
+        # 提取最终 URL（跟随重定向）
+        FINAL_URL=$(echo "$HEAD_RESPONSE" | grep -i '^location:' | tail -1 | awk '{print $2}' | tr -d '\r')
+        if [ -z "$FINAL_URL" ]; then
+          FINAL_URL="$APKPURE_URL"
+        fi
+        echo "最终下载地址: $FINAL_URL"
+        
+        # 提取 Content-Length（字节）
+        CONTENT_LENGTH=$(echo "$HEAD_RESPONSE" | grep -i '^content-length:' | tail -1 | awk '{print $2}' | tr -d '\r')
+        if [ -n "$CONTENT_LENGTH" ]; then
+          echo "预期文件大小: $((CONTENT_LENGTH/1024/1024)) MB ($CONTENT_LENGTH 字节)"
+        else
+          echo "警告: 无法获取 Content-Length"
+        fi
+        
+        # 提取原始文件名（从 Content-Disposition）
+        ORIG_FILENAME=$(echo "$HEAD_RESPONSE" | grep -i 'content-disposition' | grep -o 'filename="[^"]*"' | cut -d'"' -f2 || echo "")
+        if [ -z "$ORIG_FILENAME" ]; then
+          ORIG_FILENAME="github.xapk"
+        fi
+        echo "原始文件名: $ORIG_FILENAME"
+        
+        # 2. 执行实际下载（使用相同 Headers）
+        echo "正在从 APKPure 下载..."
+        curl -L -o "$WORK_DIR/$ORIG_FILENAME" \
+             -H "User-Agent: $UA" \
+             -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
+             -H "Accept-Language: en-US,en;q=0.9" \
+             -H "Accept-Encoding: gzip, deflate, br" \
+             -H "Connection: keep-alive" \
+             -H "Upgrade-Insecure-Requests: 1" \
+             -H "Sec-Fetch-Dest: document" \
+             -H "Sec-Fetch-Mode: navigate" \
+             -H "Sec-Fetch-Site: none" \
+             -H "Sec-Fetch-User: ?1" \
+             -H "Cache-Control: max-age=0" \
+             "$FINAL_URL"
+        
+        # 3. 验证下载是否成功
+        if [ ! -f "$WORK_DIR/$ORIG_FILENAME" ]; then
+          echo "错误: 下载文件不存在"
+          exit 1
+        fi
+        
+        ACTUAL_SIZE=$(stat -c%s "$WORK_DIR/$ORIG_FILENAME")
+        echo "实际下载大小: $((ACTUAL_SIZE/1024/1024)) MB ($ACTUAL_SIZE 字节)"
+        
+        # 若 Content-Length 已知且与实际不符，则报错退出
+        if [ -n "$CONTENT_LENGTH" ] && [ "$ACTUAL_SIZE" -ne "$CONTENT_LENGTH" ]; then
+          echo "错误: 下载文件大小不匹配 (预期 $CONTENT_LENGTH, 实际 $ACTUAL_SIZE)"
+          exit 1
+        fi
+        
+        # 4. 从原始文件名提取版本号
+        if [[ "$ORIG_FILENAME" =~ _([0-9]+\.[0-9]+\.[0-9]+)_ ]]; then
+          VERSION="${BASH_REMATCH[1]}"
+        elif [[ "$ORIG_FILENAME" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+          VERSION="${BASH_REMATCH[1]}"
+        else
+          VERSION=$(date +%Y%m%d%H%M)
+          echo "无法从文件名提取版本号，使用时间戳: $VERSION"
+        fi
+        
+        echo "从 $SOURCE 获取的文件: $ORIG_FILENAME"
+        echo "从 $SOURCE 获取的版本号: $VERSION"
+        
+        # 5. 获取当前日期（北京时间）
+        CURRENT_DATE=$(TZ=Asia/Shanghai date +"%Y-%m-%d")
+        echo -e "\n=== 准备上传 ==="
+        echo "来源: $SOURCE"
+        echo "版本号: $VERSION"
+        echo "日期: $CURRENT_DATE"
+        
+        # 6. 将文件压缩为 ZIP（内部保持原始文件名）
+        echo "将文件压缩为ZIP..."
+        zip -j "$WORK_DIR/$ZIP_NAME" "$WORK_DIR/$ORIG_FILENAME"
+        if [ ! -f "$WORK_DIR/$ZIP_NAME" ]; then
+          echo "错误: ZIP文件创建失败"
+          exit 1
+        fi
+        ZIP_SIZE=$(stat -c%s "$WORK_DIR/$ZIP_NAME")
+        echo "已创建ZIP文件: $ZIP_NAME (大小: $((ZIP_SIZE/1024/1024)) MB)"
+
+        # 7. 获取目标仓库当前版本
+        echo "检查目标仓库当前版本..."
+        TARGET_VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
+            "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+        
+        CURRENT_VALUE=""
+        CURRENT_CONTENT=""
+        if [ "$(echo "$TARGET_VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
+          VERSION_CONTENT=$(echo "$TARGET_VERSION_JSON" | jq -r '.content' | base64 -d)
+          CURRENT_CONTENT="$VERSION_CONTENT"
+          CURRENT_VALUE=$(echo "$VERSION_CONTENT" | jq -r ".\"$VERSION_KEY\"")
+          if [ "$CURRENT_VALUE" = "null" ]; then
+            CURRENT_VALUE=""
+          fi
+        fi
+        
+        # 提取当前版本号（如果存在）
+        CURRENT_VERSION=""
+        CURRENT_DATE_OLD=""
+        if [ -n "$CURRENT_VALUE" ] && [[ "$CURRENT_VALUE" == *,* ]]; then
+          CURRENT_VERSION=$(echo "$CURRENT_VALUE" | cut -d, -f1)
+          CURRENT_DATE_OLD=$(echo "$CURRENT_VALUE" | cut -d, -f2)
+        else
+          CURRENT_VERSION="$CURRENT_VALUE"
+        fi
+        
+        # 移除当前版本号可能存在的"v"前缀（用于比较）
+        CURRENT_VERSION_NO_V=${CURRENT_VERSION#v}
+        
+        echo "当前仓库版本: $CURRENT_VERSION (日期: $CURRENT_DATE_OLD)"
+        echo "本次获取版本: $VERSION (日期: $CURRENT_DATE)"
+        
+        # 创建新版本值（在版本号前添加v）
+        NEW_VALUE="v$VERSION,$CURRENT_DATE"
+
+        # 8. 检查是否需要更新
+        NEED_UPDATE=false
+        
+        # 规则1: 版本不同时需要更新
+        if [ "$VERSION" != "$CURRENT_VERSION_NO_V" ]; then
+          echo "发现新版本，需要更新"
+          NEED_UPDATE=true
+        else
+          # 规则2: 版本相同但文件不存在时需要更新
+          echo "版本相同，检查ZIP文件是否存在..."
+          ZIP_EXIST_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: token $TOKEN" \
+              "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
+          
+          if [ "$ZIP_EXIST_RESPONSE" -ne 200 ]; then
+            echo "ZIP文件不存在 (HTTP $ZIP_EXIST_RESPONSE)，需要上传"
+            NEED_UPDATE=true
+          else
+            echo "版本相同且ZIP文件已存在，无需更新"
+          fi
+        fi
+
+        if [ "$NEED_UPDATE" = false ]; then
+          echo "无需更新，退出流程"
+          exit 0
+        fi
+
+        # 9. 更新版本文件
+        echo "更新版本文件..."
+        NEW_VERSION_CONTENT="{}"
+        if [ -n "$CURRENT_CONTENT" ]; then
+          # 更新特定键值，保留其他内容
+          NEW_VERSION_CONTENT=$(echo "$CURRENT_CONTENT" | jq --arg key "$VERSION_KEY" --arg value "$NEW_VALUE" '.[$key] = $value')
+        else
+          # 如果无版本文件，创建新JSON
+          NEW_VERSION_CONTENT=$(jq -n --arg key "$VERSION_KEY" --arg value "$NEW_VALUE" '{($key): $value}')
+        fi
+
+        echo "新版本文件内容:"
+        echo "$NEW_VERSION_CONTENT"
+
+        # 获取版本文件的SHA（用于更新）
+        VERSION_JSON=$(curl -s -H "Authorization: token $TOKEN" \
+                        "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+
+        SHA_VERSION=""
+        if [ "$(echo "$VERSION_JSON" | jq -r '.message')" != "Not Found" ]; then
+          SHA_VERSION=$(echo "$VERSION_JSON" | jq -r '.sha')
+        fi
+
+        # Base64编码版本文件
+        VERSION_BASE64=$(echo -n "$NEW_VERSION_CONTENT" | base64 -w0)
+
+        # 创建JSON请求
+        JSON_VERSION=$(jq -n \
+            --arg msg "更新GitHub APK (来源: $SOURCE): v$VERSION ($CURRENT_DATE)" \
+            --arg content "$VERSION_BASE64" \
+            --arg sha "$SHA_VERSION" \
+            '{message: $msg, content: $content, sha: $sha}')
+
+        # 上传版本文件
+        echo "上传版本文件..."
+        VERSION_RESPONSE=$(curl -s \
+                  -X PUT \
+                  -H "Authorization: token $TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$JSON_VERSION" \
+                  "https://api.github.com/repos/$TARGET_REPO/contents/version.txt")
+
+        # 检查错误
+        ERROR_MESSAGE_VERSION=$(echo "$VERSION_RESPONSE" | jq -r '.message')
+        if [ "$ERROR_MESSAGE_VERSION" != "null" ]; then
+          echo "错误: 版本文件上传失败 - $ERROR_MESSAGE_VERSION"
+          exit 1
+        fi
+
+        # 10. 上传ZIP文件
+        echo "上传ZIP文件..."
+        ZIP_JSON=$(curl -s -H "Authorization: token $TOKEN" \
+                    "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
+        
+        SHA_ZIP=""
+        if [ "$(echo "$ZIP_JSON" | jq -r '.message')" != "Not Found" ]; then
+          SHA_ZIP=$(echo "$ZIP_JSON" | jq -r '.sha')
+        fi
+
+        # 创建JSON请求文件（处理大文件）
+        JSON_FILE="$WORK_DIR/request.json"
+        {
+          echo '{'
+          echo "  \"message\": \"更新GitHub APK (来源: $SOURCE): v$VERSION ($CURRENT_DATE)\","
+          echo -n '  "content": "'
+          base64 -w0 "$WORK_DIR/$ZIP_NAME" | tr -d '\n'
+          echo '",'
+          echo "  \"sha\": \"$SHA_ZIP\""
+          echo '}'
+        } > "$JSON_FILE"
+
+        # 上传ZIP文件
+        ZIP_RESPONSE=$(curl -s \
+                  -X PUT \
+                  -H "Authorization: token $TOKEN" \
+                  -H "Content-Type: application/json" \
+                  --data-binary "@$JSON_FILE" \
+                  "https://api.github.com/repos/$TARGET_REPO/contents/apk/$ZIP_NAME")
+
+        # 检查错误
+        ERROR_MESSAGE_ZIP=$(echo "$ZIP_RESPONSE" | jq -r '.message')
+        if [ "$ERROR_MESSAGE_ZIP" != "null" ]; then
+          echo "错误: ZIP文件上传失败 - $ERROR_MESSAGE_ZIP"
+          exit 1
+        fi
+
+        echo "同步完成! 新版本: v$VERSION, 日期: $CURRENT_DATE, 来源: $SOURCE"
+
+  cleanup_self:
+    name: Cleanup Self Workflow History
+    runs-on: ubuntu-latest
+    needs: sync
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "GitHub APK Download and Sync"
+          repository: ${{ github.repository }}

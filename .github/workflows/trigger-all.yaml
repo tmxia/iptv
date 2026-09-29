@@ -1,0 +1,94 @@
+name: Trigger All Workflows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  trigger-workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger other workflows
+        uses: actions/github-script@v6
+        env:
+          PAT: ${{ secrets.TRIGGER_ALL_PAT }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const githubToken = process.env.PAT;
+            const delayMinutes = 2; // 设置间隔时间为2分钟
+            const currentWorkflowName = 'Trigger All Workflows';
+            
+            // 获取所有工作流
+            const listWorkflows = async () => {
+              const response = await github.rest.actions.listRepoWorkflows({
+                owner,
+                repo
+              });
+              return response.data.workflows;
+            };
+            
+            // 触发单个工作流
+            const triggerWorkflow = async (workflow) => {
+              try {
+                console.log(`Starting workflow: ${workflow.name} (ID: ${workflow.id})`);
+                
+                await github.rest.actions.createWorkflowDispatch({
+                  owner,
+                  repo,
+                  workflow_id: workflow.id,
+                  ref: 'main',
+                  headers: {
+                    authorization: `Bearer ${githubToken}`
+                  }
+                });
+                
+                console.log(`✅ Successfully started workflow: ${workflow.name}`);
+                return true;
+              } catch (error) {
+                console.log(`❌ Failed to start workflow ${workflow.name}: ${error.message}`);
+                return false;
+              }
+            };
+            
+            // 等待函数
+            const wait = (minutes) => {
+              return new Promise(resolve => {
+                console.log(`Waiting for ${minutes} minutes...`);
+                setTimeout(resolve, minutes * 60 * 1000);
+              });
+            };
+            
+            try {
+              // 主执行逻辑
+              const workflows = await listWorkflows();
+              const filteredWorkflows = workflows.filter(w => w.name !== currentWorkflowName);
+              let successCount = 0;
+              let totalCount = filteredWorkflows.length;
+              
+              console.log(`Found ${totalCount} workflows to trigger`);
+              
+              for (let i = 0; i < totalCount; i++) {
+                const workflow = filteredWorkflows[i];
+                
+                // 触发当前工作流
+                const result = await triggerWorkflow(workflow);
+                if (result) successCount++;
+                
+                // 如果不是最后一个工作流，则等待2分钟
+                if (i < totalCount - 1) {
+                  await wait(delayMinutes);
+                }
+              }
+              
+              console.log(`Triggered ${successCount}/${totalCount} workflows`);
+              
+              if (successCount < totalCount) {
+                core.setFailed(`Failed to trigger ${totalCount - successCount} workflows`);
+              } else {
+                console.log('✅ All workflows triggered successfully');
+              }
+              
+            } catch (error) {
+              console.log(`Main execution error: ${error.message}`);
+              core.setFailed(`Workflow trigger failed: ${error.message}`);
+            }
