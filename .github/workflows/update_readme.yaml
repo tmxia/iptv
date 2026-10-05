@@ -1,0 +1,215 @@
+name: Real-time README Updater
+
+on:
+  push:
+    paths:
+      - 'version.txt'
+      - 'apk/**'
+      - 'kernel_versions.json'
+      - 'kernels/**'
+  workflow_run:
+    workflows: ["NagramX Sync from Source Repository", "BV APK Sync from Source Repository", "GitHub XAPK Download and Sync", "Karing Beta Sync from Source Repository", "MYTV APK Sync from Source Repository", "OK PRO APK Sync from TELEGRAM", "OK APK Sync from TELEGRAM", "OK APK Sync from Source Repository", "OK PRO APK Sync from Source Repository", "Proxypin Sync from Source Repository", "Simple_live APK Sync from Source Repository", "OpenWrt Kernel Sync from TELEGRAM", "ServerBox Sync from Source Repository", "TV APK Sync from TELEGRAM", "TV NEW APK Sync from TELEGRAM", "Hiddify APK Sync from Source Repository", "Termux APK Sync from Source Repository", "Passwall Packages Sync from Source Repository",  "Plus APK Download and Sync", "TAuxiliary APK Sync from TELEGRAM", "PLUS MODZ APK Sync from TELEGRAM", "YYKM TV APK Sync from TELEGRAM", "YouTube APK Sync from Source Repository"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.REPO_PAT }}
+
+      - name: 获取最新变更
+        run: git pull origin ${{ github.ref_name }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc jq
+
+      - name: Validate version files
+        id: validate-versions
+        run: |
+          # 检查APK版本文件
+          if [ ! -f version.txt ]; then
+            echo "::warning::version.txt not found"
+          else
+            if ! jq empty version.txt 2>/dev/null; then
+              echo "::error::Invalid JSON in version.txt"
+              exit 1
+            fi
+          fi
+          
+          # 检查内核版本文件
+          if [ ! -f kernel_versions.json ]; then
+            echo "::warning::kernel_versions.json not found"
+          else
+            if ! jq empty kernel_versions.json 2>/dev/null; then
+              echo "::error::Invalid JSON in kernel_versions.json"
+              exit 1
+            fi
+          fi
+          
+          # 检查是否需要更新APK部分
+          if [ -f version.txt ] && [ $(jq -e 'length > 0' version.txt) = "true" ]; then
+            echo "update_apk=true" >> $GITHUB_OUTPUT
+          else
+            echo "update_apk=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # 检查是否需要更新内核部分
+          if [ -f kernel_versions.json ] && [ $(jq -e 'length > 0' kernel_versions.json) = "true" ]; then
+            echo "update_kernel=true" >> $GITHUB_OUTPUT
+          else
+            echo "update_kernel=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate new README
+        run: |
+          # 设置基础URL
+          REPO="${{ github.repository }}"
+          BRANCH="${{ github.ref_name }}"
+          APK_BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/apk/"
+          KERNEL_BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/kernels/"
+          
+          # 初始化README内容
+          {
+            echo "# 应用版本列表"
+            echo ""
+            echo "最后更新: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S') (北京时间)"
+            echo ""
+            
+            # 生成应用表格
+            if ${{ steps.validate-versions.outputs.update_apk }} == 'true'; then
+              echo "## 应用"
+              echo ""
+              echo "| 文件名称 | 文件大小(M) | 版本号 | 更新日期 |"
+              echo "|----------|------------|--------|----------|"
+              
+              # 按更新日期降序排列
+              jq -r 'to_entries | sort_by(.value | split(",")[1]) | reverse | .[] | .key' version.txt | while read -r key; do
+                # 获取版本信息
+                value=$(jq -r ".\"$key\"" version.txt)
+                version=$(echo "$value" | cut -d, -f1)
+                date=$(echo "$value" | cut -d, -f2)
+                
+                # 获取文件大小（MB）
+                file_path="apk/$key"
+                if [ -f "$file_path" ]; then
+                  file_bytes=$(stat -c%s "$file_path")
+                  file_size=$(echo "scale=2; $file_bytes / (1024*1024)" | bc)
+                else
+                  file_size="N/A"
+                fi
+                
+                # 使用纯文本显示文件名，下方添加下载链接
+                echo "| <div>$key</div><div><small>[下载](${APK_BASE_URL}${key})</small></div> | $file_size | $version | $date |"
+              done
+            else
+              echo "> 暂无应用版本信息"
+            fi
+            
+            # 添加内核部分
+            echo ""
+            echo "---"
+            echo ""
+            echo "# OpenWrt内核列表"
+            echo ""
+            
+            if ${{ steps.validate-versions.outputs.update_kernel }} == 'true'; then
+              echo "## 内核"
+              echo ""
+              echo "| 内核名称 | 文件大小(M) | 版本号 | 更新日期 |"
+              echo "|----------|------------|--------|----------|"
+              
+              # 处理内核版本 - 按更新日期降序排列
+              jq -r 'to_entries | sort_by(.value.date) | reverse | .[] | .key' kernel_versions.json | while read -r kernel_key; do
+                # 获取版本信息
+                version=$(jq -r ".\"$kernel_key\".version" kernel_versions.json)
+                date=$(jq -r ".\"$kernel_key\".date" kernel_versions.json)
+                
+                # 构建实际文件名
+                file_name="${kernel_key}_${version}.zip"
+                
+                # 获取文件大小（MB）
+                file_path="kernels/$file_name"
+                if [ -f "$file_path" ]; then
+                  file_bytes=$(stat -c%s "$file_path")
+                  file_size=$(echo "scale=2; $file_bytes / (1024*1024)" | bc)
+                else
+                  file_size="N/A"
+                fi
+                
+                # 美化内核名称
+                kernel_name=$(echo "$kernel_key" | sed 's/openwrt_flippy//; s/6\.1/6.1/; s/6\.6/6.6/; s/6\.12/6.12/')
+                kernel_name="OpenWrt $kernel_name"
+                
+                # 使用纯文本显示文件名，下方添加下载链接
+                echo "| <div>$kernel_name</div><div><small>[下载](${KERNEL_BASE_URL}${file_name})</small></div> | $file_size | $version | $date |"
+              done
+            else
+              echo "> 暂无内核版本信息"
+            fi
+            
+          } > README.md
+          
+          echo "Generated new README.md with APK and Kernel tables (sorted by date)"
+
+      - name: 提交更改
+        run: |
+          # 检查是否有需要提交的更改
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add README.md
+          
+          # 使用 [skip actions] 避免触发其他工作流
+          git commit -m "📚 自动更新版本表格 [skip actions]"
+          
+          # 使用 PAT 令牌推送
+          git push "https://${{ github.actor }}:${{ secrets.REPO_PAT }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
+
+      - name: Simple verification
+        run: |
+          # 简单验证README是否包含关键内容
+          if grep -q "应用版本列表" README.md && \
+             grep -q "OpenWrt内核列表" README.md; then
+            echo "✅ README更新成功"
+          else
+            echo "::error::README更新失败"
+            cat README.md
+            exit 1
+          fi
+
+  cleanup_self:
+    name: Cleanup Workflow History
+    runs-on: ubuntu-latest
+    needs: [update-readme]
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "Real-time README Updater"
+          repository: ${{ github.repository }}

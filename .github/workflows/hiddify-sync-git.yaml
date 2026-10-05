@@ -1,0 +1,289 @@
+name: Hiddify APK Sync from Source Repository
+
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  #schedule:
+    #- cron: '0 */48 * * *'  # 每48小时运行一次
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    # 基于缓存的锁机制
+    - name: Acquire Repository Lock 🔒
+      uses: softprops/turnstyle@v3
+      with:
+        same-branch-only: true
+        poll-interval-seconds: 30
+        abort-after-seconds: 1200  # 20分钟超时
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 1
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl
+        
+    - name: Run APK sync
+      env:
+        SOURCE_REPO: "hiddify/hiddify-app"
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        STABLE_KEY_NAME: "hiddify.apk"
+        PRE_RELEASE_KEY_NAME: "hiddify-beta.apk"
+        APK_PATTERN: "Android-arm64.apk"
+      run: |
+        #!/bin/bash
+        set -euo pipefail
+        
+        # 配置Git
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@users.noreply.github.com"
+        git pull origin main --rebase
+        
+        # 创建临时工作目录
+        WORK_DIR=$(mktemp -d)
+        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
+        
+        # 1. 获取源仓库发布信息
+        echo "获取源仓库发布信息..."
+        releases=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
+        
+        # 提取稳定版信息
+        stable_release=$(echo "$releases" | jq -r '[.[] | select(.prerelease == false)] | sort_by(.published_at) | reverse | .[0]')
+        stable_version=$(echo "$stable_release" | jq -r '.tag_name')
+        stable_date=$(echo "$stable_release" | jq -r '.published_at' | TZ=UTC date -f - +'%Y-%m-%d')
+        echo "稳定版: $stable_version ($stable_date)"
+        
+        # 提取预发行版信息
+        pre_release=$(echo "$releases" | jq -r '[.[] | select(.prerelease == true)] | sort_by(.published_at) | reverse | .[0]')
+        if [ "$pre_release" = "null" ]; then
+          echo "无预发行版可用"
+          sync_pre_release=false
+        else
+          pre_version=$(echo "$pre_release" | jq -r '.tag_name')
+          pre_date=$(echo "$pre_release" | jq -r '.published_at' | TZ=UTC date -f - +'%Y-%m-%d')
+          echo "预发行版: $pre_version ($pre_date)"
+          sync_pre_release=true
+        fi
+        
+        # 2. 读取本地版本文件
+        echo "读取本地版本文件..."
+        VERSION_FILE="version.txt"
+        if [ -f "$VERSION_FILE" ]; then
+          current_versions=$(jq -c . "$VERSION_FILE")
+          echo "当前版本信息:"
+          # 只显示相关的键值
+          echo "$current_versions" | jq -r ".\"$STABLE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$STABLE_KEY_NAME" '{print key ": " $0}'
+          if [ "$sync_pre_release" = true ]; then
+            echo "$current_versions" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$PRE_RELEASE_KEY_NAME" '{print key ": " $0}'
+          fi
+        else
+          current_versions="{}"
+          echo "无版本文件"
+          echo "$STABLE_KEY_NAME: (未设置)"
+          if [ "$sync_pre_release" = true ]; then
+            echo "$PRE_RELEASE_KEY_NAME: (未设置)"
+          fi
+        fi
+        
+        # 3. 更新版本数据函数
+        update_version_data() {
+          local key=$1
+          local version=$2
+          local date=$3
+          
+          # 仅更新指定键值
+          current_versions=$(echo "$current_versions" | jq \
+            --arg key "$key" \
+            --arg value "$version,$date" \
+            '.[$key] = $value')
+        }
+        
+        # 4. 增强文件存在性检测
+        check_file_exists() {
+          local key_name=$1
+          local target_path="apk/$key_name"
+          
+          # 检查文件是否存在
+          if [ -f "$target_path" ]; then
+            echo "文件存在: $target_path"
+            return 0
+          else
+            echo "文件缺失: $target_path"
+            return 1
+          fi
+        }
+        
+        # 5. 增强版本键值存在性检测
+        check_key_exists() {
+          local key_name=$1
+          
+          # 检查键值是否存在
+          if echo "$current_versions" | jq -e "has(\"$key_name\")" >/dev/null; then
+            echo "版本键值存在: $key_name"
+            return 0
+          else
+            echo "版本键值缺失: $key_name"
+            return 1
+          fi
+        }
+        
+        # 6. 检查并下载APK
+        check_and_download() {
+          local release_json=$1
+          local key_name=$2
+          local main_version=$3
+          local date=$4
+          
+          # 获取目标文件名
+          local target_filename="apk/$key_name"
+          
+          # 检查文件是否存在
+          if ! check_file_exists "$key_name"; then
+            echo "文件缺失，必须更新: $key_name"
+            file_missing=1
+          else
+            file_missing=0
+          fi
+          
+          # 检查键值是否存在
+          if ! check_key_exists "$key_name"; then
+            echo "键值缺失，必须更新: $key_name"
+            key_missing=1
+          else
+            key_missing=0
+          fi
+          
+          # 获取当前版本值
+          local current_value=$(echo "$current_versions" | jq -r ".\"$key_name\" // \"\"")
+          
+          # 确定是否需要更新
+          if [[ $file_missing -eq 1 || $key_missing -eq 1 || "$current_value" != "$main_version,$date" ]]; then
+            # 下载APK
+            download_url=$(echo "$release_json" | jq -r \
+              ".assets[] | select(.name | contains(\"$APK_PATTERN\")) | .browser_download_url" | head -1)
+            
+            if [ -z "$download_url" ]; then
+              echo "错误: 未找到匹配的APK文件: $APK_PATTERN"
+              return 1
+            fi
+            
+            echo "下载: $download_url"
+            curl -sL "$download_url" -o "$WORK_DIR/$key_name"
+            
+            # 更新版本数据
+            update_version_data "$key_name" "$main_version" "$date"
+            
+            # 移动文件到目标目录
+            mkdir -p apk
+            mv "$WORK_DIR/$key_name" "apk/$key_name"
+            return 0
+          else
+            echo "无需更新: $key_name ($current_value)"
+            return 1
+          fi
+        }
+        
+        # 7. 处理稳定版
+        echo "处理稳定版..."
+        if check_and_download "$stable_release" "$STABLE_KEY_NAME" \
+          "$stable_version" "$stable_date"; then
+          stable_updated=true
+        else
+          stable_updated=false
+        fi
+        
+        # 8. 处理预发行版
+        if [ "$sync_pre_release" = true ]; then
+          echo "处理预发行版..."
+          if check_and_download "$pre_release" "$PRE_RELEASE_KEY_NAME" \
+            "$pre_version" "$pre_date"; then
+            beta_updated=true
+          else
+            beta_updated=false
+          fi
+        fi
+        
+        # 9. 更新版本文件
+        if [ "$stable_updated" = true ] || [ "$beta_updated" = true ]; then
+          echo "更新版本文件..."
+          echo "$current_versions" | jq . > "$VERSION_FILE"
+          
+          # 提交更改
+          git add apk/"$STABLE_KEY_NAME"
+          if [ "$sync_pre_release" = true ]; then
+            git add apk/"$PRE_RELEASE_KEY_NAME"
+          fi
+          git add "$VERSION_FILE"
+          
+          commit_msg="更新Hiddify APK"
+          [ "$stable_updated" = true ] && commit_msg+=" 稳定版: $stable_version"
+          [ "$beta_updated" = true ] && commit_msg+=" 测试版: $pre_version"
+          
+          git commit -m "$commit_msg"
+          
+          # 推送更改
+          git push origin main
+        fi
+        
+        # 10. 显示最终当前的版本信息
+        echo "同步完成! 当前版本信息:"
+        # 只显示相应的键值
+        echo "$current_versions" | jq -r ".\"$STABLE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$STABLE_KEY_NAME" '{print key ": " $0}'
+        if [ "$sync_pre_release" = true ]; then
+          echo "$current_versions" | jq -r ".\"$PRE_RELEASE_KEY_NAME\" // \"(未设置)\"" | awk -v key="$PRE_RELEASE_KEY_NAME" '{print key ": " $0}'
+        fi
+
+    # 释放仓库锁
+    - name: Release Repository Lock 🔓
+      if: always()
+      uses: softprops/turnstyle@v3
+      with:
+        continue-on-error: true
+        action: unlock
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const message = `🚨 Hiddify APK同步失败！工作流运行: [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: message
+          })
+
+  cleanup_self:
+    name: Cleanup Self Workflow History
+    runs-on: ubuntu-latest
+    needs: sync
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "Hiddify APK Sync from Source Repository"
+          repository: ${{ github.repository }}

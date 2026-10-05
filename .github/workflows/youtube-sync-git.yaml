@@ -1,0 +1,388 @@
+name: YouTube APK Sync from Source Repository
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # 每6小时运行一次
+  workflow_dispatch:
+
+# 添加并发控制
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout current repository
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 1
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip openjdk-17-jdk
+        
+    - name: Configure Git
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git config pull.rebase false  # 改为merge方式避免冲突
+        
+    - name: Install apktool
+      run: |
+        # 下载并安装apktool
+        wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar -O apktool.jar
+        sudo mv apktool.jar /usr/local/bin/
+        echo '#!/bin/bash' | sudo tee /usr/local/bin/apktool
+        echo 'java -jar /usr/local/bin/apktool.jar "$@"' | sudo tee -a /usr/local/bin/apktool
+        sudo chmod +x /usr/local/bin/apktool
+        
+    - name: Install uber-apk-signer
+      run: |
+        # 下载并安装uber-apk-signer
+        wget -q https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar -O uber-apk-signer.jar
+        sudo mv uber-apk-signer.jar /usr/local/bin/
+        
+    - name: Generate signing key
+      run: |
+        # 生成用于签名的密钥
+        keytool -genkey -v -keystore debug.keystore \
+          -alias androiddebugkey \
+          -storepass android \
+          -keypass android \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -dname "CN=Android Debug,O=Android,C=US"
+        
+    - name: Run sync script
+      env:
+        SOURCE_REPO: "NoName-exe/revanced"
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        YOUTUBE_PATTERN: "youtube-revanced-v"
+        YOUTUBE_MUSIC_PATTERN: "youtube-music-revanced-v"
+        YOUTUBE_TARGET_NAME: "youtube.apk"
+        YOUTUBE_MUSIC_TARGET_NAME: "youtube-music.apk"
+      run: |
+        # 目标文件路径
+        YOUTUBE_TARGET_PATH="apk/$YOUTUBE_TARGET_NAME"
+        YOUTUBE_MUSIC_TARGET_PATH="apk/$YOUTUBE_MUSIC_TARGET_NAME"
+        
+        # 创建临时工作目录
+        WORK_DIR=$(mktemp -d)
+        echo "创建临时目录: $WORK_DIR"
+        trap 'rm -rf "$WORK_DIR"; echo "清理临时目录..."' EXIT
+
+        # 首先确保工作区干净并同步到最新
+        echo "同步到远程最新版本..."
+        git fetch origin
+        git reset --hard origin/${{ github.ref_name }}
+        
+        # 确保apk目录存在
+        mkdir -p apk
+
+        # 获取所有发布版
+        echo "获取发布版本信息..."
+        RELEASES_JSON=$(curl -sL "https://api.github.com/repos/$SOURCE_REPO/releases")
+        if [ $? -ne 0 ]; then
+          echo "错误: 无法获取发布信息"
+          exit 1
+        fi
+
+        # 提取最新稳定版（只考虑非预发布版本）
+        LATEST_STABLE_RELEASE=$(echo "$RELEASES_JSON" | jq -r 'map(select(.prerelease == false)) | sort_by(.published_at) | reverse | .[0]')
+
+        # 检查是否找到有效的发布
+        if [ -z "$LATEST_STABLE_RELEASE" ] || [ "$LATEST_STABLE_RELEASE" = "null" ]; then
+          echo "错误: 未找到任何有效的稳定发布版本"
+          exit 1
+        fi
+
+        SELECTED_TAG=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.tag_name')
+        SELECTED_PUBLISHED_AT=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.published_at')
+        RELEASE_DATE=$(TZ=UTC date -d "$SELECTED_PUBLISHED_AT" +'%Y-%m-%d')
+        
+        echo "选择的发布标签: $SELECTED_TAG (发布于: $RELEASE_DATE)"
+
+        # 检查本地版本文件
+        if [ ! -f "version.txt" ]; then
+          echo "{}" > version.txt
+        fi
+        
+        # 读取当前版本信息
+        CURRENT_VERSION_JSON=$(cat version.txt)
+        
+        # 解析当前版本和日期
+        CURRENT_YOUTUBE_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$YOUTUBE_TARGET_NAME\"")
+        CURRENT_YOUTUBE_MUSIC_FULL=$(echo "$CURRENT_VERSION_JSON" | jq -r ".\"$YOUTUBE_MUSIC_TARGET_NAME\"")
+        
+        # 分离版本和日期
+        CURRENT_YOUTUBE_VERSION=""
+        CURRENT_YOUTUBE_DATE=""
+        if [ "$CURRENT_YOUTUBE_FULL" != "null" ] && [[ "$CURRENT_YOUTUBE_FULL" == *,* ]]; then
+          CURRENT_YOUTUBE_VERSION=$(echo "$CURRENT_YOUTUBE_FULL" | cut -d, -f1)
+          CURRENT_YOUTUBE_DATE=$(echo "$CURRENT_YOUTUBE_FULL" | cut -d, -f2)
+        fi
+        
+        CURRENT_YOUTUBE_MUSIC_VERSION=""
+        CURRENT_YOUTUBE_MUSIC_DATE=""
+        if [ "$CURRENT_YOUTUBE_MUSIC_FULL" != "null" ] && [[ "$CURRENT_YOUTUBE_MUSIC_FULL" == *,* ]]; then
+          CURRENT_YOUTUBE_MUSIC_VERSION=$(echo "$CURRENT_YOUTUBE_MUSIC_FULL" | cut -d, -f1)
+          CURRENT_YOUTUBE_MUSIC_DATE=$(echo "$CURRENT_YOUTUBE_MUSIC_FULL" | cut -d, -f2)
+        fi
+        
+        echo "当前YouTube版本: ${CURRENT_YOUTUBE_VERSION:-无} (日期: ${CURRENT_YOUTUBE_DATE:-无})"
+        echo "当前YouTube Music版本: ${CURRENT_YOUTUBE_MUSIC_VERSION:-无} (日期: ${CURRENT_YOUTUBE_MUSIC_DATE:-无})"
+
+        # 下载新版本文件
+        echo "下载新版本文件..."
+        
+        # 查找YouTube APK文件 - 精确匹配all架构
+        youtube_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | test("youtube-revanced-v[0-9.]+-all\\.apk$")) | .browser_download_url' | head -1)
+        if [ -z "$youtube_download_url" ]; then
+          echo "错误: 未找到匹配的YouTube APK文件"
+          exit 1
+        fi
+        
+        # 查找YouTube Music APK文件 - 精确匹配arm64-v8a架构
+        youtube_music_download_url=$(echo "$LATEST_STABLE_RELEASE" | jq -r '.assets[] | select(.name | test("youtube-music-revanced-v[0-9.]+-arm64-v8a\\.apk$")) | .browser_download_url' | head -1)
+        if [ -z "$youtube_music_download_url" ]; then
+          echo "错误: 未找到匹配的YouTube Music APK文件"
+          exit 1
+        fi
+        
+        # 从文件名中提取版本号（包含v前缀）
+        youtube_source_name=$(basename "$youtube_download_url")
+        youtube_music_source_name=$(basename "$youtube_music_download_url")
+        
+        # 提取YouTube版本号
+        YOUTUBE_VERSION=$(echo "$youtube_source_name" | sed -n 's/.*youtube-revanced-\(v[0-9.]*\)-all\.apk/\1/p')
+        # 提取YouTube Music版本号
+        YOUTUBE_MUSIC_VERSION=$(echo "$youtube_music_source_name" | sed -n 's/.*youtube-music-revanced-\(v[0-9.]*\)-arm64-v8a\.apk/\1/p')
+        
+        if [ -z "$YOUTUBE_VERSION" ]; then
+          echo "错误: 无法从YouTube文件名提取版本号"
+          exit 1
+        fi
+        
+        if [ -z "$YOUTUBE_MUSIC_VERSION" ]; then
+          echo "错误: 无法从YouTube Music文件名提取版本号"
+          exit 1
+        fi
+        
+        echo "提取的YouTube版本: $YOUTUBE_VERSION"
+        echo "提取的YouTube Music版本: $YOUTUBE_MUSIC_VERSION"
+        echo "源仓库发布日期: $RELEASE_DATE"
+        
+        # 检查是否需要更新 - 同时比较版本号和发布日期
+        need_update=false
+        
+        # 检查YouTube版本、日期和文件
+        if [ "$YOUTUBE_VERSION" != "$CURRENT_YOUTUBE_VERSION" ] || [ "$RELEASE_DATE" != "$CURRENT_YOUTUBE_DATE" ] || [ ! -f "$YOUTUBE_TARGET_PATH" ]; then
+          echo "YouTube需要更新: 版本不匹配或发布日期不匹配或文件不存在"
+          need_update=true
+        else
+          echo "YouTube已是最新: 版本 $YOUTUBE_VERSION, 日期 $RELEASE_DATE"
+        fi
+        
+        # 检查YouTube Music版本、日期和文件
+        if [ "$YOUTUBE_MUSIC_VERSION" != "$CURRENT_YOUTUBE_MUSIC_VERSION" ] || [ "$RELEASE_DATE" != "$CURRENT_YOUTUBE_MUSIC_DATE" ] || [ ! -f "$YOUTUBE_MUSIC_TARGET_PATH" ]; then
+          echo "YouTube Music需要更新: 版本不匹配或发布日期不匹配或文件不存在"
+          need_update=true
+        else
+          echo "YouTube Music已是最新: 版本 $YOUTUBE_MUSIC_VERSION, 日期 $RELEASE_DATE"
+        fi
+        
+        if [ "$need_update" = false ]; then
+          echo "版本和发布日期均相同且文件存在，无需更新"
+          exit 0
+        fi
+        
+        # 下载YouTube APK到临时文件
+        echo "下载YouTube APK: $youtube_source_name"
+        YOUTUBE_TEMP_PATH="$WORK_DIR/youtube_original.apk"
+        curl -sL -o "$YOUTUBE_TEMP_PATH" "$youtube_download_url"
+        if [ ! -f "$YOUTUBE_TEMP_PATH" ]; then
+          echo "错误: YouTube APK下载失败"
+          exit 1
+        fi
+        
+        # 下载YouTube Music APK到临时文件
+        echo "下载YouTube Music APK: $youtube_music_source_name"
+        YOUTUBE_MUSIC_TEMP_PATH="$WORK_DIR/youtube_music_original.apk"
+        curl -sL -o "$YOUTUBE_MUSIC_TEMP_PATH" "$youtube_music_download_url"
+        if [ ! -f "$YOUTUBE_MUSIC_TEMP_PATH" ]; then
+          echo "错误: YouTube Music APK下载失败"
+          exit 1
+        fi
+        
+        # 使用apktool处理APK文件 - 只删除armeabi-v7a
+        echo "使用apktool处理APK文件 - 只删除armeabi-v7a架构..."
+        
+        # 处理APK函数
+        process_apk_with_apktool() {
+          local input_apk="$1"
+          local output_apk="$2"
+          local apk_name="$3"
+          
+          echo "处理 $apk_name..."
+          
+          # 记录原始大小
+          original_size=$(stat -f%z "$input_apk" 2>/dev/null || stat -c%s "$input_apk")
+          echo "原始大小: $((original_size / 1024 / 1024)) MB"
+          
+          # 创建临时工作目录
+          local extract_dir="$WORK_DIR/${apk_name}_extract"
+          mkdir -p "$extract_dir"
+          
+          # 使用apktool解包
+          echo "解包 $apk_name..."
+          apktool d "$input_apk" -o "$extract_dir" -f
+          if [ $? -ne 0 ]; then
+            echo "错误: apktool解包失败"
+            return 1
+          fi
+          
+          # 检查并删除armeabi-v7a目录（仅此一项精简）
+          local armeabi_v7a_path="$extract_dir/lib/armeabi-v7a"
+          if [ -d "$armeabi_v7a_path" ]; then
+            echo "删除 armeabi-v7a 架构库..."
+            rm -rf "$armeabi_v7a_path"
+            echo "armeabi-v7a 目录已删除"
+          else
+            echo "未找到 armeabi-v7a 目录，无需处理"
+          fi
+          
+          # 使用apktool重新打包
+          echo "重新打包 $apk_name..."
+          apktool b "$extract_dir" -o "$WORK_DIR/${apk_name}_unsigned.apk"
+          if [ $? -ne 0 ]; then
+            echo "错误: apktool打包失败"
+            return 1
+          fi
+          
+          # 使用uber-apk-signer签名APK
+          echo "签名 $apk_name..."
+          java -jar /usr/local/bin/uber-apk-signer.jar \
+            --apks "$WORK_DIR/${apk_name}_unsigned.apk" \
+            --out "$WORK_DIR" \
+            --ks debug.keystore \
+            --ksAlias androiddebugkey \
+            --ksPass android \
+            --ksKeyPass android
+          
+          if [ $? -ne 0 ]; then
+            echo "错误: APK签名失败"
+            return 1
+          fi
+          
+          # uber-apk-signer输出的文件名（根据实际日志调整）
+          local signed_apk_path="$WORK_DIR/${apk_name}_unsigned-aligned-signed.apk"
+          if [ ! -f "$signed_apk_path" ]; then
+            echo "错误: 签名后的APK文件不存在: $signed_apk_path"
+            echo "检查WORK_DIR中的文件:"
+            ls -la "$WORK_DIR" | grep "$apk_name" || echo "未找到相关文件"
+            return 1
+          fi
+          
+          # 移动签名后的文件到目标位置
+          mv "$signed_apk_path" "$output_apk"
+          echo "签名完成，文件已重命名为: $(basename "$output_apk")"
+          
+          # 比较文件大小
+          processed_size=$(stat -f%z "$output_apk" 2>/dev/null || stat -c%s "$output_apk")
+          reduction=$((original_size - processed_size))
+          
+          echo "APK处理完成:"
+          echo "  原始大小: $((original_size / 1024 / 1024)) MB"
+          echo "  处理后大小: $((processed_size / 1024 / 1024)) MB"
+          echo "  减小了: $((reduction / 1024 / 1024)) MB"
+          
+          # 检查文件大小是否超过100MB
+          if [ $processed_size -gt $((100 * 1024 * 1024)) ]; then
+            echo "警告: 处理后的 $apk_name 仍然超过100MB ($((processed_size / 1024 / 1024)) MB)"
+            echo "注意: 按照要求，只删除了armeabi-v7a，未进行其他精简"
+          else
+            echo "✓ $apk_name 文件大小符合要求 (<100MB)"
+          fi
+          
+          # 清理临时目录
+          rm -rf "$extract_dir"
+          rm -f "$WORK_DIR/${apk_name}_unsigned.apk" 2>/dev/null || true
+          
+          return 0
+        }
+        
+        # 处理YouTube APK
+        process_apk_with_apktool "$YOUTUBE_TEMP_PATH" "$YOUTUBE_TARGET_PATH" "youtube"
+        
+        # 处理YouTube Music APK
+        process_apk_with_apktool "$YOUTUBE_MUSIC_TEMP_PATH" "$YOUTUBE_MUSIC_TARGET_PATH" "youtube_music"
+        
+        echo "文件已保存到: $YOUTUBE_TARGET_PATH 和 $YOUTUBE_MUSIC_TARGET_PATH"
+
+        # 更新版本文件（保留其他键值，添加日期）
+        UPDATED_VERSION_JSON=$(echo "$CURRENT_VERSION_JSON" | jq \
+          --arg youtube_key "$YOUTUBE_TARGET_NAME" \
+          --arg youtube_value "$YOUTUBE_VERSION,$RELEASE_DATE" \
+          --arg youtube_music_key "$YOUTUBE_MUSIC_TARGET_NAME" \
+          --arg youtube_music_value "$YOUTUBE_MUSIC_VERSION,$RELEASE_DATE" \
+          '.[$youtube_key] = $youtube_value | .[$youtube_music_key] = $youtube_music_value')
+          
+        echo "$UPDATED_VERSION_JSON" > version.txt
+
+        # 添加所有更改
+        git add apk/ version.txt
+        
+        # 检查是否有更改
+        if git diff-index --quiet HEAD --; then
+          echo "没有需要提交的更改"
+          exit 0
+        fi
+
+        # 提交更改
+        git commit -m "更新YouTube ReVanced: YouTube $YOUTUBE_VERSION, Music $YOUTUBE_MUSIC_VERSION (发布日期: $RELEASE_DATE) [仅删除armeabi-v7a]"
+        
+        # 推送到远程仓库
+        echo "推送到远程仓库..."
+        git remote set-url origin https://x-access-token:$TOKEN@github.com/${{ github.repository }}.git
+        
+        # 使用强制推送以避免冲突
+        echo "执行强制推送..."
+        git push -f origin HEAD:${{ github.ref }}
+        
+        if [ $? -eq 0 ]; then
+          echo "推送成功"
+        else
+          echo "错误: 推送失败"
+          exit 1
+        fi
+
+        echo "同步完成! 状态: 成功"
+        echo "YouTube文件: $YOUTUBE_TARGET_PATH ($YOUTUBE_VERSION, $RELEASE_DATE)"
+        echo "YouTube Music文件: $YOUTUBE_MUSIC_TARGET_PATH ($YOUTUBE_MUSIC_VERSION, $RELEASE_DATE)"
+        exit 0
+
+  cleanup_self:
+    name: Cleanup Self Workflow History
+    runs-on: ubuntu-latest
+    needs: sync
+    if: ${{ always() }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep_minimum_runs: 0
+          retain_days: 0
+          delete_workflow_pattern: "YouTube APK Sync from Source Repository"
+          repository: ${{ github.repository }}
