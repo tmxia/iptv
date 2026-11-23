@@ -1,12 +1,12 @@
 # 应用版本列表
 
-最后更新: 2026-11-23 14:25:09 (北京时间)
+最后更新: 2026-11-23 14:37:29 (北京时间)
 
 ## 应用
 
 | 文件名称 | 文件大小(M) | 版本号 | 更新日期 |
 |----------|------------|--------|----------|
-| <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.33 | v3.0.0.243 | 2026-11-21 |
+| <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.33 | v3.0.0.244 | 2026-11-23 |
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 17.18 | v1.285.0 | 2026-11-20 |
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 71.54 | v1.2.26.2934 | 2026-11-19 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 58.06 | v1.2.26.2934 | 2026-11-19 |
