@@ -1,6 +1,6 @@
 # 应用版本列表
 
-最后更新: 2026-11-25 18:42:02 (北京时间)
+最后更新: 2026-11-25 19:14:05 (北京时间)
 
 ## 应用
 
@@ -8,10 +8,10 @@
 |----------|------------|--------|----------|
 | <div>karing-win.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing-win.zip)</small></div> | 71.61 | v1.2.27.3000 | 2026-11-25 |
 | <div>karing.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/karing.apk)</small></div> | 58.85 | v1.2.27.3000 | 2026-11-25 |
+| <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.33 | v3.0.0.245 | 2026-11-25 |
 | <div>25.12_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/25.12_luci-passwall.zip)</small></div> | .85 | 26.11.23-1 | 2026-11-23 |
 | <div>23.05-24.10_luci-passwall.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/23.05-24.10_luci-passwall.zip)</small></div> | .85 | 26.11.23-1 | 2026-11-23 |
 | <div>serverbox.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/serverbox.apk)</small></div> | 47.09 | v1.0.1962 | 2026-11-23 |
-| <div>mytv-tv-beta.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/mytv-tv-beta.apk)</small></div> | 34.33 | v3.0.0.244 | 2026-11-23 |
 | <div>github.zip</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/github.zip)</small></div> | 17.18 | v1.285.0 | 2026-11-20 |
 | <div>plus_mod.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_mod.apk)</small></div> | 92.21 | v13.2.2.1 | 2026-11-16 |
 | <div>plus_modz.apk</div><div><small>[下载](https://raw.githubusercontent.com/tmxia/iptv/main/apk/plus_modz.apk)</small></div> | 44.83 | vplus_modz-20260912 | 2026-09-12 |
